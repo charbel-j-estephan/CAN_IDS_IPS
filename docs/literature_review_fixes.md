@@ -1,6 +1,7 @@
 # Literature review fixes
 
-Drop in replacements for `docs/literature_review.pdf`. Each fix quotes the
+Drop in replacements for `docs/literature_review.pdf`. All of them are
+already applied in the full LaTeX source, `docs/literature_review.tex`. Each fix quotes the
 current text, gives the replacement, and says why. The replacement text
 follows the review's own style, with no hyphens or dashes.
 
@@ -89,6 +90,11 @@ single digit microseconds.
 The project could not use two of the three tools as the review describes
 them. See the README section "Why not use the upstream repos directly".
 
+The rewrite also states that the model reads only the first five payload
+bytes. The 86 microsecond budget in Section 3.3 only holds for that case. A
+model that reads all eight bytes has 19 bit times left, which is 38
+microseconds at 500 kbit/s. Train with `--payload-bytes 5` to match.
+
 **Current:** the paragraph starting "Three open source tools make this three
 way comparison practical" through "without a separate hand written
 implementation for each one."
@@ -105,7 +111,10 @@ implementation for each one."
 > pipelined voting classifier that accepts one frame per clock. The emlearn
 > library converts the same forest into portable C for the microcontroller
 > [18], after a small adjustment to the split thresholds so that its
-> comparisons match scikit learn exactly. A shared set of test frames confirms
+> comparisons match scikit learn exactly. Following Araujo Filho et al., the
+> model reads only the identifier, the data length, and the first five payload
+> bytes, which keeps the timing budget at the 86 microseconds derived in
+> Section 3.3 [5]. A shared set of test frames confirms
 > that the FPGA logic, the C code, and the Python model return the same class
 > for every frame, so all three builds run exactly one model.
 
