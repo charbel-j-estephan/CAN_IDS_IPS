@@ -30,12 +30,22 @@ def main():
                     help="max tree depth, 0 means unlimited (huge hardware)")
     ap.add_argument("--limit-per-file", type=int, default=0,
                     help="read at most this many frames per file, 0 reads all")
+    ap.add_argument("--payload-bytes", type=int, default=8, choices=range(9),
+                    metavar="N",
+                    help="use only the first N data bytes (0 to 8). Fewer bytes "
+                         "lets the detector decide earlier in the frame, see "
+                         "python/latency.py")
     ap.add_argument("--test-size", type=float, default=0.2)
     ap.add_argument("--out", default="models/can_ids_forest.joblib")
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
 
     X, y = load(args.data, args.limit_per_file or None)
+    if args.payload_bytes < 8:
+        # Zero the unused bytes so no tree can split on them. The hardware
+        # and C ports stay the same, the trees just never read those bytes.
+        X[:, 2 + args.payload_bytes:] = 0
+        print("Using CAN ID, DLC and the first %d data bytes" % args.payload_bytes)
     X_tr, X_te, y_tr, y_te = train_test_split(
         X, y, test_size=args.test_size, stratify=y, random_state=args.seed)
 
@@ -65,6 +75,7 @@ def main():
         "model": model,
         "class_names": names,
         "features": FEATURES,
+        "payload_bytes": args.payload_bytes,
         "X_test": X_te,
         "y_test": y_te,
     }, args.out)
