@@ -155,35 +155,33 @@ reviewer will expect it.
 
 ## Fix 8. Replacement reference entries
 
-These follow the review's reference style. The details come from the PDFs of
-the papers.
+These keep the review's reference format exactly: plain text, no italics, no
+DOIs. The details come from the PDFs of the papers. The DOIs are in
+`REFERENCES.md` if you need them later.
 
 > [3] E. Seo, H. M. Song, and H. K. Kim, GIDS, GAN based intrusion detection
 > system for in vehicle network, in Proceedings of the 16th Annual Conference
-> on Privacy, Security and Trust, 2018, pages 1 to 6, doi
-> 10.1109/PST.2018.8514157.
+> on Privacy, Security and Trust, 2018, pages 1 to 6.
 
 > [7] D. Lee, C. Han, and S. Lee, Hardware design of intrusion detection
 > system for automotive CAN bus using random forest, in Proceedings of the
 > International Conference on Electronics, Information, and Communication,
-> 2023, doi 10.1109/ICEIC57457.2023.10049883.
+> 2023.
 
 > [8] S. Abbott McCune and L. A. Shay, Intrusion prevention system of
 > automotive network CAN bus, in Proceedings of the IEEE International
-> Carnahan Conference on Security Technology, 2016, doi
-> 10.1109/CCST.2016.7815711.
+> Carnahan Conference on Security Technology, 2016.
 
 > [15] W. L. Lambert, S. Ghafoor, and S. Hollifield, Bitrate hopping, an
 > intrusion prevention technique to secure the CAN bus based distributed
 > network, in Proceedings of the 24th International Symposium on Parallel and
-> Distributed Computing, 2025, doi 10.1109/ISPDC67428.2025.00027.
+> Distributed Computing, 2025.
 
-> [18] J. Nordby, emlearn, machine learning inference engine for
-> microcontrollers and embedded devices, Zenodo, 2019, doi
-> 10.5281/zenodo.2589394, github.com/emlearn/emlearn.
+> [18] J. Nordby, emlearn, a library for converting trained scikit learn
+> models, including random forests, into portable C code for microcontrollers,
+> GitHub repository, github.com/emlearn/emlearn.
 
-The [3] DOI comes from the paper's IEEE article number (8514157) and follows
-the same pattern as the others. Open it once to confirm.
+Only [8] and [18] change. [3], [7] and [15] were already right.
 
 ## Checked and correct
 
