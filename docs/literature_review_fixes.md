@@ -88,7 +88,7 @@ single digit microseconds.
 ## Fix 5. Section 4, the three tools paragraph
 
 The project could not use two of the three tools as the review describes
-them. See the README section "Why not use the upstream repos directly".
+them. See "Why not use the upstream repos directly" in [BUILD_GUIDE.md](BUILD_GUIDE.md).
 
 The rewrite also states that the model reads only the first five payload
 bytes. The 86 microsecond budget in Section 3.3 only holds for that case. A

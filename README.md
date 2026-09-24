@@ -1,246 +1,193 @@
-# CAN bus random forest IDS on FPGA and MCU
+# CAN IDS/IPS: one random forest, three hardware builds
 
-One random forest, trained on the HCRL Car Hacking Dataset, built three ways:
+**FPGA based intrusion detection and prevention for CAN bus networks.**
+EEN 527 Embedded System Design, ECCE Department, Faculty of Engineering.
 
-1. **FPGA only**: pipelined Verilog on the DE10 Lite (MAX 10 10M50DAF484C7G)
-2. **MCU only**: emlearn C code on the STM32F407
-3. **Combined**: both together
+A car's CAN bus has no authentication. Any node that reaches it through the
+OBD port, the infotainment unit or a cellular modem can flood it, fuzz it or
+spoof the engine speed. This project trains one random forest on real attack
+traffic and runs that **exact same model** on three platforms, so the
+comparison measures the hardware and nothing else:
 
-Python generates the Verilog and the C from the same trained model. It also
-generates test vectors, so you can prove the FPGA logic, the C code and
-Python give the same class for every frame before you touch hardware.
-
-```
-python/            dataset loader, training, Verilog and C exporters, latency math
-hdl/rf_ids_tb.v    Icarus Verilog testbench
-quartus/           Quartus Prime Lite project for the DE10 Lite
-mcu/host_test.c    runs the C model on your PC against the test vectors
-mcu/stm32/         drop in STM32 code that times each classification
-run_pipeline.sh    train, export, simulate and check in one command
-```
-
-The literature review is in [docs/literature_review.pdf](docs/literature_review.pdf).
-See [REFERENCES.md](REFERENCES.md) for every paper, dataset and tool used.
-
-The three upstream repos from the original plan are git submodules here, for
-reference only. The pipeline does not import them (see "Why not use the
-upstream repos directly" below).
-
-## 1. Get the code
-
-Install [Git](https://git-scm.com) (on Windows keep the installer defaults, it
-gives you Git Bash). Then in Git Bash:
-
-```bash
-cd ~/Desktop
-git clone --recursive https://github.com/charbel-j-estephan/CAN_IDS_IPS.git
-cd CAN_IDS_IPS
-```
-
-`--recursive` also downloads the three submodules. If you already cloned
-without it, run `git submodule update --init`.
-
-## 2. Install the tools
-
-| Tool | What for | Get it |
+| Build | Where the forest runs | Board |
 |---|---|---|
-| Python 3.9+ | training and exporting | python.org, tick "Add Python to PATH" |
-| Python packages | | `pip install -r requirements.txt` |
-| Icarus Verilog + GTKWave | simulate the Verilog | Windows installer from bleyer.org/icarus (includes GTKWave) |
-| Quartus Prime Lite | synthesis and timing | intel.com, pick MAX 10 device support. Several GB, start early |
-| STM32CubeIDE | MCU build | st.com |
-| gcc (optional) | run the C model on your PC | MSYS2 on Windows, already on Linux and macOS |
+| **FPGA only** | Pipelined Verilog, one frame per clock | Terasic DE10 Lite (Intel MAX 10 10M50DAF484C7G) |
+| **MCU only** | emlearn C code | STM32F407 |
+| **Combined** | FPGA taps the bus and decides, MCU logs and sets the bus off policy | Both |
 
-GHDL, suggested in the first draft of this plan, only reads VHDL. It cannot
-simulate the Verilog this project produces, so use Icarus Verilog.
+No prior paper compares these three builds with the model held constant. The
+[literature review](docs/literature_review.pdf) explains why that gap
+matters.
 
-Check your setup with fake data before you download anything:
+---
 
-```bash
-./run_pipeline.sh demo
+## How it works
+
+```mermaid
+flowchart LR
+    D[(Car Hacking Dataset<br/>DoS, Fuzzy, Gear, RPM)] --> T[train.py<br/>random forest]
+    T --> M[(model.joblib<br/>+ test frames)]
+    M --> V[export_verilog.py]
+    M --> C[export_c.py<br/>emlearn]
+    V --> RTL[rf_ids.v<br/>4 stage pipeline]
+    C --> H[can_ids_model.h]
+    RTL --> SIM{{Icarus testbench}}
+    H --> HT{{host_test.c}}
+    SIM --> OK[same class on<br/>every test frame]
+    HT --> OK
+    RTL --> Q[Quartus<br/>DE10 Lite]
+    H --> S[STM32CubeIDE<br/>STM32F407]
 ```
 
-You should see two PASS lines at the end. The demo data is synthetic, so
-ignore its accuracy.
+One trained model feeds both exporters. The same test frames run through the
+Verilog simulation and the compiled C, and both must match Python's answer on
+every frame before anything touches hardware.
 
-## 3. Get the dataset
+### The FPGA classifier
 
-Download the Car Hacking Dataset from
-https://ocslab.hksecurity.net/Datasets/car-hacking-dataset and unzip it into
-`data/car_hacking/`. You need these five files:
-
-```
-DoS_dataset.csv  Fuzzy_dataset.csv  gear_dataset.csv  RPM_dataset.csv  normal_run_data.txt
-```
-
-Each frame becomes 10 integer features: CAN ID, DLC and the 8 data bytes.
-Classes are Normal, DoS, Fuzzy, Gear_spoof and RPM_spoof. Attack files mark
-real traffic with R and injected frames with T, and the loader labels them
-accordingly.
-
-## 4. Train
-
-```bash
-python python/train.py --data data/car_hacking --trees 100 --max-depth 10 --payload-bytes 5
-```
-
-`--payload-bytes 5` makes the model read only the CAN ID, the DLC and the
-first 5 data bytes. That matches the 86 us budget from Araujo Filho et al. A
-detector that decides after N payload bytes has 19 + 8 * (8 - N) bit times
-left to force an error frame before the frame ends. At 500 kbit/s that is
-86 us for N = 5 and only 38 us for N = 8. Fewer bytes gives more time but can
-cost accuracy, so try a few values and report the trade off.
-
-This prints accuracy, a per class report and the forest size, then saves
-`models/can_ids_forest.joblib` along with the held out test set. The full
-dataset is about 17 million frames. Add `--limit-per-file 500000` for quick
-experiments.
-
-Two knobs control hardware size: `--trees` (n_estimators) and `--max-depth`.
-Depth matters most, because each extra level can double a tree's node count.
-`--max-depth 0` means unlimited and gives a huge design, so avoid it.
-
-The script prints two accuracies. scikit learn averages probabilities (soft
-vote). The FPGA and emlearn count one vote per tree (hard vote). Report the
-hard vote number, since that is what the hardware computes.
-
-## 5. Export to Verilog and simulate
-
-```bash
-python python/export_verilog.py
-mkdir -p build
-iverilog -g2005 -I hdl/generated -o build/rf_ids_sim hdl/rf_ids_tb.v hdl/generated/rf_ids.v
-vvp build/rf_ids_sim          # add +vcd to write build/rf_ids.vcd
-gtkwave build/rf_ids.vcd      # optional, look at the waveforms
-```
-
-`hdl/generated/rf_ids.v` is a 4 stage pipeline:
+`rf_ids.v` is generated from the model. Every tree becomes a block of
+comparators, and all trees run in parallel:
 
 | Stage | Work |
 |---|---|
-| 1 | register the incoming frame |
-| 2 | every tree runs in parallel as comparators, each tree's class is registered |
-| 3 | count votes per class |
-| 4 | pick the class with the most votes, ties go to the lowest index |
+| 1 | Register the incoming frame (CAN ID, DLC, data bytes) |
+| 2 | Every tree walks its comparators at once, each tree's class is registered |
+| 3 | Count the votes per class |
+| 4 | Output the class with the most votes (ties go to the lowest index) |
 
-It accepts a new frame every clock and answers 4 clocks later. The testbench
-streams 2000 test frames through it and prints PASS only when every result
-matches Python.
+It takes a new frame every clock and answers 4 clocks later: **80 ns at the
+DE10 Lite's 50 MHz**.
 
-Ports:
+### The timing budget
 
-```verilog
-input         clk, rst, in_valid
-input  [10:0] can_id
-input  [3:0]  dlc
-input  [63:0] data        // byte 0 in data[63:56], bytes past DLC = 0
-output        out_valid
-output [2:0]  class_out   // 0 Normal, 1 DoS, 2 Fuzzy, 3 Gear_spoof, 4 RPM_spoof
-```
+To stop an attack, the detector must force an error frame before the frame
+ends. Araujo Filho et al. (IEEE Access, 2021) give the time left after reading
+the first N payload bytes as **19 + 8 × (8 − N) bit times**:
 
-## 6. Synthesize in Quartus
+| Payload bytes read | Bit times left | Budget at 500 kbit/s |
+|---|---|---|
+| 5 | 43 | **86 µs** |
+| 8 | 19 | 38 µs |
 
-Open `quartus/can_ids.qpf` in Quartus Prime Lite. The project already targets
-the 10M50DAF484C7G, uses `hdl/generated/rf_ids.v` as the top level and
-constrains the clock to the board's 50 MHz oscillator. Click Processing, Start
-Compilation. Or from a terminal:
+Train with `--payload-bytes 5` and the model never looks past byte 4, which
+keeps the 86 µs budget. `python/latency.py` does this math for you from the
+Quartus Fmax.
 
-```bash
-cd quartus
-quartus_sh --flow compile can_ids
-```
+---
 
-The data ports are virtual pins, since in the final design they connect to
-on chip logic, not to board pins. That keeps pin delays out of your Fmax.
-
-Every time you retrain, rerun `export_verilog.py` and recompile. Quartus
-picks up the new file automatically.
-
-## 7. Read the reports
-
-Two numbers matter.
-
-**Fit.** Compilation Report, Flow Summary, "Total logic elements". The
-10M50 has 49,760. If the design does not fit, lower `--max-depth` first,
-then `--trees`, then retrain and re-export. For reference, 100 trees at depth
-10 on the demo data came out near 2,900 LUTs and 410 flip flops in a Yosys
-test synthesis. Real data grows bigger trees, so check your own number.
-
-**Speed.** Compilation Report, Timing Analyzer, Slow 1200mV 85C Model, Fmax
-Summary. Use the slow model, it is the guaranteed worst case. Then:
+## Quick start
 
 ```bash
-python python/latency.py --fmax 120.5
+git clone --recursive https://github.com/charbel-j-estephan/CAN_IDS_IPS.git
+cd CAN_IDS_IPS
+pip install -r requirements.txt
+
+# Check your tools on fake data (no download needed)
+./run_pipeline.sh demo
 ```
 
-It reads `--payload-bytes` from the saved model and computes the budget
-itself. Pass `--bitrate-kbps` if your bus is not 500 kbit/s.
+You should see:
 
-Latency is 4 clocks divided by the clock frequency. At the board's 50 MHz that
-is 80 ns, about a thousand times under the 86 us budget. So for this design
-the tree count mostly decides whether it fits, not whether it is fast enough.
-The real delay in the FPGA build is getting the frame off the bus: an 8 byte
-CAN frame takes about 222 us to transmit at 500 kbit/s. Measure latency from
-the end of the frame, and write down where you start the clock in your
-report.
+```
+PASS: 2000 frames, all match Python. Latency 4 clocks.
+PASS: 2000 frames, C model matches Python
+```
 
-None of this needs the board. Quartus timing comes from place and route. Use
-the DE10 Lite at the end to confirm the real behavior matches.
-
-## 8. Export to C and run on the STM32
+Then with the real dataset in `data/car_hacking/`:
 
 ```bash
-python python/export_c.py
-gcc -O2 -I mcu/generated -o build/host_test mcu/host_test.c   # optional PC check
-./build/host_test hdl/generated/vectors.hex
+python python/train.py --data data/car_hacking --trees 100 --max-depth 10 --payload-bytes 5
+python python/export_verilog.py      # hdl/generated/rf_ids.v + test vectors
+python python/export_c.py            # mcu/generated/can_ids_model.h
+python python/latency.py --fmax <Fmax from Quartus>
 ```
 
-The PC check uses the same vectors as the Verilog testbench. Two PASS results
-mean the FPGA and the STM32 run the identical classifier, which is what makes
-your three way comparison fair.
+The **[build guide](docs/BUILD_GUIDE.md)** walks through every step: installing
+the tools, getting the dataset, simulating, synthesizing in Quartus, reading
+the timing report and timing the STM32.
 
-In STM32CubeIDE:
+---
 
-1. Copy `mcu/generated/can_ids_model.h`, `mcu/stm32/ids_timing.c` and
-   `mcu/stm32/ids_timing.h` into your project (`Core/Inc` and `Core/Src`).
-2. Call `ids_timing_init()` once after `SystemClock_Config()`.
-3. In your CAN receive callback call `ids_classify(hdr.StdId, hdr.DLC, data)`.
-   It returns the class and the CPU cycles the forest took.
-4. Convert with `ids_cycles_to_us()` and log the **worst case** over many
-   frames, not the average.
+## What's in the repo
 
-Timing uses the Cortex M4 DWT cycle counter, which counts every CPU clock
-(168 MHz on the F407), so you need no timer peripheral setup.
+```
+python/
+  dataset.py          Car Hacking Dataset loader, 10 integer features per frame
+  train.py            trains the forest, reports accuracy, saves model + test set
+  export_verilog.py   model -> pipelined Verilog + test vectors
+  export_c.py         model -> emlearn C, with the threshold fix below
+  latency.py          Fmax -> latency, checked against the CAN timing budget
+  make_demo_data.py   fake data in the dataset's format, for tool checks
+hdl/rf_ids_tb.v       Icarus Verilog testbench, checks every frame
+quartus/              Quartus Prime Lite project for the DE10 Lite
+mcu/host_test.c       runs the C model on your PC against the test vectors
+mcu/stm32/            drop in STM32 code, times each call with the DWT counter
+run_pipeline.sh       train, export, simulate and check in one command
+docs/
+  BUILD_GUIDE.md          step by step guide
+  literature_review.pdf   the literature review
+  literature_review.tex   its LaTeX source
+  literature_review_fixes.md  what changed in the review and why
+REFERENCES.md         every paper, dataset and tool, IEEE style
+```
 
-## Why not use the upstream repos directly
+The three repos from the original plan are git submodules, kept for
+reference: [IDS ML](https://github.com/Western-OC2-Lab/Intrusion-Detection-System-Using-Machine-Learning),
+[FPGA_random_forest](https://github.com/johnbensnyder/FPGA_random_forest) and
+[emlearn](https://github.com/emlearn/emlearn).
 
-The first plan used three repos for the three jobs. Each has a problem for
-this project:
+---
 
-* **Western-OC2-Lab/Intrusion-Detection-System-Using-Machine-Learning**. The
-  notebooks load CICIDS2017 CSV columns. They do not read the Car Hacking
-  files without rewriting the preprocessing, and they train models that never
-  reach hardware. `python/dataset.py` and `python/train.py` replace them. The
-  notebooks and papers stay useful as a reference for your literature review.
-* **johnbensnyder/FPGA_random_forest** (`skhdl_64.py`). It averages each
-  leaf's class 0 value, which acts as a regressor, not a classifier, so it
-  cannot output an attack class. It reads `n_features_`, which scikit learn
-  removed in 1.2, so it crashes on current versions. It targets a Xilinx board
-  with a 9600 baud UART, and it evaluates all trees inside one clock with no
-  pipeline, which hurts Fmax. Its README also reports wrong predictions it
-  never fixed. `python/export_verilog.py` replaces it.
-* **emlearn**. It works and the pipeline uses it through pip. Two issues are
-  handled in `python/export_c.py`. scikit learn splits with `x <= t` and
-  emlearn writes `x < t`, so a frame value equal to a whole number threshold
-  goes the wrong way. emlearn's default int16 mode also rounds a threshold
-  like 157.5 down to 157. On a test model with 8 trees this changed 156 of
-  2000 predictions. The exporter fixes both by moving each threshold to
-  floor(t) + 0.5 and exporting float thresholds.
+## Verified so far
 
-## Limits to mention in your report
+| Check | Result |
+|---|---|
+| Verilog simulation vs Python, 100 trees | 2000 of 2000 frames match, 4 clock latency |
+| C model vs Python, same frames | 2000 of 2000 match |
+| Stress test, 8 trees with 450 tied votes | Verilog and C both match bit for bit |
+| `--payload-bytes 5` | trees only read CAN ID, DLC and bytes 0 to 4 |
+| Testbench with one wrong expected value | reports FAIL, so the check is real |
+| Yosys synthesis, 100 trees, depth 10 | about 2,900 LUTs and 413 flip flops (the 10M50 has 49,760 LEs) |
 
-* Features are per frame only. Timing features, like the gap since the last
-  frame with the same ID, catch DoS and fuzzing better, but they need a per ID
-  timestamp table on the FPGA. That is a good next step.
-* A random train and test split of frames from the same drive overstates
-  accuracy, because neighboring frames look alike. Say so, or split by time.
+Still to measure on hardware: Quartus Fmax and resource use on the real
+dataset, STM32 worst case cycles, and the combined build.
+
+---
+
+## Engineering notes
+
+Three things in the original plan did not work as expected, and the fixes are
+part of this repo:
+
+- **FPGA_random_forest could not classify.** Its converter averages the class 0
+  value of each leaf, which acts like a regressor, and it crashes on scikit
+  learn 1.2 and later. `export_verilog.py` replaces it with a voting classifier.
+- **emlearn disagreed with scikit learn on some frames.** scikit learn splits on
+  `x <= t`, emlearn writes `x < t`, and its int16 mode rounds 157.5 down to 157.
+  On a test model this changed 156 of 2000 predictions. `export_c.py` moves every
+  threshold to floor(t) + 0.5, which gives the same split under both rules.
+- **GHDL only reads VHDL.** The project simulates with Icarus Verilog instead.
+
+---
+
+## Documents
+
+- [Literature review](docs/literature_review.pdf): related work in rule based,
+  machine learning and hardware detectors, and the gap this project fills
+- [Build guide](docs/BUILD_GUIDE.md): every step from a fresh PC to timing numbers
+- [References](REFERENCES.md): the 18 papers in the review plus the tools and datasets
+
+## Team
+
+- Anthony El Chakar
+- Charbel Estephan
+- Joe Geagea
+
+Instructor: Dr. Abdallah Kassem
+
+## Acknowledgments
+
+The Car Hacking Dataset comes from the Hacking and Countermeasure Research Lab
+(Seo, Song and Kim, PST 2018). The C export uses
+[emlearn](https://github.com/emlearn/emlearn) by Jon Nordby. The timing budget
+follows Araujo Filho et al., IEEE Access, 2021.

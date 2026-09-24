@@ -2,7 +2,7 @@
 
 IEEE style. Entries [1] to [18] keep the numbers from the literature review
 ([docs/literature_review.pdf](docs/literature_review.pdf)), so citations in the
-review and here match. Entries [19] onward are sources the code and README use.
+review and here match. Entries [19] onward are sources the code and docs use.
 
 Corrections to the review itself are in
 [docs/literature_review_fixes.md](docs/literature_review_fixes.md).
@@ -86,7 +86,7 @@ The matching paper is [24].
 [17] J. B. Snyder, "FPGA_random_forest: FPGA implementation of SKLearn random
 forest," GitHub repository. [Online]. Available:
 https://github.com/johnbensnyder/FPGA_random_forest
-(submodule `FPGA_random_forest`). Reviewed but not used, see README.
+(submodule `FPGA_random_forest`). Reviewed but not used, see [docs/BUILD_GUIDE.md](docs/BUILD_GUIDE.md).
 
 [18] J. Nordby, "emlearn: Machine learning inference engine for
 microcontrollers and embedded devices," Zenodo, 2019,
