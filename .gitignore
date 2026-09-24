@@ -1,0 +1,18 @@
+# Dataset and everything the pipeline regenerates
+data/
+models/
+build/
+hdl/generated/
+mcu/generated/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Quartus outputs
+quartus/db/
+quartus/incremental_db/
+quartus/output_files/
+quartus/simulation/
+quartus/*.qws
+quartus/*.rpt
+quartus/*.summary
