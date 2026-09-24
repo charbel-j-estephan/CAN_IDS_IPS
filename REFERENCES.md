@@ -4,7 +4,8 @@ IEEE style. Entries [1] to [18] keep the numbers from the literature review
 ([docs/literature_review.pdf](docs/literature_review.pdf)), so citations in the
 review and here match. Entries [19] onward are sources the code and README use.
 
-Entries marked **Check** need a detail confirmed against the original source.
+Corrections to the review itself are in
+[docs/literature_review_fixes.md](docs/literature_review_fixes.md).
 
 ## Literature review
 
@@ -17,7 +18,8 @@ vehicle," presented at Black Hat USA, 2015.
 
 [3] E. Seo, H. M. Song, and H. K. Kim, "GIDS: GAN based intrusion detection
 system for in-vehicle network," in *Proc. 16th Annu. Conf. Privacy, Security
-and Trust (PST)*, 2018, pp. 1–6.
+and Trust (PST)*, 2018, pp. 1–6, doi: 10.1109/PST.2018.8514157.
+Source of the Car Hacking Dataset. Its Table I matches the dataset files.
 
 [4] D. Donadel, K. Balasubramanian, A. Brighente, B. Ramasubramanian,
 M. Conti, and R. Poovendran, "CANTXSec: A deterministic intrusion detection
@@ -36,14 +38,13 @@ the analysis of time intervals of CAN messages for in-vehicle network," in
 
 [7] D. Lee, C. Han, and S. Lee, "Hardware design of intrusion detection system
 for automotive CAN bus using random forest," in *Proc. Int. Conf.
-Electronics, Information, and Communication (ICEIC)*, 2023.
-**Check:** add pages and DOI from IEEE Xplore.
+Electronics, Information, and Communication (ICEIC)*, 2023,
+doi: 10.1109/ICEIC57457.2023.10049883.
 
 [8] S. Abbott-McCune and L. A. Shay, "Intrusion prevention system of
 automotive network CAN bus," in *Proc. IEEE Int. Carnahan Conf. Security
-Technology (ICCST)*, 2016.
-**Check:** the review lists only "IEEE, 2016". The conference name here is
-from memory, confirm it and add pages and DOI.
+Technology (ICCST)*, 2016, doi: 10.1109/CCST.2016.7815711.
+Built as an FPGA plus Arduino microcontroller prototype.
 
 [9] M. D. Pese, B. Gozubuyuk, E. Andrechek, H. Olufowobi, M. Hamad, and
 K. G. Shin, "MichiCAN: Spoofing and denial-of-service protection using
@@ -74,8 +75,7 @@ S. Horihata, "CaCAN: Centralized authentication system in CAN," in *Proc.
 [15] W. L. Lambert, S. Ghafoor, and S. Hollifield, "Bitrate hopping: An
 intrusion prevention technique to secure the CAN bus based distributed
 network," in *Proc. 24th Int. Symp. Parallel and Distributed Computing
-(ISPDC)*, 2025.
-**Check:** add pages and DOI.
+(ISPDC)*, 2025, doi: 10.1109/ISPDC67428.2025.00027.
 
 [16] Western OC2 Lab, "IDS-ML: Intrusion detection system development using
 machine learning algorithms," GitHub repository. [Online]. Available:
@@ -92,16 +92,16 @@ https://github.com/johnbensnyder/FPGA_random_forest
 microcontrollers and embedded devices," Zenodo, 2019,
 doi: 10.5281/zenodo.2589394. [Online]. Available:
 https://github.com/emlearn/emlearn (submodule `emlearn`).
-**Fix in the review:** the review credits "M. L. Jonsson". emlearn's author
-is Jon Nordby.
+The review credits "M. L. Jonsson". The author is Jon Nordby, see Fix 6 in
+[docs/literature_review_fixes.md](docs/literature_review_fixes.md).
 
 ## Dataset
 
 [19] H. M. Song, J. Woo, and H. K. Kim, "In-vehicle network intrusion
 detection using deep convolutional neural network," *Vehicular
 Communications*, vol. 21, Art. no. 100198, 2020.
-**Check:** the review cites [3] for the Car Hacking Dataset. Confirm on the
-HCRL page which paper they ask users to cite, and cite that one.
+A later HCRL paper on the same Car Hacking data. [3] is the primary
+dataset citation.
 
 [20] Hacking and Countermeasure Research Lab (HCRL), "Car-Hacking Dataset."
 [Online]. Available: https://ocslab.hksecurity.net/Datasets/car-hacking-dataset
