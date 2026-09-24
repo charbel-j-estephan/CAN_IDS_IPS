@@ -6,6 +6,12 @@ Example, after Quartus reports Fmax = 142.3 MHz:
 Find Fmax in Quartus under Compilation Report, Timing Analyzer,
 Slow 1200mV 85C Model, Fmax Summary. Use the slow model number, it is the
 worst case the chip is guaranteed to meet.
+
+The budget follows Araujo Filho et al. (IEEE Access, 2021). A detector that
+decides after the first N of 8 payload bytes has 19 + 8 * (8 - N) bit times
+left before the end of frame field, the last chance to force an error frame.
+At 500 kbit/s that is 86 us for N = 5 and 38 us for N = 8. Train with
+--payload-bytes N to match.
 """
 import argparse
 
@@ -20,8 +26,26 @@ def main():
                     help="clock you will actually run, MHz (DE10 Lite: 50)")
     ap.add_argument("--cycles", type=int, default=LATENCY,
                     help="clocks per classification (rf_ids: %d)" % LATENCY)
-    ap.add_argument("--budget-us", type=float, default=86.0)
+    ap.add_argument("--payload-bytes", type=int, default=None, metavar="N",
+                    help="payload bytes the model reads, default: from --model")
+    ap.add_argument("--model", default="models/can_ids_forest.joblib")
+    ap.add_argument("--bitrate-kbps", type=float, default=500.0)
+    ap.add_argument("--budget-us", type=float, default=None,
+                    help="override the budget computed from --payload-bytes")
     args = ap.parse_args()
+
+    if args.budget_us is None:
+        n = args.payload_bytes
+        if n is None:
+            try:
+                import joblib
+                n = joblib.load(args.model).get("payload_bytes", 8)
+            except (OSError, ImportError):
+                n = 8
+        bits = 19 + 8 * (8 - n)
+        args.budget_us = bits * 1000.0 / args.bitrate_kbps
+        print("Budget: %d payload bytes read, %d bit times left at %.0f kbit/s = %.1f us"
+              % (n, bits, args.bitrate_kbps, args.budget_us))
 
     for label, mhz in (("at Fmax", args.fmax), ("at your clock", min(args.clock, args.fmax))):
         us = args.cycles / mhz
