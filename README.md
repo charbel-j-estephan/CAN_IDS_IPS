@@ -81,8 +81,15 @@ accordingly.
 ## 4. Train
 
 ```bash
-python python/train.py --data data/car_hacking --trees 100 --max-depth 10
+python python/train.py --data data/car_hacking --trees 100 --max-depth 10 --payload-bytes 5
 ```
+
+`--payload-bytes 5` makes the model read only the CAN ID, the DLC and the
+first 5 data bytes. That matches the 86 us budget from Araujo Filho et al. A
+detector that decides after N payload bytes has 19 + 8 * (8 - N) bit times
+left to force an error frame before the frame ends. At 500 kbit/s that is
+86 us for N = 5 and only 38 us for N = 8. Fewer bytes gives more time but can
+cost accuracy, so try a few values and report the trade off.
 
 This prints accuracy, a per class report and the forest size, then saves
 `models/can_ids_forest.joblib` along with the held out test set. The full
@@ -163,11 +170,14 @@ test synthesis. Real data grows bigger trees, so check your own number.
 Summary. Use the slow model, it is the guaranteed worst case. Then:
 
 ```bash
-python python/latency.py --fmax 120.5 --budget-us 86
+python python/latency.py --fmax 120.5
 ```
 
+It reads `--payload-bytes` from the saved model and computes the budget
+itself. Pass `--bitrate-kbps` if your bus is not 500 kbit/s.
+
 Latency is 4 clocks divided by the clock frequency. At the board's 50 MHz that
-is 80 ns, about a thousand times under an 86 us budget. So for this design
+is 80 ns, about a thousand times under the 86 us budget. So for this design
 the tree count mostly decides whether it fits, not whether it is fast enough.
 The real delay in the FPGA build is getting the frame off the bus: an 8 byte
 CAN frame takes about 222 us to transmit at 500 kbit/s. Measure latency from
