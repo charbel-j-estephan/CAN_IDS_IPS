@@ -19,6 +19,8 @@ mcu/stm32/         drop in STM32 code that times each classification
 run_pipeline.sh    train, export, simulate and check in one command
 ```
 
+See [REFERENCES.md](REFERENCES.md) for every paper, dataset and tool used.
+
 The three upstream repos from the original plan are git submodules here, for
 reference only. The pipeline does not import them (see "Why not use the
 upstream repos directly" below).
