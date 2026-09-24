@@ -1,3 +1,9 @@
 [submodule "emlearn"]
 	path = emlearn
 	url = https://github.com/emlearn/emlearn.git
+[submodule "FPGA_random_forest"]
+	path = FPGA_random_forest
+	url = https://github.com/johnbensnyder/FPGA_random_forest.git
+[submodule "Intrusion-Detection-System-Using-Machine-Learning"]
+	path = Intrusion-Detection-System-Using-Machine-Learning
+	url = https://github.com/Western-OC2-Lab/Intrusion-Detection-System-Using-Machine-Learning.git
