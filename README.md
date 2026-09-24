@@ -19,6 +19,7 @@ mcu/stm32/         drop in STM32 code that times each classification
 run_pipeline.sh    train, export, simulate and check in one command
 ```
 
+The literature review is in [docs/literature_review.pdf](docs/literature_review.pdf).
 See [REFERENCES.md](REFERENCES.md) for every paper, dataset and tool used.
 
 The three upstream repos from the original plan are git submodules here, for
