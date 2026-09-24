@@ -1,9 +1,9 @@
-\documentclass[10pt,twocolumn]{article}
+\documentclass[11pt,twocolumn,letterpaper]{article}
 
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
 \usepackage{mathptmx}
-\usepackage[margin=2cm]{geometry}
+\usepackage[letterpaper,margin=1in,columnsep=18pt]{geometry}
 \usepackage{array}
 \usepackage{booktabs}
 \usepackage{tabularx}
@@ -11,32 +11,30 @@
 \usepackage[hidelinks]{hyperref}
 \urlstyle{rm}
 
-\setlength{\columnsep}{0.8cm}
-
 \begin{document}
 
 \begin{titlepage}
   \centering
-  {\large Faculty of Engineering\par}
-  {\large ECCE Department\par}
-  \vspace{1.5cm}
-  {\Large EEN 527\par}
-  {\Large Embedded System Design\par}
+  \vspace*{48pt}
+  {\Large\bfseries Faculty of Engineering\\ECCE Department\par}
+  \vspace{63pt}
+  {\Large\bfseries EEN 527\\Embedded System Design\par}
   {\large Section A\par}
-  \vspace{1cm}
-  {\large Instructor:\par}
-  {\large Dr.\ Abdallah Kassem\par}
-  \vspace{2cm}
-  {\LARGE\bfseries Literature Review\par}
-  \vspace{0.8cm}
-  {\Large FPGA Based Intrusion Detection and\par}
-  {\Large Prevention System for CAN Bus Networks\par}
-  \vfill
-  {\large Submitted by:\par}
-  \vspace{0.3cm}
-  {\large Anthony El Chakar \#20231589\par}
-  {\large Charbel Estephan \#20231222\par}
-  {\large Joe Geagea \#20201000\par}
+  \vspace{71pt}
+  {\large\bfseries Instructor:\par}
+  \vspace{8pt}
+  {\large\itshape Dr.\ Abdallah Kassem\par}
+  \vspace{70pt}
+  {Literature Review\par}
+  \vspace{11pt}
+  {\large\bfseries FPGA Based Intrusion Detection and\\
+   Prevention System for CAN Bus Networks\par}
+  \vspace{56pt}
+  {Submitted by:\par}
+  \vspace{9pt}
+  {\large Anthony El Chakar \#20231589\\
+   Charbel Estephan \#20231222\\
+   Joe Geagea \#20201000\par}
 \end{titlepage}
 
 \section{Introduction}
@@ -341,6 +339,7 @@ that difference in mind rather than reading a smaller number as simply faster
 hardware.
 
 \begin{table*}[t]
+  \small
   \centering
   \caption{Reported platform, model, latency, and power or energy across the
   hardware designs reviewed above.}
@@ -465,6 +464,8 @@ shared set of test frames confirms that the FPGA logic, the C code, and the
 Python model return the same class for every frame, so all three builds run
 exactly one model.
 
+\clearpage
+\footnotesize
 \begin{thebibliography}{99}
 
 \bibitem{ileri2025}
