@@ -17,3 +17,4 @@ quartus/*.qws
 quartus/*.rpt
 quartus/*.summary
 esp32/receiver/can_ids_model.h
+.pio/
