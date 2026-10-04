@@ -123,3 +123,28 @@ and scoring code.
 | Frames lost, or `ovf=1` | Receiver too slow for back to back frames. Raise `GAP_US` in the sender (try 100), or use fewer trees / less depth, or check the SPI wiring |
 | Bus errors, random resets | Check VIN under load. Some DevKits give about 4.5 V after the USB diode, below the TJA1050's 4.75 V minimum. Power the modules from a true 5 V supply (common GND) |
 | Agreement with Python below 100 % | Receiver sketch built with an older `can_ids_model.h`: rerun `--copy-model` and reflash |
+
+## Variant: plain transceiver modules (TX, RX, VIN, GND, CANH, CANL)
+
+If your CAN module has no SPI pins and no MCP2515, the ESP32's built in CAN
+controller (TWAI) does the work and the module is only the transceiver. Use
+`esp32/sender_twai` and `esp32/receiver_twai` instead of the MCP2515 sketches.
+Everything else (PC script, bus wiring, scoring) is the same.
+
+| Module pin | ESP32 |
+|---|---|
+| TX | GPIO 5 |
+| RX | GPIO 4 |
+| VIN | 3V3 for an SN65HVD230, 5 V for a TJA1050 / TJA1051 |
+| GND | GND |
+| CANH, CANL | the other module's CANH, CANL |
+
+- No library to install, no SPI wires, no `CAN_CLOCK` to set.
+- A 5 V transceiver drives RX at 5 V. Put the 1 kΩ / 2 kΩ divider from the
+  MCP2515 section on that one wire.
+- If nothing is received, try swapping the TX and RX wires: some modules label
+  them from the module's side.
+- Terminate both ends of the bus with 120 Ω. Many of these modules have a
+  jumper or a 120 Ω resistor on board, check with the multimeter test above.
+- The receiver reports `ovf=<n>`, the number of frames the controller dropped.
+

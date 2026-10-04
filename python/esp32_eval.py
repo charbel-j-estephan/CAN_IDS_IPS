@@ -19,6 +19,7 @@ Needs pyserial for the real run (pip install pyserial).
 """
 import argparse
 import os
+import re
 import shutil
 import sys
 import threading
@@ -244,8 +245,9 @@ def run_hardware(args):
     col.stop = True
     done = next((t for t in col.texts if t.startswith("#DONE")), "no #DONE line")
     print("Sent %d frames in %.1f s. Receiver says: %s" % (len(X), secs, done))
-    if "ovf=1" in done:
-        print("WARNING: the MCP2515 overflowed, the receiver could not keep up.")
+    m = re.search(r"ovf=(\d+)", done)
+    if m and int(m.group(1)) > 0:
+        print("WARNING: the CAN controller dropped frames, the receiver could not keep up.")
 
     classes = np.asarray(model.classes_)
     finish(X[:, 0], y, y_python, col.records, classes, names)
@@ -327,7 +329,7 @@ def main():
                     help="how many test frames to send, 0 sends the whole test set")
     ap.add_argument("--baud", type=int, default=921600)
     ap.add_argument("--copy-model", action="store_true",
-                    help="copy mcu/generated/can_ids_model.h into esp32/receiver and exit")
+                    help="copy mcu/generated/can_ids_model.h into both receiver sketches and exit")
     ap.add_argument("--selftest", action="store_true",
                     help="check the scoring code without any hardware and exit")
     args = ap.parse_args()
@@ -337,11 +339,12 @@ def main():
         return
     if args.copy_model:
         src = os.path.join(ROOT, "mcu", "generated", "can_ids_model.h")
-        dst = os.path.join(ROOT, "esp32", "receiver", "can_ids_model.h")
         if not os.path.exists(src):
             sys.exit("Run python/export_c.py first, %s does not exist" % src)
-        shutil.copyfile(src, dst)
-        print("Copied model to", dst)
+        for sketch in ("receiver", "receiver_twai"):
+            dst = os.path.join(ROOT, "esp32", sketch, "can_ids_model.h")
+            shutil.copyfile(src, dst)
+            print("Copied model to", dst)
         return
     if not (args.sender and args.receiver):
         ap.error("--sender and --receiver are required")

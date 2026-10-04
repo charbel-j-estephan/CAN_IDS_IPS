@@ -19,3 +19,4 @@ quartus/*.summary
 esp32/receiver/can_ids_model.h
 .pio/
 .qodo/
+esp32/receiver_twai/can_ids_model.h
