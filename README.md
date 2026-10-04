@@ -118,13 +118,16 @@ python/
   export_c.py         model -> emlearn C, with the threshold fix below
   latency.py          Fmax -> latency, checked against the CAN timing budget
   make_demo_data.py   fake data in the dataset's format, for tool checks
+  esp32_eval.py       streams test frames through two ESP32s and scores the detector
 hdl/rf_ids_tb.v       Icarus Verilog testbench, checks every frame
 quartus/              Quartus Prime Lite project for the DE10 Lite
 mcu/host_test.c       runs the C model on your PC against the test vectors
 mcu/stm32/            drop in STM32 code, times each call with the DWT counter
+esp32/                two ESP32 + MCP2515 test bench: sender and receiver sketches
 run_pipeline.sh       train, export, simulate and check in one command
 docs/
   BUILD_GUIDE.md          step by step guide
+  ESP32_WIRING.md         wiring and steps for the two ESP32 CAN test bench
   literature_review.pdf   the literature review
   literature_review.tex   its LaTeX source
   literature_review_fixes.md  what changed in the review and why
