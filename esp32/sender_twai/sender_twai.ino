@@ -18,7 +18,8 @@
 
 #define PIN_CAN_TX  GPIO_NUM_5    // module TX
 #define PIN_CAN_RX  GPIO_NUM_4    // module RX
-#define GAP_US      0             // extra pause after each frame, if the receiver loses frames
+#define GAP_US      150           // pause after each frame. Keeps the 12 byte pass-through records
+                                  // within the serial link's speed. Use 0 with receiver_twai.
 #define ACK_EVERY   64
 #define PACKET_LEN  11
 

@@ -28,6 +28,8 @@ import time
 import numpy as np
 
 SYNC = 0xA5          # first byte of every record from the receiver
+SYNC_FRAME = 0xA6    # first byte of a pass-through record: id_hi id_lo dlc d0..d7
+GW_WINDOW = 100000   # how far ahead to look for a frame in gateway mode (long attack floods)
 PACKET = 11          # bytes per frame sent to ESP32 A
 ACK_EVERY = 64       # ESP32 A sends 'A' after this many frames
 MAX_INFLIGHT = 256   # frames the PC may have sent but ESP32 A has not acked
@@ -103,6 +105,86 @@ def align(sent_ids, rec_ids, window=SEARCH):
     return idx, lost
 
 
+def parse_frame_stream(buf):
+    """Like parse_stream, for the pass-through receiver.
+
+    A record is 0xA6, id_hi, id_lo, dlc, d0..d7 (12 bytes). Returns
+    ([(can_id, dlc, d0..d7)], [text]) with data bytes past the DLC as 0.
+    """
+    frames, texts = [], []
+    i, n = 0, len(buf)
+    while i < n:
+        b = buf[i]
+        if b == SYNC_FRAME:
+            if i + 12 > n:
+                break
+            hi, lo, dlc = buf[i + 1], buf[i + 2], buf[i + 3]
+            if hi < 8 and dlc <= 8:
+                data = [buf[i + 4 + k] if k < dlc else 0 for k in range(8)]
+                frames.append((hi << 8 | lo, dlc) + tuple(data))
+                i += 12
+                continue
+            i += 1
+        elif b == 0x23:   # '#'
+            j = buf.find(b"\n", i)
+            if j < 0:
+                break
+            texts.append(bytes(buf[i:j]).decode("ascii", "replace"))
+            i = j + 1
+        else:
+            i += 1
+    del buf[:i]
+    return frames, texts
+
+
+def align_frames(sent, got, window=GW_WINDOW):
+    """Which sent frames reached the far side of the gateway?
+
+    Frames keep their order, and the gateway may drop any of them. Walk both
+    lists: each received frame is matched to the next sent frame that is
+    identical (CAN ID, DLC and data). Everything skipped over was dropped.
+    Returns (arrived flag per sent frame, received frames that matched nothing).
+    """
+    arrived = [False] * len(sent)
+    p, spurious = 0, 0
+    for g in got:
+        end = min(len(sent), p + window)
+        j = p
+        while j < end and sent[j] != g:
+            j += 1
+        if j < end:
+            arrived[j] = True
+            p = j + 1
+        else:
+            spurious += 1
+    return arrived, spurious
+
+
+def report_gateway(y_true, passed, y_python, names):
+    """Score a gateway: it should pass Normal frames and block every attack."""
+    y_true = np.asarray(y_true)
+    passed = np.asarray(passed, dtype=bool)
+    attack = y_true != 0
+    blocked = ~passed
+    n = len(y_true)
+    print("\nFrames sent: %d" % n)
+    print("ACCURACY (right decision per frame): %.4f%%"
+          % (100 * ((passed & ~attack) | (blocked & attack)).mean()))
+    if y_python is not None:
+        print("Agreement with the Python model's decision: %.4f%%"
+              % (100 * (blocked == (np.asarray(y_python) != 0)).mean()))
+    print("\n%-12s %8s %9s %9s" % ("class", "frames", "blocked", "passed"))
+    for c, nm in enumerate(names):
+        m = y_true == c
+        if m.any():
+            print("%-12s %8d %8.2f%% %8.2f%%" % (nm, m.sum(), 100 * blocked[m].mean(),
+                                                100 * passed[m].mean()))
+    if attack.any():
+        print("\nAttack frames blocked (detection rate):  %.4f%%" % (100 * blocked[attack].mean()))
+    if (~attack).any():
+        print("Normal frames blocked (false positives): %.4f%%" % (100 * blocked[~attack].mean()))
+
+
 def confusion(y_true, y_pred, n_classes):
     cm = np.zeros((n_classes, n_classes), dtype=np.int64)
     np.add.at(cm, (y_true, y_pred), 1)
@@ -168,8 +250,9 @@ def open_board(port, baud, label):
 class Collector(threading.Thread):
     """Reads the receiver's serial port in the background."""
 
-    def __init__(self, ser):
+    def __init__(self, ser, frames=False):
         super().__init__(daemon=True)
+        self.parse = parse_frame_stream if frames else parse_stream
         self.ser, self.buf = ser, bytearray()
         self.records, self.texts = [], []
         self.last_data = time.time()
@@ -180,7 +263,7 @@ class Collector(threading.Thread):
             data = self.ser.read(max(1, self.ser.in_waiting))
             if data:
                 self.buf += data
-                r, t = parse_stream(self.buf)
+                r, t = self.parse(self.buf)
                 self.records += r
                 self.texts += t
                 self.last_data = time.time()
@@ -229,7 +312,7 @@ def run_hardware(args):
     rx = open_board(args.receiver, args.baud, "Receiver (ESP32 B)")
     rx.write(b"Z")
     tx = open_board(args.sender, args.baud, "Sender   (ESP32 A)")
-    col = Collector(rx)
+    col = Collector(rx, frames=args.gateway)
     col.start()
 
     packets = [pack_frame(r) for r in X]
@@ -249,6 +332,9 @@ def run_hardware(args):
     if m and int(m.group(1)) > 0:
         print("WARNING: the CAN controller dropped frames, the receiver could not keep up.")
 
+    if args.gateway:
+        finish_gateway(X, y, y_python, col.records, list(names))
+        return
     classes = np.asarray(model.classes_)
     finish(X[:, 0], y, y_python, col.records, classes, names)
 
@@ -270,6 +356,19 @@ def finish(sent_ids, y_true, y_python, records, classes, names):
     present = np.asarray(classes)
     report(np.asarray(y_true)[pos], present[rec_cls[keep]], np.asarray(y_python)[pos],
            list(names))
+
+
+def finish_gateway(X, y_true, y_python, got, names):
+    """Gateway run: a frame that never came out the far side was blocked."""
+    sent = [tuple(int(v) for v in row[:10]) for row in X]
+    arrived, spurious = align_frames(sent, got)
+    print("%d frames came out of the gateway, %d unmatched" % (len(got), spurious))
+    if spurious:
+        print("Note: unmatched frames mean corruption or reordering on the bus.")
+    report_gateway(y_true, arrived, y_python, names)
+    print("\nA frame that is missing counts as blocked. Frames lost to wiring "
+          "problems look the same, so check the Normal row first: it should "
+          "be close to 100% passed.")
 
 
 # ---- self test, no hardware ---------------------------------------------------
@@ -319,6 +418,36 @@ def selftest():
            ["Normal", "DoS", "Fuzzy", "Gear_spoof", "RPM_spoof"])
 
 
+def selftest_gateway():
+    rng = np.random.RandomState(1)
+    n = 4000
+    X = np.zeros((n, 10), dtype=np.int32)
+    X[:, 0] = rng.choice([0x316, 0x43F, 0x153], n)
+    X[:, 1] = 8
+    X[:, 2:] = rng.randint(0, 4, (n, 8))
+    y = np.zeros(n, dtype=np.int64)
+    y[1000:1300] = 1
+    X[1000:1300, 0] = 0                       # a 300 frame flood the gateway blocks
+    blocked = y == 1
+    blocked[2500] = True                      # one false positive
+    got_rows = [tuple(int(v) for v in X[i]) for i in range(n) if not blocked[i]]
+    raw = bytearray()
+    for fr in got_rows:
+        raw += bytes([SYNC_FRAME, fr[0] >> 8, fr[0] & 0xFF, fr[1]] + list(fr[2:]))
+    raw += b"#DONE rx=5 ovf=0\n"
+    half = bytearray(raw[:5001])
+    f1, t1 = parse_frame_stream(half)
+    half += raw[5001:]
+    f2, t2 = parse_frame_stream(half)
+    assert f1 + f2 == got_rows, "frame parse mismatch"
+    assert t1 + t2 == ["#DONE rx=5 ovf=0"]
+    sent = [tuple(int(v) for v in r) for r in X]
+    arrived, spurious = align_frames(sent, got_rows)
+    assert spurious == 0 and arrived == [not b for b in blocked.tolist()], "align wrong"
+    print("gateway selftest passed: %d of %d frames came out" % (len(got_rows), n))
+    report_gateway(y, arrived, (y != 0).astype(int), ["Normal", "DoS"])
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -328,21 +457,27 @@ def main():
     ap.add_argument("--n", type=int, default=20000,
                     help="how many test frames to send, 0 sends the whole test set")
     ap.add_argument("--baud", type=int, default=921600)
+    ap.add_argument("--gateway", action="store_true",
+                    help="the receiver is the pass-through sketch behind an STM32 gateway: "
+                         "score by which frames get through")
     ap.add_argument("--copy-model", action="store_true",
-                    help="copy mcu/generated/can_ids_model.h into both receiver sketches and exit")
+                    help="copy mcu/generated/can_ids_model.h into the receiver sketches and the STM32 gateway, then exit")
     ap.add_argument("--selftest", action="store_true",
                     help="check the scoring code without any hardware and exit")
     args = ap.parse_args()
 
     if args.selftest:
         selftest()
+        selftest_gateway()
         return
     if args.copy_model:
         src = os.path.join(ROOT, "mcu", "generated", "can_ids_model.h")
         if not os.path.exists(src):
             sys.exit("Run python/export_c.py first, %s does not exist" % src)
-        for sketch in ("receiver", "receiver_twai"):
-            dst = os.path.join(ROOT, "esp32", sketch, "can_ids_model.h")
+        for dst in (os.path.join(ROOT, "esp32", "receiver", "can_ids_model.h"),
+                    os.path.join(ROOT, "esp32", "receiver_twai", "can_ids_model.h"),
+                    os.path.join(ROOT, "mcu", "stm32_gateway", "src", "can_ids_model.h")):
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
             shutil.copyfile(src, dst)
             print("Copied model to", dst)
         return

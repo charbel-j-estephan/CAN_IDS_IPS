@@ -148,3 +148,55 @@ Everything else (PC script, bus wiring, scoring) is the same.
   jumper or a 120 Ω resistor on board, check with the multimeter test above.
 - The receiver reports `ovf=<n>`, the number of frames the controller dropped.
 
+
+## STM32 gateway between the two buses (IPS)
+
+The STM32F407 sits in the middle and decides which frames get through:
+
+```
+PC -> ESP32 A -- bus 1 -- [ STM32 CAN1 -> forest -> CAN2 ] -- bus 2 -- ESP32 B -> PC
+```
+
+Four transceiver modules (TX, RX, VIN, GND, CANH, CANL), one per CAN port.
+
+| Module | Connects to | Bus |
+|---|---|---|
+| ESP32 A module | GPIO 5 (TX), GPIO 4 (RX) | bus 1 |
+| STM32 module 1 | **PB9** (TX), **PB8** (RX) = CAN1 | bus 1 |
+| STM32 module 2 | **PB13** (TX), **PB12** (RX) = CAN2 | bus 2 |
+| ESP32 B module | GPIO 5 (TX), GPIO 4 (RX) | bus 2 |
+
+Each bus is its own pair of wires: bus 1 is ESP32 A's CANH/CANL joined to STM32
+module 1's CANH/CANL, bus 2 is STM32 module 2 joined to ESP32 B's module. Join
+the grounds of everything. Each bus has exactly two nodes, so keep the 120 ohm
+termination on every module. The modules are powered separately for 3.3 V or
+5 V as in the table above (a 5 V module needs a divider on its RX wire into
+the ESP32; the STM32's PB8 and PB12 tolerate 5 V).
+
+PA11 and PA12, the STM32's default CAN pins, are the USB lines on this board,
+so the gateway uses PB8/PB9 and PB12/PB13.
+
+Steps:
+
+1. Train on the real dataset and export: `python python/train.py --data
+   data/car_hacking ...`, `python python/export_c.py`, then
+   `python python/esp32_eval.py --copy-model`.
+2. Flash `esp32/sender_twai` to ESP32 A and `esp32/passthrough_twai` to ESP32 B.
+3. Build and load `mcu/stm32_gateway` with PlatformIO (BOOT0 jumper on, plug in,
+   RST, Upload, then remove the jumper and press RST).
+4. Run, with the STM32 powered and running:
+
+```bash
+python python/esp32_eval.py --gateway --sender COM5 --receiver COM6 --n 20000
+```
+
+A frame that arrives on ESP32 B was let through. A frame that never arrives
+was blocked. The script reports the share of attack frames blocked, the share
+of normal frames wrongly blocked, and agreement with the Python model.
+
+LEDs on the STM32 board: D2 flickers while frames are forwarded, D3 while
+frames are blocked. Both blinking together means setup failed (the bus clock
+did not match the bit timing).
+
+Set `BLOCK_ATTACKS` to 0 in `main.cpp` to turn the gateway into a plain
+forwarder (detection only, nothing blocked).
