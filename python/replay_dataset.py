@@ -418,7 +418,7 @@ def reanalyse(args):
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--sender", required=True, help="serial port of ESP32 A, for example COM5")
+    ap.add_argument("--sender", help="serial port of ESP32 A, for example COM5")
     ap.add_argument("--port", type=int, default=5000, help="TCP port ESP32 B connects to")
     ap.add_argument("--data", default=os.path.join(ROOT, "data", "car_hacking"))
     ap.add_argument("--file", default="DoS_dataset.csv", choices=sorted(FILE_CLASS))
@@ -432,6 +432,8 @@ def main():
     if args.reanalyse:
         reanalyse(args)
         return
+    if not args.sender:
+        ap.error("--sender is required, for example --sender COM8")
 
     path = os.path.join(args.data, args.file)
     if not os.path.exists(path):
