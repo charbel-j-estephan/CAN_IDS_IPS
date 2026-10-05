@@ -102,7 +102,13 @@ def parse_timed_stream(buf):
 
 
 class Receiver(threading.Thread):
-    """TCP server: ESP32 B connects to it and every frame is stored here."""
+    """TCP server: ESP32 B connects to it and every frame is stored here.
+
+    Frames are only kept once arm() is called. Anything earlier is frames the
+    board buffered before this run (an earlier attempt, bus noise) and would
+    otherwise be mistaken for part of this replay. If the WiFi link drops, the
+    board reconnects and this accepts it again.
+    """
 
     def __init__(self, port):
         super().__init__(daemon=True)
@@ -110,16 +116,36 @@ class Receiver(threading.Thread):
         self.srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.srv.bind(("0.0.0.0", port))
         self.srv.listen(1)
+        self.srv.settimeout(0.5)
         self.frames, self.stamps, self.texts = [], [], []
-        self.buf = bytearray()
         self.connected = threading.Event()
+        self.armed = False
+        self.connections = 0
+        self.ignored = 0                   # frames received before arm()
         self.last_data = time.time()       # time of the last FRAME received
         self.stop = False
 
+    def arm(self):
+        self.armed = True
+        self.last_data = time.time()
+
     def run(self):
-        conn, addr = self.srv.accept()
-        self.peer = addr[0]
-        self.connected.set()
+        while not self.stop:
+            try:
+                conn, addr = self.srv.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            self.peer = addr[0]
+            self.connections += 1
+            if self.connections > 1:
+                print("  ESP32 B reconnected (link dropped once)")
+            self.connected.set()
+            self._read(conn)
+
+    def _read(self, conn):
+        buf = bytearray()                  # fresh per connection: a cut record is not glued to new data
         conn.settimeout(0.2)
         while not self.stop:
             try:
@@ -130,14 +156,21 @@ class Receiver(threading.Thread):
                 break
             if not data:
                 break
-            self.buf += data
-            f, s, t = parse_timed_stream(self.buf)
-            self.frames += f
-            self.stamps += s
+            buf += data
+            f, s, t = parse_timed_stream(buf)
             self.texts += t
-            if f:                          # the once a second #STAT lines do not count
-                self.last_data = time.time()
+            if not f:                      # the once a second #STAT lines do not count
+                continue
+            self.last_data = time.time()
+            if self.armed:
+                self.frames += f
+                self.stamps += s
+            else:
+                self.ignored += len(f)
         conn.close()
+
+    def last_stat(self):
+        return next((t for t in reversed(self.texts) if t.startswith("#STAT")), None)
 
 
 def local_ips():
@@ -167,16 +200,31 @@ def unwrap(stamps):
     return out
 
 
-def analyse(rows, frames, stamps, realtime):
-    sent = [tuple(int(v) for v in r[1:11]) for r in rows]
+MATCH_WINDOW_US = 20000      # how far a frame may be from its expected time
+SEQ_WINDOW = 4096            # fast mode: how far ahead to look for a frame
 
-    # Frames keep their order on the bus, so walk both lists once: every received
-    # frame is matched to the next identical sent frame, and the ones skipped
-    # over were lost. rx_for[i] is the received record for sent frame i, or -1.
-    rx_for = [-1] * len(sent)
-    spurious, p = 0, 0
+
+def dedupe(frames, stamps):
+    """Drop records the board sent twice (resent after a WiFi reconnect).
+
+    A resent record carries the same board timestamp as the original, and two
+    different frames can never share one microsecond on a 500 kbit/s bus."""
+    seen, f2, s2 = set(), [], []
+    for f, t in zip(frames, stamps):
+        key = (t, f[0])
+        if key in seen:
+            continue
+        seen.add(key)
+        f2.append(f)
+        s2.append(t)
+    return f2, s2, len(frames) - len(f2)
+
+
+def match_sequential(sent, frames):
+    """Fast mode: frames keep their order, match each to the next identical one."""
+    rx_for, spurious, p = [-1] * len(sent), 0, 0
     for k, g in enumerate(frames):
-        end = min(len(sent), p + E.GW_WINDOW)
+        end = min(len(sent), p + SEQ_WINDOW)
         j = p
         while j < end and sent[j] != g:
             j += 1
@@ -185,19 +233,85 @@ def analyse(rows, frames, stamps, realtime):
             p = j + 1
         else:
             spurious += 1
-    arrived = [k >= 0 for k in rx_for]
-    st = unwrap(stamps)
-    t0_orig = rows[0][0]
-    first_rx = next((st[k] for k in rx_for if k >= 0), None)
-    first_orig = next((rows[i][0] for i, k in enumerate(rx_for) if k >= 0), None)
+    return rx_for, spurious
 
+
+def match_timed(sent, orig_us, frames, st):
+    """Original timing mode: match by content AND time.
+
+    Many frames are identical (a DoS flood is the same frame thousands of
+    times), so content alone cannot say which one arrived. Each received frame
+    is matched to the unused identical sent frame closest to the time it was
+    expected. The offset between the board's clock and the capture clock is
+    learned from the first frames and then tracked, so clock drift between
+    the two does not break the matching."""
+    from bisect import bisect_left
+    by_content = {}
+    for j, f in enumerate(sent):
+        by_content.setdefault(f, []).append(j)       # in time order
+    cand_times = {f: [orig_us[j] for j in js] for f, js in by_content.items()}
+    used = [False] * len(sent)
+
+    # Initial offset: median over the first frames matched in order.
+    seq, _ = match_sequential(sent[:3000], frames[:300])
+    pairs = [st[k] - orig_us[j] for j, k in enumerate(seq) if k >= 0]
+    if not pairs:
+        return [-1] * len(sent), len(frames)
+    offset = float(np.median(pairs))
+
+    rx_for, spurious = [-1] * len(sent), 0
+    for k, g in enumerate(frames):
+        cands = by_content.get(g)
+        if not cands:
+            spurious += 1
+            continue
+        want = st[k] - offset
+        times = cand_times[g]
+        i = bisect_left(times, want)
+        best, lo, hi, inf = -1, i - 1, i, float("inf")
+        while True:                             # nearest first, outwards from the expected time
+            dl = want - times[lo] if lo >= 0 else inf
+            dh = times[hi] - want if hi < len(cands) else inf
+            if min(dl, dh) > MATCH_WINDOW_US:
+                break
+            if dl <= dh:
+                x, lo = lo, lo - 1
+            else:
+                x, hi = hi, hi + 1
+            if not used[cands[x]]:
+                best = cands[x]
+                break
+        if best < 0:
+            spurious += 1
+            continue
+        used[best] = True
+        rx_for[best] = k
+        offset += 0.05 * ((st[k] - orig_us[best]) - offset)   # follow slow clock drift
+    return rx_for, spurious
+
+
+def analyse(rows, frames, stamps, realtime):
+    sent = [tuple(int(v) for v in r[1:11]) for r in rows]
+    frames, stamps, dups = dedupe(frames, stamps)
+    st = unwrap(stamps)
+    orig_us = [(r[0] - rows[0][0]) * 1e6 for r in rows]
+
+    if realtime:
+        rx_for, spurious = match_timed(sent, orig_us, frames, st)
+    else:
+        rx_for, spurious = match_sequential(sent, frames)
+    arrived = [k >= 0 for k in rx_for]
+
+    first = next((i for i, k in enumerate(rx_for) if k >= 0), None)
     rx_rel, err = [None] * len(sent), [None] * len(sent)
-    for i, k in enumerate(rx_for):
-        if k >= 0:
-            rx_rel[i] = st[k] - first_rx
-            err[i] = rx_rel[i] - (rows[i][0] - first_orig) * 1e6
-    return {"arrived": arrived, "spurious": spurious, "rx_rel": rx_rel, "err": err,
-            "t0": t0_orig, "realtime": realtime}
+    if first is not None:
+        first_rx = st[rx_for[first]]
+        for i, k in enumerate(rx_for):
+            if k >= 0:
+                rx_rel[i] = st[k] - first_rx
+                err[i] = rx_rel[i] - (orig_us[i] - orig_us[first])
+    return {"arrived": arrived, "spurious": spurious, "duplicates": dups, "rx_rel": rx_rel,
+            "err": err, "t0": rows[0][0], "realtime": realtime}
 
 
 def summarise(rows, res, args, extra):
@@ -206,6 +320,7 @@ def summarise(rows, res, args, extra):
     label = np.array([r[11] for r in rows])
     s = {"file": args.file, "frames_sent": n, "frames_arrived": int(arrived.sum()),
          "frames_lost": int(n - arrived.sum()), "unmatched_received": res["spurious"],
+         "duplicates_dropped": res["duplicates"],
          "delivery_percent": round(100.0 * arrived.mean(), 4) if n else 0,
          "mode": "original timing" if res["realtime"] else "fast, timing ignored",
          "capture_duration_s": round(rows[-1][0] - rows[0][0], 6), "by_class": {}}
@@ -285,6 +400,16 @@ def main():
         sys.exit("ESP32 B never connected. Check WiFi, PC_IP, and the firewall.")
     print("ESP32 B connected from %s" % rcv.peer)
 
+    # Let the board empty anything it buffered before this run, then start keeping frames.
+    t_drain = time.time()
+    while time.time() - rcv.last_data < 1.5 and time.time() - t_drain < 20:
+        time.sleep(0.1)
+    time.sleep(1.2)                       # catch one #STAT line as the starting count
+    stat_before = rcv.last_stat()
+    if rcv.ignored:
+        print("Ignored %d old frames the receiver had buffered before this run" % rcv.ignored)
+    rcv.arm()
+
     tx = E.open_board(args.sender, args.baud, "Sender   (ESP32 A)")
     t0 = rows[0][0]
     packets = [pack_timed(r, 0 if not realtime else round((r[0] - t0) * 1e6)) for r in rows]
@@ -305,13 +430,24 @@ def main():
         time.sleep(0.2)
     time.sleep(1.2)                       # one more #STAT after the last frame
     rcv.stop = True
-    stat = next((t for t in reversed(rcv.texts) if t.startswith("#STAT")), "no #STAT line")
+    stat = rcv.last_stat() or "no #STAT line"
     print("Sender says:   %s" % (txline or "no reply"))
     print("Receiver says: %s" % stat)
 
     res = analyse(rows, rcv.frames, rcv.stamps, realtime)
+    rx_run = None
+    try:
+        a = int(stat_before.split("rx=")[1].split()[0]) if stat_before else None
+        b = int(stat.split("rx=")[1].split()[0])
+        rx_run = b - a if a is not None else None
+    except (IndexError, ValueError):
+        pass
+    if rx_run is not None:
+        stat = "%s (heard %d frames during this run)" % (stat, rx_run)
     summary = summarise(rows, res, args, {"started": started, "sender_report": txline,
-                                          "receiver_report": stat})
+                                          "receiver_report": stat,
+                                          "receiver_frames_this_run": rx_run,
+                                          "wifi_reconnects": max(0, rcv.connections - 1)})
     out = args.out or os.path.join(ROOT, "runs", "%s_%s" % (time.strftime("%Y%m%d_%H%M%S"),
                                                                args.file.replace(".csv", "")))
     save_run(out, rows, res, rcv.frames, rcv.stamps, summary)
