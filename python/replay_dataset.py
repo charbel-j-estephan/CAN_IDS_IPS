@@ -136,6 +136,7 @@ class Receiver(threading.Thread):
         self.armed = False
         self.connections = 0
         self.ignored = 0                   # frames received before arm()
+        self.last_stat_time = 0.0          # the board sends #STAT once a second while it is alive
         self.last_data = time.time()       # time of the last FRAME received
         self.stop = False
 
@@ -173,6 +174,8 @@ class Receiver(threading.Thread):
             buf += data
             f, s, t = parse_timed_stream(buf)
             self.texts += t
+            if any(x.startswith("#STAT") for x in t):
+                self.last_stat_time = time.time()
             if not f:                      # the once a second #STAT lines do not count
                 continue
             self.last_data = time.time()
@@ -481,6 +484,7 @@ def main():
     rcv.arm()
 
     tx = E.open_board(args.sender, args.baud, "Sender   (ESP32 A)")
+    t_run = time.time()
     packets = [pack_timed(r, rel) for r, rel in zip(rows, start_offsets(rows, realtime))]
 
     started = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -500,6 +504,12 @@ def main():
     time.sleep(1.2)                       # one more #STAT after the last frame
     rcv.stop = True
     stat = rcv.last_stat() or "no #STAT line"
+    silent = time.time() - rcv.last_stat_time
+    if silent > 3:
+        stat += " (WARNING: last report %.0f s ago, the receiver stopped talking during the run)" % silent
+        print("\nWARNING: ESP32 B stopped reporting %.0f s before the end. Its numbers are stale and "
+              "frames after that point were not recorded. Plug it into the PC and open the Serial "
+              "Monitor at 115200 to see why." % silent)
     print("Sender says:   %s" % (txline or "no reply"))
     print("Receiver says: %s" % stat)
 
