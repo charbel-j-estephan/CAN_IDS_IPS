@@ -105,11 +105,36 @@ void setup()
 
     WiFi.mode(WIFI_STA);
     WiFi.setSleep(false);               // power saving adds delay and jitter
+
+    // Say why a connection fails instead of printing dots forever.
+    WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t info) {
+        uint8_t r = info.wifi_sta_disconnected.reason;
+        const char *why = r == 201 ? "network not found: wrong name, or it is 5 GHz only"
+                        : (r == 15 || r == 202 || r == 204 || r == 2) ? "wrong password, or WPA3-only security"
+                        : "see the reason code";
+        Serial.printf("WiFi failed, reason %u: %s\n", r, why);
+    }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+
+    Serial.println("Networks this board can see (it only sees 2.4 GHz):");
+    int found = WiFi.scanNetworks();
+    for (int i = 0; i < found; i++)
+        Serial.printf("  %-32s signal %d dBm  channel %d%s\n", WiFi.SSID(i).c_str(), WiFi.RSSI(i),
+                      WiFi.channel(i), WiFi.SSID(i) == WIFI_SSID ? "   <- yours" : "");
+    if (found <= 0)
+        Serial.println("  none");
+
     WiFi.begin(WIFI_SSID, WIFI_PASS);
-    Serial.print("Connecting to WiFi");
+    Serial.printf("Connecting to \"%s\"", WIFI_SSID);
+    uint32_t start = millis();
     while (WiFi.status() != WL_CONNECTED) {
         delay(500);
         Serial.print(".");
+        if (millis() - start > 20000) {
+            Serial.println("\nStill not connected after 20 s, retrying");
+            WiFi.disconnect();
+            WiFi.begin(WIFI_SSID, WIFI_PASS);
+            start = millis();
+        }
     }
     Serial.printf("\nWiFi connected, this board is %s, streaming to %s:%d\n",
                   WiFi.localIP().toString().c_str(), PC_IP, PC_PORT);
