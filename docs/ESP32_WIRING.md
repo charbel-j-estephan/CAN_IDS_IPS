@@ -201,3 +201,47 @@ did not match the bit timing).
 
 Set `BLOCK_ATTACKS` to 0 in `main.cpp` to turn the gateway into a plain
 forwarder (detection only, nothing blocked).
+
+## Realistic replay with every frame recorded (WiFi receiver)
+
+Replays a dataset file with its original timing and keeps every frame the
+receiver hears. ESP32 B needs no USB data link: it streams over WiFi.
+
+```
+PC --USB--> ESP32 A (replay_sender) --CAN bus--> ESP32 B (wifi_receiver) --WiFi--> PC
+```
+
+Sketches (both compile with ESP32 core 3.2.0): `esp32/replay_sender` for A,
+`esp32/wifi_receiver` for B. The CAN wiring is the same as the TWAI section.
+
+1. Put the PC and ESP32 B on the same hotspot.
+2. In `esp32/wifi_receiver`, copy `secrets.example.h` to `secrets.h` and fill in
+   the hotspot name, password and the PC's IPv4 address on that hotspot
+   (`ipconfig`). `secrets.h` is ignored by git.
+3. Flash B first (power only is enough afterwards), then A. Close any Serial Monitor on A.
+4. From `python/`:
+
+```bash
+python replay_dataset.py --sender COM5                       # 20,000 frames, original timing
+python replay_dataset.py --sender COM5 --file Fuzzy_dataset.csv --n 100000
+python replay_dataset.py --sender COM5 --fast                # ignore timing, flat out
+```
+
+Start the script first: it waits for ESP32 B to connect, then starts the
+replay. Allow Python through the Windows firewall on private networks when asked.
+
+Each run writes `runs/<time>_<file>/`:
+
+| File | Contents |
+|---|---|
+| `frames.csv` | EVERY frame sent: capture time, ID, data, class, arrived or lost, receive time, timing error |
+| `received.csv` | every frame ESP32 B heard, in order, with its raw microsecond timestamp |
+| `summary.json` | delivery rate, per-class counts, timing error, sender and receiver reports |
+| `report.html` | results page: charts, per-class table, searchable table of every frame |
+
+How the timing is measured: ESP32 A sends each frame at its original capture
+time (microsecond clock). ESP32 B stamps each frame the moment it reads it from
+the CAN controller. The page compares the gaps between frames on the bus with
+the gaps in the original capture. The sender reports how many frames left more
+than 100 microseconds late. The timestamp is only taken once the frame has been
+read, so expect a few tens of microseconds of measurement noise.

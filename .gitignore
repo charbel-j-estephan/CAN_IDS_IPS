@@ -21,3 +21,5 @@ esp32/receiver/can_ids_model.h
 .qodo/
 esp32/receiver_twai/can_ids_model.h
 mcu/stm32_gateway/src/can_ids_model.h
+esp32/wifi_receiver/secrets.h
+runs/
