@@ -89,8 +89,9 @@ Arduino serial monitor, then:
 python python/esp32_eval.py --sender COM5 --receiver COM6 --n 20000
 ```
 
-Use `--n 0` for the whole held out test set. The bus carries roughly 5,000 to
-9,000 frames per second, so 20,000 frames takes a few seconds.
+Use `--n 0` for the whole held out test set. At 500 kbit/s a bit lasts 2 us, so a full
+8 byte frame (about 110 bits) takes roughly 220 us. The bus carries at most about
+4,500 such frames per second, so 20,000 frames takes around 5 seconds.
 
 The script prints accuracy against the dataset's labels, per class precision
 and recall, the confusion matrix, and the detection and false positive rate

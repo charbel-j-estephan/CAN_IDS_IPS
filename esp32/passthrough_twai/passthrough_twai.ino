@@ -10,9 +10,11 @@
  *   PC -> board   'Q'  ->  "#DONE rx=<frames> ovf=<frames the controller dropped>\n"
  *   PC -> board   'Z'  ->  zero the counters
  *
- * At 921600 baud a 12 byte record takes about 130 us, slower than a full
- * 8 byte frame on the bus (about 110 us). That is why the sender pauses
- * GAP_US = 150 us between frames. Do not lower it with this sketch.
+ * Timing: at 500 kbit/s a bit lasts 2 us, so a full 8 byte frame (about 110
+ * bits) takes roughly 220 us on the bus, more with stuff bits. A 12 byte
+ * record at 921600 baud takes about 130 us, so USB keeps up with full length
+ * frames. Very short frames (a few bytes) are faster on the bus and could
+ * outrun it: raise GAP_US in the sender if you see lost frames.
  *
  * Wiring: see docs/ESP32_WIRING.md
  */

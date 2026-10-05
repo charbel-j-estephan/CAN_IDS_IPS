@@ -124,7 +124,7 @@
   <div class="result">
     <div class="card"><b>What the script checks</b>It compares every frame B reported with the list it sent: same ID, same length, same data bytes.</div>
     <div class="card"><b>Flow control</b>ESP32 A sends one byte <code>A</code> back to the PC every 64 frames, so the PC never gets more than 256 frames ahead.</div>
-    <div class="card"><b>Why 150 &micro;s gap</b>B&rsquo;s 12 byte record takes about 130 &micro;s on USB, slower than a full frame on the bus (about 110 &micro;s).</div>
+    <div class="card"><b>Is USB fast enough?</b>At 500 kbit/s a bit lasts 2 &micro;s, so an 8 byte frame (about 110 bits) takes roughly 220 &micro;s on the bus. B&rsquo;s 12 byte record takes about 130 &micro;s on USB, so USB keeps up. Only very short frames could outrun it.</div>
   </div>
 </main>
 
@@ -139,7 +139,7 @@
       pos: [240, 75], hot: ["w1"], bytes: ["id:03 16", "dlc:08", "d:05 21 68 09 21 21 00 6f"], note: "11 byte packet, USB serial" },
     { title: "3. ESP32 A hands the frame to its CAN controller",
       body: "The controller adds what the dataset does not contain: the start bit, the CRC checksum, the ACK slot and the end of frame. It also arbitrates, and waits for the bus to be free.",
-      pos: [355, 75], hot: [], bytes: ["id:0x316", "dlc:8", "d:05 21 68 09 21 21 00 6f", "+ CRC, ACK slot, EOF"], note: "A real CAN frame is about 110 bits" },
+      pos: [355, 75], hot: [], bytes: ["id:0x316", "dlc:8", "d:05 21 68 09 21 21 00 6f", "+ CRC, ACK slot, EOF"], note: "About 110 bits, so roughly 220 µs at 2 µs per bit" },
     { title: "4. The frame goes onto the bus as a voltage difference",
       body: "The transceiver turns the controller's 0s and 1s into the CANH/CANL difference. Everything on the bus hears it at once, which is why the sender needs a listener to ACK it.",
       pos: [355, 180], hot: ["w2"], bytes: ["500 kbit/s", "&asymp; 2 &micro;s per bit"], note: "Both ends terminated with 120 &Omega;" },
