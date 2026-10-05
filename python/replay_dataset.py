@@ -1,12 +1,14 @@
 """Replay a Car Hacking dataset file onto a real CAN bus with its original timing,
 record every frame the receiver hears, and write a results page.
 
-    PC --USB--> ESP32 A (replay_sender) --CAN bus--> ESP32 B (wifi_receiver) --WiFi--> PC
+    PC --USB--> ESP32 A (replay_sender) --CAN bus--> ESP32 B (usb_receiver) --USB--> PC
+                                                     or (wifi_receiver) --WiFi--> PC
 
-ESP32 B needs no USB data link. It connects to this script over WiFi (same
-hotspot as the PC) and every frame arrives here with a microsecond timestamp.
+Every frame arrives here with the microsecond time ESP32 B received it. USB is
+the reliable choice; WiFi frees a cable but a busy hotspot loses data.
 
-    python python/replay_dataset.py --sender COM5
+    python python/replay_dataset.py --sender COM5 --receiver COM6     # receiver on USB
+    python python/replay_dataset.py --sender COM5                     # receiver on WiFi
     python python/replay_dataset.py --sender COM5 --file Fuzzy_dataset.csv --n 100000
     python python/replay_dataset.py --sender COM5 --fast          # ignore timing, send flat out
 
@@ -188,6 +190,47 @@ class Receiver(threading.Thread):
 
     def last_stat(self):
         return next((t for t in reversed(self.texts) if t.startswith("#STAT")), None)
+
+
+class SerialReceiver(threading.Thread):
+    """ESP32 B on a USB cable (usb_receiver sketch). Same interface as Receiver."""
+
+    def __init__(self, ser):
+        super().__init__(daemon=True)
+        self.ser = ser
+        self.peer = ser.port
+        self.frames, self.stamps, self.texts = [], [], []
+        self.connected = threading.Event()
+        self.connected.set()
+        self.armed = False
+        self.connections = 1
+        self.ignored = 0
+        self.last_data = time.time()
+        self.last_stat_time = 0.0
+        self.stop = False
+
+    arm = Receiver.arm
+    last_stat = Receiver.last_stat
+
+    def run(self):
+        buf = bytearray()
+        while not self.stop:
+            data = self.ser.read(max(1, self.ser.in_waiting))
+            if not data:
+                continue
+            buf += data
+            f, s, t = parse_timed_stream(buf)
+            self.texts += t
+            if any(x.startswith("#STAT") for x in t):
+                self.last_stat_time = time.time()
+            if not f:
+                continue
+            self.last_data = time.time()
+            if self.armed:
+                self.frames += f
+                self.stamps += s
+            else:
+                self.ignored += len(f)
 
 
 def local_ips():
@@ -436,7 +479,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--sender", help="serial port of ESP32 A, for example COM5")
-    ap.add_argument("--port", type=int, default=5000, help="TCP port ESP32 B connects to")
+    ap.add_argument("--receiver", help="serial port of ESP32 B when it is on USB (usb_receiver "
+                                      "sketch), for example COM9. Leave out to use WiFi.")
+    ap.add_argument("--port", type=int, default=5000, help="TCP port ESP32 B connects to over WiFi")
     ap.add_argument("--data", default=os.path.join(ROOT, "data", "car_hacking"))
     ap.add_argument("--file", default="DoS_dataset.csv", choices=sorted(FILE_CLASS))
     ap.add_argument("--n", type=int, default=20000, help="frames to replay, 0 for the whole file")
@@ -464,14 +509,20 @@ def main():
     if realtime and span > 3600:
         sys.exit("The timestamp counter on the ESP32 wraps after 71 minutes. Use a smaller --n.")
 
-    rcv = Receiver(args.port)
-    rcv.start()
-    print("\nWaiting for ESP32 B to connect on port %d." % args.port)
-    print("Put one of these in PC_IP in secrets.h: %s" % ", ".join(local_ips() or ["(run ipconfig)"]))
-    print("If Windows asks about the firewall, allow Python on private networks.")
-    if not rcv.connected.wait(timeout=300):
-        sys.exit("ESP32 B never connected. Check WiFi, PC_IP, and the firewall.")
-    print("ESP32 B connected from %s" % rcv.peer)
+    if args.receiver:
+        if args.receiver.upper() == args.sender.upper():
+            sys.exit("--sender and --receiver must be two different COM ports")
+        rcv = SerialReceiver(E.open_board(args.receiver, args.baud, "Receiver (ESP32 B)"))
+        rcv.start()
+    else:
+        rcv = Receiver(args.port)
+        rcv.start()
+        print("\nWaiting for ESP32 B to connect on port %d." % args.port)
+        print("Put one of these in PC_IP in secrets.h: %s" % ", ".join(local_ips() or ["(run ipconfig)"]))
+        print("If Windows asks about the firewall, allow Python on private networks.")
+        if not rcv.connected.wait(timeout=300):
+            sys.exit("ESP32 B never connected. Check WiFi, PC_IP, and the firewall.")
+        print("ESP32 B connected from %s" % rcv.peer)
 
     # Let the board empty anything it buffered before this run, then start keeping frames.
     t_drain = time.time()
