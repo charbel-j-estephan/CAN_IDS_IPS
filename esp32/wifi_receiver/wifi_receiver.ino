@@ -27,9 +27,9 @@
 #define PIN_CAN_TX  GPIO_NUM_5
 #define PIN_CAN_RX  GPIO_NUM_4
 #define CHUNK       1024          // records per memory block (16 KB)
-#define MAX_CHUNKS  14            // up to 14336 records, about 10 s of a busy bus
-#define KEEP_FREE   60000         // bytes of memory left for WiFi
-#define BATCH       256           // records per TCP write (4 KB)
+#define MAX_CHUNKS  6             // 6144 records, 96 KB, about 4 s of a busy bus
+#define KEEP_FREE   100000        // bytes of memory left for WiFi; less made sends fail
+#define BATCH       64            // records per TCP write (1 KB); 4 KB writes starved WiFi
 
 // The buffer is built from 16 KB blocks: the ESP32 rarely has one free block
 // big enough for the whole thing, but it has many small ones.
@@ -73,7 +73,7 @@ static void net_task(void *)
     WiFiClient client;
     uint32_t last_stat = 0;
     static uint8_t out[BATCH * 16];
-    char line[96];
+    char line[192];
 
     for (;;) {
         if (WiFi.status() != WL_CONNECTED) {
@@ -113,9 +113,13 @@ static void net_task(void *)
             uint32_t ovf = 0;
             if (twai_get_status_info(&s) == ESP_OK)
                 ovf = s.rx_missed_count + s.rx_overrun_count;
-            int len = snprintf(line, sizeof line, "#STAT rx=%lu ovf=%lu drop=%lu peak=%lu size=%lu\n",
+            int len = snprintf(line, sizeof line,
+                               "#STAT rx=%lu ovf=%lu drop=%lu peak=%lu size=%lu heap=%lu minheap=%lu\n",
                                (unsigned long)rx_count, (unsigned long)ovf, (unsigned long)ring_drop,
-                               (unsigned long)peak, (unsigned long)ring_size);
+                               (unsigned long)peak, (unsigned long)ring_size,
+                               (unsigned long)ESP.getFreeHeap(), (unsigned long)ESP.getMinFreeHeap());
+            if (len < 0 || len >= (int)sizeof line)
+                len = strlen(line);
             if (!write_all(client, (const uint8_t *)line, len)) {
                 client.stop();
                 continue;
