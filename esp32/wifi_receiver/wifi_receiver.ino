@@ -26,10 +26,22 @@
 
 #define PIN_CAN_TX  GPIO_NUM_5
 #define PIN_CAN_RX  GPIO_NUM_4
-#define RING_SIZE   6144          // records, 16 bytes each = 96 KB
-#define BATCH       64            // records per TCP write
+#define CHUNK       1024          // records per memory block (16 KB)
+#define MAX_CHUNKS  14            // up to 14336 records, about 10 s of a busy bus
+#define KEEP_FREE   60000         // bytes of memory left for WiFi
+#define BATCH       256           // records per TCP write (4 KB)
 
-static uint8_t (*ring)[16];
+// The buffer is built from 16 KB blocks: the ESP32 rarely has one free block
+// big enough for the whole thing, but it has many small ones.
+static uint8_t (*chunks[MAX_CHUNKS])[16];
+static uint32_t ring_size = 0;
+static volatile uint32_t peak = 0;       // most records ever waiting for WiFi
+
+static inline uint8_t *slot(uint32_t i)
+{
+    i %= ring_size;
+    return chunks[i / CHUNK][i % CHUNK];
+}
 static volatile uint32_t head = 0;       // written by the CAN loop
 static volatile uint32_t tail = 0;       // written by the network task
 static volatile uint32_t rx_count = 0;
@@ -81,7 +93,7 @@ static void net_task(void *)
         size_t n = 0;
         uint32_t t = tail;
         while (t != head && n < BATCH * 16) {
-            memcpy(out + n, ring[t % RING_SIZE], 16);
+            memcpy(out + n, slot(t), 16);
             n += 16;
             t++;
         }
@@ -101,8 +113,9 @@ static void net_task(void *)
             uint32_t ovf = 0;
             if (twai_get_status_info(&s) == ESP_OK)
                 ovf = s.rx_missed_count + s.rx_overrun_count;
-            int len = snprintf(line, sizeof line, "#STAT rx=%lu ovf=%lu drop=%lu\n",
-                               (unsigned long)rx_count, (unsigned long)ovf, (unsigned long)ring_drop);
+            int len = snprintf(line, sizeof line, "#STAT rx=%lu ovf=%lu drop=%lu peak=%lu size=%lu\n",
+                               (unsigned long)rx_count, (unsigned long)ovf, (unsigned long)ring_drop,
+                               (unsigned long)peak, (unsigned long)ring_size);
             if (!write_all(client, (const uint8_t *)line, len)) {
                 client.stop();
                 continue;
@@ -117,7 +130,6 @@ static void net_task(void *)
 void setup()
 {
     Serial.begin(115200);
-    ring = (uint8_t(*)[16])malloc((size_t)RING_SIZE * 16);
 
     // Normal mode: this node must ACK frames, or the sender sees no receiver.
     twai_general_config_t g = TWAI_GENERAL_CONFIG_DEFAULT(PIN_CAN_TX, PIN_CAN_RX, TWAI_MODE_NORMAL);
@@ -166,6 +178,16 @@ void setup()
     Serial.printf("\nWiFi connected, this board is %s, streaming to %s:%d\n",
                   WiFi.localIP().toString().c_str(), PC_IP, PC_PORT);
 
+    // Reserve the frame buffer only now, after WiFi has taken the memory it needs.
+    for (int c = 0; c < MAX_CHUNKS && ESP.getFreeHeap() > KEEP_FREE + CHUNK * 16; c++) {
+        chunks[c] = (uint8_t(*)[16])malloc(CHUNK * 16);
+        if (!chunks[c])
+            break;
+        ring_size += CHUNK;
+    }
+    Serial.printf("Buffer holds %lu frames (%lu bytes of memory left)\n",
+                  (unsigned long)ring_size, (unsigned long)ESP.getFreeHeap());
+
     xTaskCreatePinnedToCore(net_task, "net", 8192, NULL, 1, NULL, 0);
 }
 
@@ -179,11 +201,14 @@ void loop()
         return;
 
     uint32_t h = head;
-    if (h - tail >= RING_SIZE) {
+    uint32_t waiting = h - tail;
+    if (waiting >= ring_size) {
         ring_drop++;
         return;
     }
-    uint8_t *r = ring[h % RING_SIZE];
+    if (waiting + 1 > peak)
+        peak = waiting + 1;
+    uint8_t *r = slot(h);
     uint8_t len = m.data_length_code > 8 ? 8 : m.data_length_code;
     r[0] = 0xA7;
     r[1] = (m.identifier >> 8) & 0x07;

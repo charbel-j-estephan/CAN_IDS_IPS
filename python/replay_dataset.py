@@ -310,8 +310,23 @@ def analyse(rows, frames, stamps, realtime):
             if k >= 0:
                 rx_rel[i] = st[k] - first_rx
                 err[i] = rx_rel[i] - (orig_us[i] - orig_us[first])
+    # The two ESP32 clocks run at slightly different speeds (tens of ppm), so the
+    # raw error grows in a straight line over the run. That slope is the clock
+    # drift between the boards, not replay timing. Fit it and keep what is left
+    # over as the jitter: how far each frame was from where it should have been.
+    jitter, drift_ppm = [None] * len(sent), None
+    pts = [(orig_us[i], e) for i, e in enumerate(err) if e is not None]
+    if realtime and len(pts) >= 10:
+        x = np.array([p[0] for p in pts])
+        y = np.array([p[1] for p in pts])
+        slope, icpt = np.polyfit(x, y, 1)
+        drift_ppm = float(slope * 1e6)
+        for i, e in enumerate(err):
+            if e is not None:
+                jitter[i] = e - (slope * orig_us[i] + icpt)
     return {"arrived": arrived, "spurious": spurious, "duplicates": dups, "rx_rel": rx_rel,
-            "err": err, "t0": rows[0][0], "realtime": realtime}
+            "err": err, "jitter": jitter, "drift_ppm": drift_ppm, "t0": rows[0][0],
+            "realtime": realtime}
 
 
 def summarise(rows, res, args, extra):
@@ -336,6 +351,14 @@ def summarise(rows, res, args, extra):
                                 "p99_abs": round(float(np.percentile(a, 99)), 1),
                                 "max_abs": round(float(a.max()), 1),
                                 "over_1ms": int((a > 1000).sum())}
+        j = np.abs(np.array([x for x in res["jitter"] if x is not None]))
+        if len(j):
+            s["timing_jitter_us"] = {"p50": round(float(np.percentile(j, 50)), 1),
+                                     "p95": round(float(np.percentile(j, 95)), 1),
+                                     "p99": round(float(np.percentile(j, 99)), 1),
+                                     "max": round(float(j.max()), 1),
+                                     "over_100us": int((j > 100).sum())}
+            s["clock_drift_ppm"] = round(res["drift_ppm"], 2)
         rr = [x for x in res["rx_rel"] if x is not None]
         s["replay_duration_s"] = round(rr[-1] / 1e6, 6) if rr else None
     s.update(extra)
@@ -347,12 +370,13 @@ def save_run(out, rows, res, frames, stamps, summary):
     with open(os.path.join(out, "frames.csv"), "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["index", "capture_time_s", "can_id", "dlc", "data", "class", "arrived",
-                    "received_us", "timing_error_us"])
+                    "received_us", "timing_error_us", "timing_jitter_us"])
         for i, r in enumerate(rows):
             w.writerow([i, "%.6f" % r[0], "%03X" % r[1], r[2], " ".join("%02X" % b for b in r[3:3 + r[2]]),
                         CLASS_NAMES[r[11]], int(res["arrived"][i]),
                         "" if res["rx_rel"][i] is None else int(res["rx_rel"][i]),
-                        "" if res["err"][i] is None else round(res["err"][i], 1)])
+                        "" if res["err"][i] is None else round(res["err"][i], 1),
+                        "" if res["jitter"][i] is None else round(res["jitter"][i], 1)])
     st = unwrap(stamps)
     with open(os.path.join(out, "received.csv"), "w", newline="") as f:
         w = csv.writer(f)
@@ -362,6 +386,31 @@ def save_run(out, rows, res, frames, stamps, summary):
     with open(os.path.join(out, "summary.json"), "w") as f:
         json.dump(summary, f, indent=2)
     report_html.write(os.path.join(out, "report.html"), summary, rows, res, CLASS_NAMES)
+
+
+def reanalyse(args):
+    """Score an earlier run again from the frames it saved."""
+    out = args.reanalyse
+    old = json.load(open(os.path.join(out, "summary.json")))
+    args.file = old["file"]
+    rows = load_timed(os.path.join(args.data, args.file), old["frames_sent"])
+    frames, stamps = [], []
+    with open(os.path.join(out, "received.csv")) as f:
+        for r in csv.DictReader(f):
+            data = [int(b, 16) for b in r["data"].split()]
+            frames.append((int(r["can_id"], 16), int(r["dlc"])) + tuple(data + [0] * (8 - len(data))))
+            stamps.append(int(r["board_time_us"]))
+    realtime = old.get("mode", "").startswith("original")
+    res = analyse(rows, frames, stamps, realtime)
+    keep = {k: old[k] for k in ("started", "sender_report", "receiver_report",
+                                "receiver_frames_this_run", "wifi_reconnects") if k in old}
+    summary = summarise(rows, res, args, keep)
+    save_run(out, rows, res, frames, stamps, summary)
+    print("Rebuilt %s: arrived %d of %d" % (out, summary["frames_arrived"], summary["frames_sent"]))
+    if "timing_jitter_us" in summary:
+        tj = summary["timing_jitter_us"]
+        print("Timing, clock drift removed: median %.1f us, 95%% within %.1f us, worst %.1f us; "
+              "drift %.1f ppm" % (tj["p50"], tj["p95"], tj["max"], summary["clock_drift_ppm"]))
 
 
 # ---- run ------------------------------------------------------------------------
@@ -377,7 +426,12 @@ def main():
     ap.add_argument("--fast", action="store_true", help="ignore the original timing")
     ap.add_argument("--baud", type=int, default=921600)
     ap.add_argument("--out", default=None, help="output folder, default runs/<time>_<file>")
+    ap.add_argument("--reanalyse", metavar="RUN_FOLDER",
+                    help="rebuild the results of an earlier run from its received.csv, no hardware")
     args = ap.parse_args()
+    if args.reanalyse:
+        reanalyse(args)
+        return
 
     path = os.path.join(args.data, args.file)
     if not os.path.exists(path):
@@ -455,7 +509,12 @@ def main():
     print("\nSent %d, arrived %d, lost %d (%.3f%% delivered)"
           % (summary["frames_sent"], summary["frames_arrived"], summary["frames_lost"],
              summary["delivery_percent"]))
-    if "timing_error_us" in summary:
+    if "timing_jitter_us" in summary:
+        tj = summary["timing_jitter_us"]
+        print("Timing against the original capture, clock drift removed: median %.1f us, "
+              "95%% within %.1f us, worst %.1f us" % (tj["p50"], tj["p95"], tj["max"]))
+        print("Clock drift between the two boards: %.1f ppm" % summary["clock_drift_ppm"])
+    elif "timing_error_us" in summary:
         te = summary["timing_error_us"]
         print("Timing against the original capture: typical %.0f us, worst %.0f us, "
               "%d frames off by more than 1 ms" % (te["p50_abs"], te["max_abs"], te["over_1ms"]))
