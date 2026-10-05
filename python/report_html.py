@@ -79,9 +79,10 @@ const kp = [
   [S.frames_lost.toLocaleString(), "lost on the way", S.frames_lost ? "bad" : "ok"],
   [S.delivery_percent.toFixed(3) + "%", "delivered", S.frames_lost ? "warn" : "ok"]
 ];
-if (S.timing_error_us) {
-  kp.push([S.timing_error_us.p95_abs + " µs", "timing error, 95% of frames"]);
-  kp.push([S.timing_error_us.max_abs + " µs", "worst timing error"]);
+if (S.timing_jitter_us) {
+  kp.push([S.timing_jitter_us.p95 + " µs", "timing, 95% of frames within"]);
+  kp.push([S.timing_jitter_us.max + " µs", "worst timing"]);
+  kp.push([S.clock_drift_ppm + " ppm", "clock drift between boards (removed)"]);
 }
 $("kpis").innerHTML = kp.map(k => `<div class="card kpi"><b class="${k[2]||""}">${k[0]}</b><span>${k[1]}</span></div>`).join("");
 
@@ -125,14 +126,14 @@ function drawHist() {
     $("n2").textContent = ""; return; }
   const [g, W, H] = setup($("c2")), hs = D.hist, ml = 52, mb = 34, n = hs.counts.length;
   const ymax = Math.max(1, ...hs.counts);
-  axes(g, W, H, ml, mb, ymax, "received time minus original time (µs)", "frames");
+  axes(g, W, H, ml, mb, ymax, "offset from the original timing (µs), drift removed", "frames");
   const bw = (W - ml - 8) / n;
   hs.counts.forEach((v, i) => { const h2 = (H - mb - 10) * v / ymax;
     g.fillStyle = Math.abs((hs.lo + (i + 0.5) * hs.step)) > 1000 ? css("--warn") : css("--accent");
     g.fillRect(ml + i * bw, H - mb - h2, Math.max(1, bw - 1), h2); });
   g.fillStyle = css("--muted"); g.textAlign = "left"; g.fillText(Math.round(hs.lo), ml, H - mb + 14);
   g.textAlign = "right"; g.fillText(Math.round(hs.lo + n * hs.step), W - 8, H - mb + 14);
-  $("n2").textContent = "A frame's offset is measured from the first frame, so a constant delay does not count. Orange bars are more than 1 ms off.";
+  $("n2").textContent = "Each frame's time on the bus compared with its time in the original capture. The steady drift between the two boards' clocks is removed first. Orange bars are more than 1 ms off.";
 }
 
 // ---- table of every frame ----
@@ -190,7 +191,7 @@ def write(path, summary, rows, res, class_names):
     bins = {"sent": sent_b.tolist(), "recv": recv_b.tolist(), "lost": lost_b.tolist(), "span": span}
 
     hist = None
-    err = np.array([e for e in res["err"] if e is not None])
+    err = np.array([e for e in res.get("jitter", res["err"]) if e is not None])
     if res["realtime"] and len(err):
         lim = max(float(np.percentile(np.abs(err), 99.5)), 50.0)
         counts, edges = np.histogram(np.clip(err, -lim, lim), bins=40, range=(-lim, lim))
