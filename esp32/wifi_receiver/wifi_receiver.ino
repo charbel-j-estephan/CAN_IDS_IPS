@@ -35,11 +35,33 @@ static volatile uint32_t tail = 0;       // written by the network task
 static volatile uint32_t rx_count = 0;
 static volatile uint32_t ring_drop = 0;
 
+// WiFiClient.write() may accept only part of the data when the TCP buffer is
+// full. Keep writing until everything is out, and give up only if the
+// connection is really gone.
+static bool write_all(WiFiClient &c, const uint8_t *p, size_t n)
+{
+    size_t off = 0;
+    uint32_t last_progress = millis();
+    while (off < n) {
+        size_t w = c.write(p + off, n - off);
+        if (w > 0) {
+            off += w;
+            last_progress = millis();
+            continue;
+        }
+        if (!c.connected() || millis() - last_progress > 5000)
+            return false;
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+    return true;
+}
+
 static void net_task(void *)
 {
     WiFiClient client;
     uint32_t last_stat = 0;
-    static uint8_t out[BATCH * 16 + 96];
+    static uint8_t out[BATCH * 16];
+    char line[96];
 
     for (;;) {
         if (WiFi.status() != WL_CONNECTED) {
@@ -64,6 +86,14 @@ static void net_task(void *)
             t++;
         }
 
+        if (n) {
+            if (!write_all(client, out, n)) {
+                client.stop();      // connection lost: these records are resent after reconnecting
+                continue;
+            }
+            tail = t;
+        }
+
         uint32_t now = millis();
         if (now - last_stat >= 1000) {
             last_stat = now;
@@ -71,19 +101,16 @@ static void net_task(void *)
             uint32_t ovf = 0;
             if (twai_get_status_info(&s) == ESP_OK)
                 ovf = s.rx_missed_count + s.rx_overrun_count;
-            n += snprintf((char *)out + n, 80, "#STAT rx=%lu ovf=%lu drop=%lu\n",
-                          (unsigned long)rx_count, (unsigned long)ovf, (unsigned long)ring_drop);
+            int len = snprintf(line, sizeof line, "#STAT rx=%lu ovf=%lu drop=%lu\n",
+                               (unsigned long)rx_count, (unsigned long)ovf, (unsigned long)ring_drop);
+            if (!write_all(client, (const uint8_t *)line, len)) {
+                client.stop();
+                continue;
+            }
         }
 
-        if (n) {
-            if (client.write(out, n) == n) {
-                tail = t;
-            } else {
-                client.stop();      // the PC closed the connection, reconnect
-            }
-        } else {
+        if (!n)
             vTaskDelay(pdMS_TO_TICKS(2));
-        }
     }
 }
 
