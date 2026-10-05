@@ -233,6 +233,46 @@ class SerialReceiver(threading.Thread):
                 self.ignored += len(f)
 
 
+class GatewayMonitor(threading.Thread):
+    """Reads the STM32 gateway's once a second "#GW ..." line from its USB port."""
+
+    def __init__(self, port):
+        super().__init__(daemon=True)
+        import serial
+        self.ser = serial.Serial(port, 115200, timeout=0.2)
+        self.last = None
+        self.stop = False
+
+    def run(self):
+        buf = b""
+        while not self.stop:
+            buf += self.ser.read(max(1, self.ser.in_waiting))
+            while b"\n" in buf:
+                line, buf = buf.split(b"\n", 1)
+                text = line.decode("ascii", "replace").strip()
+                if text.startswith("#GW"):
+                    self.last = text
+        self.ser.close()
+
+
+def gateway_delta(before, after):
+    """The gateway counts from power-on; report what happened during this run."""
+    if not after:
+        return None
+
+    def nums(line):
+        out = {}
+        for part in line.split()[1:]:
+            k, _, v = part.partition("=")
+            if v.isdigit():
+                out[k] = int(v)
+        return out
+    a, b = nums(before) if before else {}, nums(after)
+    run = {k: b[k] - a.get(k, 0) for k in ("rx", "fwd", "drop") if k in b}
+    return "%s (this run: in %s, forwarded %s, dropped %s)" % (
+        after, run.get("rx"), run.get("fwd"), run.get("drop"))
+
+
 def local_ips():
     ips = set()
     try:
@@ -350,7 +390,7 @@ def match_timed(sent, orig_us, frames, st):
     return rx_for, spurious
 
 
-def analyse(rows, frames, stamps, realtime):
+def analyse(rows, frames, stamps, realtime, gateway=False):
     sent = [tuple(int(v) for v in r[1:11]) for r in rows]
     frames, stamps, dups = dedupe(frames, stamps)
     st = unwrap(stamps)
@@ -370,6 +410,15 @@ def analyse(rows, frames, stamps, realtime):
             if k >= 0:
                 rx_rel[i] = st[k] - first_rx
                 err[i] = rx_rel[i] - (orig_us[i] - orig_us[first])
+        if gateway:
+            # A gateway can only resend a frame after receiving all of it, so on
+            # bus 2 each frame ends one frame length later than on bus 1. That
+            # part depends on the frame's length; take it out so what is left
+            # is the gateway's own processing and queueing.
+            dur = [frame_us(r[1], r[2], r[3:3 + r[2]]) for r in rows]
+            for i, k in enumerate(rx_for):
+                if k >= 0:
+                    err[i] -= dur[i] - dur[first]
     # The two ESP32 clocks run at slightly different speeds (tens of ppm), so the
     # raw error grows in a straight line over the run. That slope is the clock
     # drift between the boards, not replay timing. Fit it and keep what is left
@@ -386,7 +435,7 @@ def analyse(rows, frames, stamps, realtime):
                 jitter[i] = e - (slope * orig_us[i] + icpt)
     return {"arrived": arrived, "spurious": spurious, "duplicates": dups, "rx_rel": rx_rel,
             "err": err, "jitter": jitter, "drift_ppm": drift_ppm, "t0": rows[0][0],
-            "realtime": realtime}
+            "realtime": realtime, "gateway": gateway}
 
 
 def summarise(rows, res, args, extra):
@@ -419,6 +468,14 @@ def summarise(rows, res, args, extra):
                                      "max": round(float(j.max()), 1),
                                      "over_100us": int((j > 100).sum())}
             s["clock_drift_ppm"] = round(res["drift_ppm"], 2)
+            if res.get("gateway"):
+                x = np.array([v for v in res["jitter"] if v is not None])
+                added = x - np.percentile(x, 0.5)
+                s["gateway_extra_delay_us"] = {
+                    "p50": round(float(np.percentile(added, 50)), 1),
+                    "p95": round(float(np.percentile(added, 95)), 1),
+                    "p99": round(float(np.percentile(added, 99)), 1),
+                    "max": round(float(added.max()), 1)}
         rr = [x for x in res["rx_rel"] if x is not None]
         s["replay_duration_s"] = round(rr[-1] / 1e6, 6) if rr else None
     s.update(extra)
@@ -461,8 +518,9 @@ def reanalyse(args):
             frames.append((int(r["can_id"], 16), int(r["dlc"])) + tuple(data + [0] * (8 - len(data))))
             stamps.append(int(r["board_time_us"]))
     realtime = old.get("mode", "").startswith("original")
-    res = analyse(rows, frames, stamps, realtime)
-    keep = {k: old[k] for k in ("started", "sender_report", "receiver_report",
+    res = analyse(rows, frames, stamps, realtime, gateway=bool(old.get("gateway")))
+    keep = {k: old[k] for k in ("started", "sender_report", "receiver_report", "gateway",
+                                "gateway_report",
                                 "receiver_frames_this_run", "wifi_reconnects") if k in old}
     summary = summarise(rows, res, args, keep)
     save_run(out, rows, res, frames, stamps, summary)
@@ -479,6 +537,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--sender", help="serial port of ESP32 A, for example COM5")
+    ap.add_argument("--gateway", metavar="COM",
+                    help="the STM32 gateway sits between the buses; give its USB COM port to "
+                         "record its counters, or 'none' if it is not plugged into the PC")
     ap.add_argument("--receiver", help="serial port of ESP32 B when it is on USB (usb_receiver "
                                       "sketch), for example COM9. Leave out to use WiFi.")
     ap.add_argument("--port", type=int, default=5000, help="TCP port ESP32 B connects to over WiFi")
@@ -534,6 +595,14 @@ def main():
         print("Ignored %d old frames the receiver had buffered before this run" % rcv.ignored)
     rcv.arm()
 
+    gw = None
+    if args.gateway and args.gateway.lower() != "none":
+        gw = GatewayMonitor(args.gateway)
+        gw.start()
+        time.sleep(1.5)
+        print("Gateway (STM32) on %s: %s" % (args.gateway, gw.last or "no report yet"))
+    gw_before = gw.last if gw else None
+
     tx = E.open_board(args.sender, args.baud, "Sender   (ESP32 A)")
     t_run = time.time()
     packets = [pack_timed(r, rel) for r, rel in zip(rows, start_offsets(rows, realtime))]
@@ -554,6 +623,12 @@ def main():
         time.sleep(0.2)
     time.sleep(1.2)                       # one more #STAT after the last frame
     rcv.stop = True
+    gw_line = None
+    if gw:
+        time.sleep(1.2)
+        gw.stop = True
+        gw_line = gw.last or "no report"
+        print("Gateway says:  %s" % gw_line)
     stat = rcv.last_stat() or "no #STAT line"
     silent = time.time() - rcv.last_stat_time
     if silent > 3:
@@ -564,7 +639,7 @@ def main():
     print("Sender says:   %s" % (txline or "no reply"))
     print("Receiver says: %s" % stat)
 
-    res = analyse(rows, rcv.frames, rcv.stamps, realtime)
+    res = analyse(rows, rcv.frames, rcv.stamps, realtime, gateway=bool(args.gateway))
     rx_run = None
     try:
         a = int(stat_before.split("rx=")[1].split()[0]) if stat_before else None
@@ -577,7 +652,9 @@ def main():
     summary = summarise(rows, res, args, {"started": started, "sender_report": txline,
                                           "receiver_report": stat,
                                           "receiver_frames_this_run": rx_run,
-                                          "wifi_reconnects": max(0, rcv.connections - 1)})
+                                          "wifi_reconnects": max(0, rcv.connections - 1),
+                                          "gateway": bool(args.gateway),
+                                          "gateway_report": gateway_delta(gw_before, gw_line)})
     out = args.out or os.path.join(ROOT, "runs", "%s_%s" % (time.strftime("%Y%m%d_%H%M%S"),
                                                                args.file.replace(".csv", "")))
     save_run(out, rows, res, rcv.frames, rcv.stamps, summary)
@@ -585,6 +662,10 @@ def main():
     print("\nSent %d, arrived %d, lost %d (%.3f%% delivered)"
           % (summary["frames_sent"], summary["frames_arrived"], summary["frames_lost"],
              summary["delivery_percent"]))
+    if "gateway_extra_delay_us" in summary:
+        gx = summary["gateway_extra_delay_us"]
+        print("Delay the gateway adds beyond resending the frame: typical %.1f us, "
+              "95%% within %.1f us, worst %.1f us" % (gx["p50"], gx["p95"], gx["max"]))
     if "timing_jitter_us" in summary:
         tj = summary["timing_jitter_us"]
         print("Timing against the original capture, clock drift removed: median %.1f us, "

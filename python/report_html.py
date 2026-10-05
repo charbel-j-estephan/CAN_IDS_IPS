@@ -84,12 +84,17 @@ if (S.timing_jitter_us) {
   kp.push([S.timing_jitter_us.max + " µs", "worst timing"]);
   kp.push([S.clock_drift_ppm + " ppm", "clock drift between boards (removed)"]);
 }
+if (S.gateway_extra_delay_us) {
+  kp.push([S.gateway_extra_delay_us.p95 + " µs", "delay the gateway adds, 95% within"]);
+  kp.push([S.gateway_extra_delay_us.max + " µs", "worst delay the gateway adds"]);
+}
 $("kpis").innerHTML = kp.map(k => `<div class="card kpi"><b class="${k[2]||""}">${k[0]}</b><span>${k[1]}</span></div>`).join("");
 
 let h = "<tr><th>Class</th><th>Sent</th><th>Arrived</th><th>Lost</th></tr>";
 for (const [name, v] of Object.entries(S.by_class))
   h += `<tr><td>${name}</td><td>${v.sent.toLocaleString()}</td><td>${v.arrived.toLocaleString()}</td><td class="${v.lost?"bad":""}">${v.lost.toLocaleString()}</td></tr>`;
-h += `<tr><td colspan="4" class="note">Sender: ${S.sender_report || "n/a"}<br>Receiver: ${S.receiver_report}</td></tr>`;
+h += `<tr><td colspan="4" class="note">Sender: ${S.sender_report || "n/a"}<br>Receiver: ${S.receiver_report}` +
+     (S.gateway ? `<br>Gateway: ${S.gateway_report || "running, not connected to the PC"}` : "") + `</td></tr>`;
 $("cls").innerHTML = h;
 
 function setup(c) {
