@@ -29,6 +29,7 @@ import numpy as np
 
 import esp32_eval as E
 import report_html
+from can_bits import frame_us
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CLASS_NAMES = ["Normal", "DoS", "Fuzzy", "Gear_spoof", "RPM_spoof"]
@@ -67,6 +68,19 @@ def pack_timed(row, rel_us):
     cid, dlc = row[1], row[2]
     return bytes([cid >> 8, cid & 0xFF, dlc] + [int(b) for b in row[3:11]]) + \
         int(rel_us).to_bytes(4, "little")
+
+
+def start_offsets(rows, realtime):
+    """When ESP32 A must START each frame, in microseconds after the first one.
+
+    The dataset stamps a frame when it ENDS (checked against the capture: the
+    gap before a frame is never shorter than that frame's own length). So each
+    frame starts one frame length earlier, and that length depends on its
+    data through bit stuffing. 0 means "send now"."""
+    if not realtime:
+        return [0] * len(rows)
+    starts = [r[0] * 1e6 - frame_us(r[1], r[2], r[3:3 + r[2]]) for r in rows]
+    return [max(0, round(x - starts[0])) for x in starts]
 
 
 # ---- receiving over WiFi --------------------------------------------------------
@@ -467,8 +481,7 @@ def main():
     rcv.arm()
 
     tx = E.open_board(args.sender, args.baud, "Sender   (ESP32 A)")
-    t0 = rows[0][0]
-    packets = [pack_timed(r, 0 if not realtime else round((r[0] - t0) * 1e6)) for r in rows]
+    packets = [pack_timed(r, rel) for r, rel in zip(rows, start_offsets(rows, realtime))]
 
     started = time.strftime("%Y-%m-%d %H:%M:%S")
     secs = E.stream(tx, packets)
