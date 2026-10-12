@@ -1,8 +1,7 @@
 /* ESP32 B: CAN receiver that sends every frame to the PC over USB.
  *
- * Same records as wifi_receiver, but over the USB cable, which does not drop
- * data the way a busy WiFi hotspot does. Each frame is stamped with the time it
- * was received (microseconds, this board's clock).
+ * The logger of the bench. Each frame is stamped with the time it was received
+ * (microseconds, this board's clock) and sent to python/replay_dataset.py.
  *
  * Serial protocol, 921600 baud, 8N1:
  *   board -> PC   "READY\n" once at boot

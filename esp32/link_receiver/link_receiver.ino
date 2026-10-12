@@ -4,7 +4,7 @@
  * Open the Serial Monitor at 115200 baud. Pair with link_sender.
  *
  * Works the same for any sender on a 500 kbit/s bus, including the dataset
- * streamer (sender_twai).
+ * replay (replay_sender).
  */
 #include "driver/twai.h"
 

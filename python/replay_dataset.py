@@ -1,16 +1,14 @@
 """Replay a Car Hacking dataset file onto a real CAN bus with its original timing,
-record every frame the receiver hears, and write a results page.
+record every frame the logger hears, and write a results page.
 
     PC --USB--> ESP32 A (replay_sender) --CAN bus--> ESP32 B (usb_receiver) --USB--> PC
-                                                     or (wifi_receiver) --WiFi--> PC
 
-Every frame arrives here with the microsecond time ESP32 B received it. USB is
-the reliable choice; WiFi frees a cable but a busy hotspot loses data.
+Every frame arrives with the microsecond time ESP32 B received it.
 
-    python python/replay_dataset.py --sender COM5 --receiver COM6     # receiver on USB
-    python python/replay_dataset.py --sender COM5                     # receiver on WiFi
-    python python/replay_dataset.py --sender COM5 --file Fuzzy_dataset.csv --n 100000
-    python python/replay_dataset.py --sender COM5 --fast          # ignore timing, send flat out
+    python replay_dataset.py --sender COM8 --receiver COM7
+    python replay_dataset.py --sender COM8 --receiver COM7 --file Fuzzy_dataset.csv --n 100000
+    python replay_dataset.py --sender COM8 --receiver COM7 --fast     ignore timing, send flat out
+    python replay_dataset.py --reanalyse ../runs/<folder>             rescore a saved run
 
 Everything is saved under runs/<time>_<file>/ : frames.csv holds EVERY frame
 sent (with whether it arrived and when), received.csv every frame heard,
@@ -22,15 +20,14 @@ import argparse
 import csv
 import json
 import os
-import socket
 import sys
 import threading
 import time
 
 import numpy as np
 
-import esp32_eval as E
 import report_html
+import serial_link
 from can_bits import frame_us
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -38,7 +35,6 @@ CLASS_NAMES = ["Normal", "DoS", "Fuzzy", "Gear_spoof", "RPM_spoof"]
 FILE_CLASS = {"DoS_dataset.csv": 1, "Fuzzy_dataset.csv": 2,
               "gear_dataset.csv": 3, "RPM_dataset.csv": 4}
 SYNC_TS = 0xA7
-PACKET = 15
 
 
 # ---- dataset with timestamps ----------------------------------------------------
@@ -66,14 +62,14 @@ def load_timed(path, n):
 
 
 def pack_timed(row, rel_us):
-    """15 byte packet for ESP32 A: id, dlc, 8 data bytes, microsecond offset."""
+    """15 byte packet for a sender: id, dlc, 8 data bytes, microsecond offset."""
     cid, dlc = row[1], row[2]
     return bytes([cid >> 8, cid & 0xFF, dlc] + [int(b) for b in row[3:11]]) + \
         int(rel_us).to_bytes(4, "little")
 
 
 def start_offsets(rows, realtime):
-    """When ESP32 A must START each frame, in microseconds after the first one.
+    """When the sender must START each frame, in microseconds after the first one.
 
     The dataset stamps a frame when it ENDS (checked against the capture: the
     gap before a frame is never shorter than that frame's own length). So each
@@ -85,7 +81,7 @@ def start_offsets(rows, realtime):
     return [max(0, round(x - starts[0])) for x in starts]
 
 
-# ---- receiving over WiFi --------------------------------------------------------
+# ---- receiving ------------------------------------------------------------------
 
 def parse_timed_stream(buf):
     """Records are 0xA7 id_hi id_lo dlc d0..d7 t0..t3 (16 bytes), lines start with '#'.
@@ -117,62 +113,36 @@ def parse_timed_stream(buf):
     return frames, stamps, texts
 
 
-class Receiver(threading.Thread):
-    """TCP server: ESP32 B connects to it and every frame is stored here.
+class SerialReceiver(threading.Thread):
+    """Reads the logger (usb_receiver sketch) in the background.
 
     Frames are only kept once arm() is called. Anything earlier is frames the
-    board buffered before this run (an earlier attempt, bus noise) and would
-    otherwise be mistaken for part of this replay. If the WiFi link drops, the
-    board reconnects and this accepts it again.
+    board heard before this run and would otherwise be mistaken for part of it.
     """
 
-    def __init__(self, port):
+    def __init__(self, ser):
         super().__init__(daemon=True)
-        self.srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.srv.bind(("0.0.0.0", port))
-        self.srv.listen(1)
-        self.srv.settimeout(0.5)
+        self.ser = ser
         self.frames, self.stamps, self.texts = [], [], []
-        self.connected = threading.Event()
         self.armed = False
-        self.connections = 0
         self.ignored = 0                   # frames received before arm()
-        self.last_stat_time = 0.0          # the board sends #STAT once a second while it is alive
         self.last_data = time.time()       # time of the last FRAME received
+        self.last_stat_time = 0.0          # the board sends #STAT once a second while alive
         self.stop = False
 
     def arm(self):
         self.armed = True
         self.last_data = time.time()
 
-    def run(self):
-        while not self.stop:
-            try:
-                conn, addr = self.srv.accept()
-            except socket.timeout:
-                continue
-            except OSError:
-                break
-            self.peer = addr[0]
-            self.connections += 1
-            if self.connections > 1:
-                print("  ESP32 B reconnected (link dropped once)")
-            self.connected.set()
-            self._read(conn)
+    def last_stat(self):
+        return next((t for t in reversed(self.texts) if t.startswith("#STAT")), None)
 
-    def _read(self, conn):
-        buf = bytearray()                  # fresh per connection: a cut record is not glued to new data
-        conn.settimeout(0.2)
+    def run(self):
+        buf = bytearray()
         while not self.stop:
-            try:
-                data = conn.recv(65536)
-            except socket.timeout:
-                continue
-            except OSError:
-                break
+            data = self.ser.read(max(1, self.ser.in_waiting))
             if not data:
-                break
+                continue
             buf += data
             f, s, t = parse_timed_stream(buf)
             self.texts += t
@@ -186,105 +156,6 @@ class Receiver(threading.Thread):
                 self.stamps += s
             else:
                 self.ignored += len(f)
-        conn.close()
-
-    def last_stat(self):
-        return next((t for t in reversed(self.texts) if t.startswith("#STAT")), None)
-
-
-class SerialReceiver(threading.Thread):
-    """ESP32 B on a USB cable (usb_receiver sketch). Same interface as Receiver."""
-
-    def __init__(self, ser):
-        super().__init__(daemon=True)
-        self.ser = ser
-        self.peer = ser.port
-        self.frames, self.stamps, self.texts = [], [], []
-        self.connected = threading.Event()
-        self.connected.set()
-        self.armed = False
-        self.connections = 1
-        self.ignored = 0
-        self.last_data = time.time()
-        self.last_stat_time = 0.0
-        self.stop = False
-
-    arm = Receiver.arm
-    last_stat = Receiver.last_stat
-
-    def run(self):
-        buf = bytearray()
-        while not self.stop:
-            data = self.ser.read(max(1, self.ser.in_waiting))
-            if not data:
-                continue
-            buf += data
-            f, s, t = parse_timed_stream(buf)
-            self.texts += t
-            if any(x.startswith("#STAT") for x in t):
-                self.last_stat_time = time.time()
-            if not f:
-                continue
-            self.last_data = time.time()
-            if self.armed:
-                self.frames += f
-                self.stamps += s
-            else:
-                self.ignored += len(f)
-
-
-class GatewayMonitor(threading.Thread):
-    """Reads the STM32 gateway's once a second "#GW ..." line from its USB port."""
-
-    def __init__(self, port):
-        super().__init__(daemon=True)
-        import serial
-        self.ser = serial.Serial(port, 115200, timeout=0.2)
-        self.last = None
-        self.stop = False
-
-    def run(self):
-        buf = b""
-        while not self.stop:
-            buf += self.ser.read(max(1, self.ser.in_waiting))
-            while b"\n" in buf:
-                line, buf = buf.split(b"\n", 1)
-                text = line.decode("ascii", "replace").strip()
-                if text.startswith("#GW"):
-                    self.last = text
-        self.ser.close()
-
-
-def gateway_delta(before, after):
-    """The gateway counts from power-on; report what happened during this run."""
-    if not after:
-        return None
-
-    def nums(line):
-        out = {}
-        for part in line.split()[1:]:
-            k, _, v = part.partition("=")
-            if v.isdigit():
-                out[k] = int(v)
-        return out
-    a, b = nums(before) if before else {}, nums(after)
-    run = {k: b[k] - a.get(k, 0) for k in ("rx", "fwd", "drop") if k in b}
-    return "%s (this run: in %s, forwarded %s, dropped %s)" % (
-        after, run.get("rx"), run.get("fwd"), run.get("drop"))
-
-
-def local_ips():
-    ips = set()
-    try:
-        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
-            ips.add(info[4][0])
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("10.255.255.255", 1))
-        ips.add(s.getsockname()[0])
-        s.close()
-    except OSError:
-        pass
-    return sorted(i for i in ips if not i.startswith("127."))
 
 
 # ---- analysis -------------------------------------------------------------------
@@ -305,10 +176,10 @@ SEQ_WINDOW = 4096            # fast mode: how far ahead to look for a frame
 
 
 def dedupe(frames, stamps):
-    """Drop records the board sent twice (resent after a WiFi reconnect).
+    """Drop records the logger reported twice.
 
-    A resent record carries the same board timestamp as the original, and two
-    different frames can never share one microsecond on a 500 kbit/s bus."""
+    Two different frames can never share one microsecond on a 500 kbit/s bus,
+    so the same timestamp and ID means the same frame."""
     seen, f2, s2 = set(), [], []
     for f, t in zip(frames, stamps):
         key = (t, f[0])
@@ -390,7 +261,7 @@ def match_timed(sent, orig_us, frames, st):
     return rx_for, spurious
 
 
-def analyse(rows, frames, stamps, realtime, gateway=False):
+def analyse(rows, frames, stamps, realtime):
     sent = [tuple(int(v) for v in r[1:11]) for r in rows]
     frames, stamps, dups = dedupe(frames, stamps)
     st = unwrap(stamps)
@@ -410,15 +281,6 @@ def analyse(rows, frames, stamps, realtime, gateway=False):
             if k >= 0:
                 rx_rel[i] = st[k] - first_rx
                 err[i] = rx_rel[i] - (orig_us[i] - orig_us[first])
-        if gateway:
-            # A gateway can only resend a frame after receiving all of it, so on
-            # bus 2 each frame ends one frame length later than on bus 1. That
-            # part depends on the frame's length; take it out so what is left
-            # is the gateway's own processing and queueing.
-            dur = [frame_us(r[1], r[2], r[3:3 + r[2]]) for r in rows]
-            for i, k in enumerate(rx_for):
-                if k >= 0:
-                    err[i] -= dur[i] - dur[first]
     # The two ESP32 clocks run at slightly different speeds (tens of ppm), so the
     # raw error grows in a straight line over the run. That slope is the clock
     # drift between the boards, not replay timing. Fit it and keep what is left
@@ -435,7 +297,7 @@ def analyse(rows, frames, stamps, realtime, gateway=False):
                 jitter[i] = e - (slope * orig_us[i] + icpt)
     return {"arrived": arrived, "spurious": spurious, "duplicates": dups, "rx_rel": rx_rel,
             "err": err, "jitter": jitter, "drift_ppm": drift_ppm, "t0": rows[0][0],
-            "realtime": realtime, "gateway": gateway}
+            "realtime": realtime}
 
 
 def summarise(rows, res, args, extra):
@@ -468,14 +330,6 @@ def summarise(rows, res, args, extra):
                                      "max": round(float(j.max()), 1),
                                      "over_100us": int((j > 100).sum())}
             s["clock_drift_ppm"] = round(res["drift_ppm"], 2)
-            if res.get("gateway"):
-                x = np.array([v for v in res["jitter"] if v is not None])
-                added = x - np.percentile(x, 0.5)
-                s["gateway_extra_delay_us"] = {
-                    "p50": round(float(np.percentile(added, 50)), 1),
-                    "p95": round(float(np.percentile(added, 95)), 1),
-                    "p99": round(float(np.percentile(added, 99)), 1),
-                    "max": round(float(added.max()), 1)}
         rr = [x for x in res["rx_rel"] if x is not None]
         s["replay_duration_s"] = round(rr[-1] / 1e6, 6) if rr else None
     s.update(extra)
@@ -518,10 +372,9 @@ def reanalyse(args):
             frames.append((int(r["can_id"], 16), int(r["dlc"])) + tuple(data + [0] * (8 - len(data))))
             stamps.append(int(r["board_time_us"]))
     realtime = old.get("mode", "").startswith("original")
-    res = analyse(rows, frames, stamps, realtime, gateway=bool(old.get("gateway")))
-    keep = {k: old[k] for k in ("started", "sender_report", "receiver_report", "gateway",
-                                "gateway_report",
-                                "receiver_frames_this_run", "wifi_reconnects") if k in old}
+    res = analyse(rows, frames, stamps, realtime)
+    keep = {k: old[k] for k in ("started", "sender_report", "receiver_report",
+                                "receiver_frames_this_run") if k in old}
     summary = summarise(rows, res, args, keep)
     save_run(out, rows, res, frames, stamps, summary)
     print("Rebuilt %s: arrived %d of %d" % (out, summary["frames_arrived"], summary["frames_sent"]))
@@ -536,13 +389,8 @@ def reanalyse(args):
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--sender", help="serial port of ESP32 A, for example COM5")
-    ap.add_argument("--gateway", metavar="COM",
-                    help="the STM32 gateway sits between the buses; give its USB COM port to "
-                         "record its counters, or 'none' if it is not plugged into the PC")
-    ap.add_argument("--receiver", help="serial port of ESP32 B when it is on USB (usb_receiver "
-                                      "sketch), for example COM9. Leave out to use WiFi.")
-    ap.add_argument("--port", type=int, default=5000, help="TCP port ESP32 B connects to over WiFi")
+    ap.add_argument("--sender", help="COM port of ESP32 A (replay_sender), for example COM8")
+    ap.add_argument("--receiver", help="COM port of ESP32 B (usb_receiver), for example COM7")
     ap.add_argument("--data", default=os.path.join(ROOT, "data", "car_hacking"))
     ap.add_argument("--file", default="DoS_dataset.csv", choices=sorted(FILE_CLASS))
     ap.add_argument("--n", type=int, default=20000, help="frames to replay, 0 for the whole file")
@@ -555,8 +403,10 @@ def main():
     if args.reanalyse:
         reanalyse(args)
         return
-    if not args.sender:
-        ap.error("--sender is required, for example --sender COM8")
+    if not (args.sender and args.receiver):
+        ap.error("--sender and --receiver are required, for example --sender COM8 --receiver COM7")
+    if args.receiver.upper() == args.sender.upper():
+        sys.exit("--sender and --receiver must be two different COM ports")
 
     path = os.path.join(args.data, args.file)
     if not os.path.exists(path):
@@ -570,22 +420,10 @@ def main():
     if realtime and span > 3600:
         sys.exit("The timestamp counter on the ESP32 wraps after 71 minutes. Use a smaller --n.")
 
-    if args.receiver:
-        if args.receiver.upper() == args.sender.upper():
-            sys.exit("--sender and --receiver must be two different COM ports")
-        rcv = SerialReceiver(E.open_board(args.receiver, args.baud, "Receiver (ESP32 B)"))
-        rcv.start()
-    else:
-        rcv = Receiver(args.port)
-        rcv.start()
-        print("\nWaiting for ESP32 B to connect on port %d." % args.port)
-        print("Put one of these in PC_IP in secrets.h: %s" % ", ".join(local_ips() or ["(run ipconfig)"]))
-        print("If Windows asks about the firewall, allow Python on private networks.")
-        if not rcv.connected.wait(timeout=300):
-            sys.exit("ESP32 B never connected. Check WiFi, PC_IP, and the firewall.")
-        print("ESP32 B connected from %s" % rcv.peer)
+    rcv = SerialReceiver(serial_link.open_board(args.receiver, args.baud, "Receiver (ESP32 B)"))
+    rcv.start()
 
-    # Let the board empty anything it buffered before this run, then start keeping frames.
+    # Let the logger empty anything it heard before this run, then start keeping frames.
     t_drain = time.time()
     while time.time() - rcv.last_data < 1.5 and time.time() - t_drain < 20:
         time.sleep(0.1)
@@ -595,20 +433,11 @@ def main():
         print("Ignored %d old frames the receiver had buffered before this run" % rcv.ignored)
     rcv.arm()
 
-    gw = None
-    if args.gateway and args.gateway.lower() != "none":
-        gw = GatewayMonitor(args.gateway)
-        gw.start()
-        time.sleep(1.5)
-        print("Gateway (STM32) on %s: %s" % (args.gateway, gw.last or "no report yet"))
-    gw_before = gw.last if gw else None
-
-    tx = E.open_board(args.sender, args.baud, "Sender   (ESP32 A)")
-    t_run = time.time()
+    tx = serial_link.open_board(args.sender, args.baud, "Sender   (ESP32 A)")
     packets = [pack_timed(r, rel) for r, rel in zip(rows, start_offsets(rows, realtime))]
 
     started = time.strftime("%Y-%m-%d %H:%M:%S")
-    secs = E.stream(tx, packets)
+    secs = serial_link.stream(tx, packets)
     print("All frames handed to the sender after %.1f s" % secs)
 
     tx.write(b"Q")                        # the sender answers once it has sent everything
@@ -623,23 +452,16 @@ def main():
         time.sleep(0.2)
     time.sleep(1.2)                       # one more #STAT after the last frame
     rcv.stop = True
-    gw_line = None
-    if gw:
-        time.sleep(1.2)
-        gw.stop = True
-        gw_line = gw.last or "no report"
-        print("Gateway says:  %s" % gw_line)
     stat = rcv.last_stat() or "no #STAT line"
     silent = time.time() - rcv.last_stat_time
     if silent > 3:
         stat += " (WARNING: last report %.0f s ago, the receiver stopped talking during the run)" % silent
         print("\nWARNING: ESP32 B stopped reporting %.0f s before the end. Its numbers are stale and "
-              "frames after that point were not recorded. Plug it into the PC and open the Serial "
-              "Monitor at 115200 to see why." % silent)
+              "frames after that point were not recorded." % silent)
     print("Sender says:   %s" % (txline or "no reply"))
     print("Receiver says: %s" % stat)
 
-    res = analyse(rows, rcv.frames, rcv.stamps, realtime, gateway=bool(args.gateway))
+    res = analyse(rows, rcv.frames, rcv.stamps, realtime)
     rx_run = None
     try:
         a = int(stat_before.split("rx=")[1].split()[0]) if stat_before else None
@@ -651,10 +473,7 @@ def main():
         stat = "%s (heard %d frames during this run)" % (stat, rx_run)
     summary = summarise(rows, res, args, {"started": started, "sender_report": txline,
                                           "receiver_report": stat,
-                                          "receiver_frames_this_run": rx_run,
-                                          "wifi_reconnects": max(0, rcv.connections - 1),
-                                          "gateway": bool(args.gateway),
-                                          "gateway_report": gateway_delta(gw_before, gw_line)})
+                                          "receiver_frames_this_run": rx_run})
     out = args.out or os.path.join(ROOT, "runs", "%s_%s" % (time.strftime("%Y%m%d_%H%M%S"),
                                                                args.file.replace(".csv", "")))
     save_run(out, rows, res, rcv.frames, rcv.stamps, summary)
@@ -662,19 +481,11 @@ def main():
     print("\nSent %d, arrived %d, lost %d (%.3f%% delivered)"
           % (summary["frames_sent"], summary["frames_arrived"], summary["frames_lost"],
              summary["delivery_percent"]))
-    if "gateway_extra_delay_us" in summary:
-        gx = summary["gateway_extra_delay_us"]
-        print("Delay the gateway adds beyond resending the frame: typical %.1f us, "
-              "95%% within %.1f us, worst %.1f us" % (gx["p50"], gx["p95"], gx["max"]))
     if "timing_jitter_us" in summary:
         tj = summary["timing_jitter_us"]
         print("Timing against the original capture, clock drift removed: median %.1f us, "
               "95%% within %.1f us, worst %.1f us" % (tj["p50"], tj["p95"], tj["max"]))
         print("Clock drift between the two boards: %.1f ppm" % summary["clock_drift_ppm"])
-    elif "timing_error_us" in summary:
-        te = summary["timing_error_us"]
-        print("Timing against the original capture: typical %.0f us, worst %.0f us, "
-              "%d frames off by more than 1 ms" % (te["p50_abs"], te["max_abs"], te["over_1ms"]))
     print("\nEvery frame is saved in:\n  %s" % out)
     print("Open report.html there for the results page.")
 
