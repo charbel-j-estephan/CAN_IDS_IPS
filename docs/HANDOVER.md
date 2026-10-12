@@ -52,7 +52,7 @@ start and while the attack pauses, against about +3 us during the attack
 
 1. Bench done for now. (Identical frames from one board are now matched in
    order: the 322 us worst case of run 20261012_231036 rescores to 178 us.)
-2. STM32 alone IDS (report Fig. 3), per the approved plan: M1 bit-level CAN
+2. STM32 alone IDS (report Fig. 3), wiring in `docs/STM32_WIRING.md`, per the approved plan: M1 bit-level CAN
    reception in software on PB8 (TX on PB9 held high), frames to the PC over
    USB in the logger's format; M2 the emlearn random forest per frame with
    decision time; M3 later, error flag for prevention.
