@@ -16,8 +16,8 @@ Branch `claude/esp32-can-bus-wiring-372c60`. The repo is the master copy;
 
 ## Next (approved plan)
 
-1. Attacker on its own ESP32 (third board on USB): normal frames from A,
-   attack frames from C, both clocks started from one marker frame on the bus.
+1. Attacker on its own ESP32: written and tested in simulation (`attack_sender`,
+   `replay_dataset.py --attacker`); hardware run still to do.
 2. STM32 alone IDS (report Fig. 3): bit-level reception in software on PB8,
    then the emlearn random forest per frame.
 

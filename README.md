@@ -127,7 +127,7 @@ hdl/rf_ids_tb.v       Icarus Verilog testbench, checks every frame
 quartus/              Quartus Prime Lite project for the DE10 Lite
 mcu/host_test.c       runs the C model on your PC against the test vectors
 mcu/stm32/            drop in STM32 code, times each call with the DWT counter
-esp32/                CAN bench sketches: replay_sender, usb_receiver, link test pair
+esp32/                CAN bench sketches: replay_sender, attack_sender, usb_receiver, link test pair
 run_pipeline.sh       train, export, simulate and check in one command
 docs/
   BUILD_GUIDE.md          step by step guide

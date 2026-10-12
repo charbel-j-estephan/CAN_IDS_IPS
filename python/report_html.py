@@ -54,6 +54,8 @@ select,input{font:inherit;padding:6px 8px;border-radius:8px;border:1px solid var
     <div class="note" id="n2"></div></div>
 </div>
 <div class="card" style="margin-bottom:14px"><h2>By class</h2><table class="small" id="cls"></table></div>
+<div class="card" style="margin-bottom:14px" id="nodes_card"><h2>Boards on the bus</h2><table class="small" id="nodes"></table>
+  <div class="note">late: frames handed to the CAN controller more than 100 µs after their time. tec / rec: transmit / receive error counters (error passive above 127, bus off above 255). lost arbitration: another node with a lower ID won the bus.</div></div>
 <div class="card"><h2>Every frame</h2>
   <div class="tools">
     <select id="fr"><option value="all">All results</option><option value="a">Arrived</option><option value="l">Lost</option></select>
@@ -91,6 +93,26 @@ for (const [name, v] of Object.entries(S.by_class))
   h += `<tr><td>${name}</td><td>${v.sent.toLocaleString()}</td><td>${v.arrived.toLocaleString()}</td><td class="${v.lost?"bad":""}">${v.lost.toLocaleString()}</td></tr>`;
 h += `<tr><td colspan="4" class="note">Sender: ${S.sender_report || "n/a"}<br>Receiver: ${S.receiver_report}</td></tr>`;
 $("cls").innerHTML = h;
+
+if (S.nodes) {
+  const cols = [["sent", "sent"], ["rx", "heard"], ["late", "late"], ["maxlate", "worst late (µs)"],
+                ["tec", "tec"], ["rec", "rec"], ["state", "state"], ["arblost", "lost arbitration"],
+                ["txfail", "failed sends"], ["buserr", "bus errors"], ["drop", "dropped"]];
+  const used = cols.filter(c => Object.values(S.nodes).some(n => n[c[0]] !== undefined));
+  let t = "<tr><th>Board</th>" + used.map(c => `<th>${c[1]}</th>`).join("") + "</tr>";
+  for (const [name, n] of Object.entries(S.nodes)) {
+    t += `<tr><td>${name}</td>` + used.map(c => {
+      const v = n[c[0]];
+      const bad = (c[0] === "state" && v && v !== "running") || (["late", "txfail", "drop"].includes(c[0]) && v > 0);
+      return `<td class="${bad ? "bad" : ""}">${v === undefined ? "" : (typeof v === "number" ? v.toLocaleString() : v)}</td>`;
+    }).join("") + "</tr>";
+  }
+  if (S.attacker_sync_offset_us !== undefined)
+    t += `<tr><td colspan="${used.length + 1}" class="note">Attacker synced ${S.attacker_sync_offset_us} µs from the normal sender, its clock drifts ${S.attacker_clock_drift_ppm} ppm.</td></tr>`;
+  $("nodes").innerHTML = t;
+} else {
+  $("nodes_card").style.display = "none";
+}
 
 function setup(c) {
   const r = c.getBoundingClientRect(), d = window.devicePixelRatio || 1;

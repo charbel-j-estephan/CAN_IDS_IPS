@@ -5,16 +5,23 @@
  * and then sends the frame, so the bus carries the same traffic pattern the
  * car did. Use a data cable: the PC needs this board's COM port.
  *
+ * In the 3-board bench this board sends the normal traffic, and its first frame
+ * is the start marker the attacker (attack_sender) starts its clock on.
+ *
  * Serial protocol, 921600 baud, 8N1:
  *   board -> PC   "READY\n" once at boot
  *   PC -> board   15 byte packets: id_hi id_lo dlc d0..d7 t0 t1 t2 t3
  *                 t is a 32 bit little endian count of microseconds since the
  *                 first frame. t = 0 means "send now" (used for the fast mode).
  *   board -> PC   one byte 'A' after every ACK_EVERY frames sent
- *   PC -> board   'Q'  ->  "#TX sent=<n> late=<n> maxlate=<us>\n"
+ *   PC -> board   'Q'  ->  "#TX sent=<n> late=<n> maxlate=<us> tec=<n> rec=<n>
+ *                           state=<running|busoff|recovering|stopped>
+ *                           arblost=<n> txfail=<n> buserr=<n>\n"
  *
- * "late" counts frames sent more than 100 us after their time (the bus was
- * busy, or the PC did not deliver in time).
+ * "late" counts frames handed to the CAN controller more than 100 us after
+ * their time. tec/rec are the controller's transmit/receive error counters,
+ * arblost how often another node won arbitration (for example a DoS attacker
+ * with ID 0x000), txfail frames that could not be sent.
  *
  * Wiring: module TX -> GPIO 5, module RX -> GPIO 4. See docs/ESP32_WIRING.md
  */
@@ -25,6 +32,21 @@
 #define PIN_CAN_RX  GPIO_NUM_4
 #define ACK_EVERY   64
 #define PACKET_LEN  15
+
+// Final report. Lower case words only: the PC strips the 'A' ack bytes.
+static void report(uint32_t sent, uint32_t late, uint32_t max_late)
+{
+    twai_status_info_t s = {};
+    twai_get_status_info(&s);
+    const char *state = s.state == TWAI_STATE_RUNNING ? "running"
+                      : s.state == TWAI_STATE_BUS_OFF ? "busoff"
+                      : s.state == TWAI_STATE_RECOVERING ? "recovering" : "stopped";
+    Serial.printf("#TX sent=%lu late=%lu maxlate=%lu tec=%lu rec=%lu state=%s arblost=%lu txfail=%lu buserr=%lu\n",
+                  (unsigned long)sent, (unsigned long)late, (unsigned long)max_late,
+                  (unsigned long)s.tx_error_counter, (unsigned long)s.rx_error_counter, state,
+                  (unsigned long)s.arb_lost_count, (unsigned long)s.tx_failed_count,
+                  (unsigned long)s.bus_error_count);
+}
 
 void setup()
 {
@@ -52,8 +74,7 @@ void loop()
 
     if (Serial.peek() == 'Q' && Serial.available() < PACKET_LEN) {
         Serial.read();
-        Serial.printf("#TX sent=%lu late=%lu maxlate=%lu\n",
-                      (unsigned long)sent, (unsigned long)late, (unsigned long)max_late);
+        report(sent, late, max_late);
         return;
     }
     if (Serial.available() < PACKET_LEN)

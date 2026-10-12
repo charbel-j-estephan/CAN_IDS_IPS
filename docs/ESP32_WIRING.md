@@ -66,6 +66,35 @@ Each run writes `runs/<time>_<file>/`: `report.html` (results page),
 `frames.csv` (every frame sent, arrived or not, timing), `received.csv` (every
 frame heard), `summary.json`.
 
+## Three boards: a separate attacker
+
+```
+PC --USB--> ESP32 A  replay_sender  (normal frames) --+
+PC --USB--> ESP32 C  attack_sender  (attack frames) --+== CAN bus ==  ESP32 B usb_receiver --USB--> PC
+```
+
+With a third ESP32 the attack frames come from their own node, as in the
+block diagram report: they compete with the normal frames in real arbitration
+(a DoS frame with ID 0x000 always wins), and later an IPS can push only the
+attacker to bus off.
+
+- Upload `esp32/attack_sender` to ESP32 C. It prints `READY ATTACKER`, which
+  is how `run_check` finds it. Wire its CAN module like the others, on the same
+  CANH/CANL pair. Keep 120 ohm only on the two modules at the physical ends of
+  the bus (multimeter: about 60 ohm CANH to CANL).
+- `run_check.bat` uses the attacker automatically when it is plugged in. By
+  hand: `python replay_dataset.py --sender COM8 --receiver COM7 --attacker COM9`.
+
+How the two senders stay in step: ESP32 A first sends a start marker (ID
+0x7FF, data "CANSTART"). ESP32 C starts its clock when it hears it, so both
+boards share one time base within a few microseconds, independent of USB.
+The marker is not counted in the results. The run starts at the first normal
+frame of the file.
+
+The results page then shows each board's numbers: frames sent, late frames,
+error counters, bus state, lost arbitrations, and how closely the attacker
+synced to the normal sender.
+
 ## Wiring check without any script
 
 `esp32/link_sender` and `esp32/link_receiver`: the sender puts a counting frame
