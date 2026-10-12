@@ -27,7 +27,7 @@ Without C plugged in it runs the 2-board mode (A sends everything).
 | Sync fix (normal sender takes time zero when the marker finished sending) | Tested (`20261012_223152`) |
 | Drift tracking (attacker follows A's clock during the run) | Tested (`20261012_225632`): drift 6.8 -> 0.2 ppm, 14,225 frames tracked, 0 missed, median 16.6 -> 7.6 us |
 | Sync trim 35 us (attacker time zero earlier) | Tested (`20261012_230423`): attacker offset 35 -> 7.5 us; against the 2-board run frame by frame, median deviation 15.4 -> 7.7 us |
-| Sync trim raised to 43 us | Committed, **not yet tested on hardware** |
+| Sync trim raised to 43 us | Tested (`20261012_231036`): attacker offset 1.8 us; against the 2-board run, attack frames +2.6 us, median deviation 7.0 us |
 
 The attacker offset is now measured only on frames with a clear bus before
 them (100 us idle in the capture); the old number came from fits pulled by the
@@ -42,7 +42,7 @@ read 11.4 us (was 7.6) although every frame moved closer to the 2-board run.
 Normal frames queued behind others differ most (p95 about 57 us), partly
 real arbitration: C's ID 0x000 now wins against A's next frame, where one
 board sending in file order never contends. Remaining attacker offset about
-8 us, so SYNC_TRIM_US is now 43 (to be confirmed by a run).
+8 us with trim 35; with 43 it is 1.8 us.
 
 Still unexplained, smaller: A's normal frames read 20 to 30 us late at the
 start and while the attack pauses, against about +3 us during the attack
@@ -50,8 +50,10 @@ start and while the attack pauses, against about +3 us during the attack
 
 ## To do next
 
-1. Upload `attack_sender` (trim 43) to C, one run: attacker offset should
-   read within a few us of 0. Then the bench is done for now.
+1. Bench done for now. Known scoring quirk: two identical frames (DoS 0x000)
+   less than a frame apart can be matched crosswise, so one late frame shows
+   as +322 / -158 us instead of about +190 / +4 (run 20261012_231036 at
+   2.81 s). Matching identical frames in order would fix it.
 2. STM32 alone IDS (report Fig. 3), per the approved plan: M1 bit-level CAN
    reception in software on PB8 (TX on PB9 held high), frames to the PC over
    USB in the logger's format; M2 the emlearn random forest per frame with
