@@ -55,9 +55,9 @@
 #define MARKER_US   224
 // This board hears a frame later after it ends than replay_sender learns its
 // own frame has gone out, so time zero taken from the marker comes out late.
-// Measured on the bench (frames with a clear bus before them, run
-// 20261012_225632): attack frames 35 us behind the normal sender's clock.
-#define SYNC_TRIM_US 35
+// Measured on the bench (frames with a clear bus before them): 35 us late
+// with no trim (run 20261012_225632), still 8 us late with 35 (20261012_230423).
+#define SYNC_TRIM_US 43
 static const uint8_t MARKER_DATA[8] = {'C', 'A', 'N', 'S', 'T', 'A', 'R', 'T'};
 
 // Clock following. WINDOW_US of schedule time per estimate; the earliest
