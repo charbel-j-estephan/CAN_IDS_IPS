@@ -2,10 +2,14 @@
 record every frame the logger hears, and write a results page.
 
     PC --USB--> ESP32 A (replay_sender) --CAN bus--> ESP32 B (usb_receiver) --USB--> PC
+    PC --USB--> ESP32 C (attack_sender) --+   (optional third board, --attacker)
 
-Every frame arrives with the microsecond time ESP32 B received it.
+Every frame arrives with the microsecond time ESP32 B received it. With
+--attacker, A sends only the normal frames and C only the attack frames, as two
+real nodes. A sends a start marker first and C starts its clock from it.
 
     python replay_dataset.py --sender COM8 --receiver COM7
+    python replay_dataset.py --sender COM8 --receiver COM7 --attacker COM9
     python replay_dataset.py --sender COM8 --receiver COM7 --file Fuzzy_dataset.csv --n 100000
     python replay_dataset.py --sender COM8 --receiver COM7 --fast     ignore timing, send flat out
     python replay_dataset.py --reanalyse ../runs/<folder>             rescore a saved run
@@ -35,6 +39,9 @@ CLASS_NAMES = ["Normal", "DoS", "Fuzzy", "Gear_spoof", "RPM_spoof"]
 FILE_CLASS = {"DoS_dataset.csv": 1, "Fuzzy_dataset.csv": 2,
               "gear_dataset.csv": 3, "RPM_dataset.csv": 4}
 SYNC_TS = 0xA7
+# Start marker for the attacker (must match attack_sender.ino): ID 0x7FF, "CANSTART".
+MARKER = (0x7FF, 8) + tuple(b"CANSTART")
+GAP_US = 20000               # first dataset frame starts this long after the marker
 
 
 # ---- dataset with timestamps ----------------------------------------------------
@@ -79,6 +86,36 @@ def start_offsets(rows, realtime):
         return [0] * len(rows)
     starts = [r[0] * 1e6 - frame_us(r[1], r[2], r[3:3 + r[2]]) for r in rows]
     return [max(0, round(x - starts[0])) for x in starts]
+
+
+def marker_packet():
+    return bytes([MARKER[0] >> 8, MARKER[0] & 0xFF, MARKER[1]] + list(MARKER[2:])) + bytes(4)
+
+
+def parse_report(line):
+    """'#TX sent=5 late=0 state=running' -> {'sent': 5, 'late': 0, 'state': 'running'}."""
+    out = {}
+    for part in (line or "").split()[1:]:
+        if "=" not in part:
+            continue
+        k, _, v = part.partition("=")
+        out[k] = int(v) if v.isdigit() else v
+    return out
+
+
+def ask_report(ser, timeout=30):
+    """Ask a sender for its final #TX line (it answers once everything is sent)."""
+    ser.write(b"Q")
+    raw, t0 = b"", time.time()
+    while time.time() - t0 < timeout:
+        i = raw.find(b"#TX")
+        if i >= 0 and b"\n" in raw[i:]:       # the whole line has arrived
+            break
+        time.sleep(0.2)
+        raw += ser.read(ser.in_waiting)
+    text = raw.decode("ascii", "replace").replace("A", "")
+    i = text.find("#TX")
+    return text[i:].splitlines()[0].strip() if i >= 0 else ""
 
 
 # ---- receiving ------------------------------------------------------------------
@@ -261,7 +298,7 @@ def match_timed(sent, orig_us, frames, st):
     return rx_for, spurious
 
 
-def analyse(rows, frames, stamps, realtime):
+def analyse(rows, frames, stamps, realtime, split=False):
     sent = [tuple(int(v) for v in r[1:11]) for r in rows]
     frames, stamps, dups = dedupe(frames, stamps)
     st = unwrap(stamps)
@@ -285,19 +322,32 @@ def analyse(rows, frames, stamps, realtime):
     # raw error grows in a straight line over the run. That slope is the clock
     # drift between the boards, not replay timing. Fit it and keep what is left
     # over as the jitter: how far each frame was from where it should have been.
-    jitter, drift_ppm = [None] * len(sent), None
-    pts = [(orig_us[i], e) for i, e in enumerate(err) if e is not None]
-    if realtime and len(pts) >= 10:
+    # With an attacker board, attack frames run on that board's clock, so each
+    # sender gets its own fit. The difference between the two fits at the
+    # start is how well the attacker synced on the marker.
+    jitter, fits = [None] * len(sent), {}
+    groups = {0: [i for i in range(len(rows)) if not split or rows[i][11] == 0]}
+    if split:
+        groups[1] = [i for i in range(len(rows)) if rows[i][11] != 0]
+    for g, idx in groups.items():
+        pts = [(orig_us[i], err[i]) for i in idx if err[i] is not None]
+        if not realtime or len(pts) < 10:
+            continue
         x = np.array([p[0] for p in pts])
         y = np.array([p[1] for p in pts])
         slope, icpt = np.polyfit(x, y, 1)
-        drift_ppm = float(slope * 1e6)
-        for i, e in enumerate(err):
-            if e is not None:
-                jitter[i] = e - (slope * orig_us[i] + icpt)
+        fits[g] = (slope, icpt)
+        for i in idx:
+            if err[i] is not None:
+                jitter[i] = err[i] - (slope * orig_us[i] + icpt)
+    drift_ppm = float(fits[0][0] * 1e6) if 0 in fits else None
+    attacker = None
+    if 0 in fits and 1 in fits:
+        attacker = {"drift_ppm": float(fits[1][0] * 1e6),
+                    "offset_us": float(fits[1][1] - fits[0][1])}
     return {"arrived": arrived, "spurious": spurious, "duplicates": dups, "rx_rel": rx_rel,
-            "err": err, "jitter": jitter, "drift_ppm": drift_ppm, "t0": rows[0][0],
-            "realtime": realtime}
+            "err": err, "jitter": jitter, "drift_ppm": drift_ppm, "attacker_fit": attacker,
+            "t0": rows[0][0], "realtime": realtime, "split": split}
 
 
 def summarise(rows, res, args, extra):
@@ -330,6 +380,9 @@ def summarise(rows, res, args, extra):
                                      "max": round(float(j.max()), 1),
                                      "over_100us": int((j > 100).sum())}
             s["clock_drift_ppm"] = round(res["drift_ppm"], 2)
+            if res.get("attacker_fit"):
+                s["attacker_clock_drift_ppm"] = round(res["attacker_fit"]["drift_ppm"], 2)
+                s["attacker_sync_offset_us"] = round(res["attacker_fit"]["offset_us"], 1)
         rr = [x for x in res["rx_rel"] if x is not None]
         s["replay_duration_s"] = round(rr[-1] / 1e6, 6) if rr else None
     s.update(extra)
@@ -359,6 +412,17 @@ def save_run(out, rows, res, frames, stamps, summary):
     report_html.write(os.path.join(out, "report.html"), summary, rows, res, CLASS_NAMES)
 
 
+def first_normal(rows):
+    """With an attacker the run starts at the first normal frame: the attacker
+    needs the normal sender's marker before it can send anything."""
+    return next((i for i, r in enumerate(rows) if r[11] == 0), 0)
+
+
+def rows_from(all_rows, old):
+    i = old.get("start_frame", 0)
+    return all_rows[i:i + old["frames_sent"]]
+
+
 def reanalyse(args):
     """Score an earlier run again from the frames it saved."""
     out = args.reanalyse
@@ -372,9 +436,13 @@ def reanalyse(args):
             frames.append((int(r["can_id"], 16), int(r["dlc"])) + tuple(data + [0] * (8 - len(data))))
             stamps.append(int(r["board_time_us"]))
     realtime = old.get("mode", "").startswith("original")
-    res = analyse(rows, frames, stamps, realtime)
-    keep = {k: old[k] for k in ("started", "sender_report", "receiver_report",
-                                "receiver_frames_this_run") if k in old}
+    split = bool(old.get("attacker_report"))
+    if split:
+        rows = rows_from(load_timed(os.path.join(args.data, args.file),
+                                    old.get("start_frame", 0) + old["frames_sent"]), old)
+    res = analyse(rows, frames, stamps, realtime, split=split)
+    keep = {k: old[k] for k in ("started", "sender_report", "receiver_report", "attacker_report",
+                                "nodes", "receiver_frames_this_run", "start_frame") if k in old}
     summary = summarise(rows, res, args, keep)
     save_run(out, rows, res, frames, stamps, summary)
     print("Rebuilt %s: arrived %d of %d" % (out, summary["frames_arrived"], summary["frames_sent"]))
@@ -391,6 +459,8 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--sender", help="COM port of ESP32 A (replay_sender), for example COM8")
     ap.add_argument("--receiver", help="COM port of ESP32 B (usb_receiver), for example COM7")
+    ap.add_argument("--attacker", help="COM port of ESP32 C (attack_sender): A sends the normal "
+                                      "frames, C the attack frames")
     ap.add_argument("--data", default=os.path.join(ROOT, "data", "car_hacking"))
     ap.add_argument("--file", default="DoS_dataset.csv", choices=sorted(FILE_CLASS))
     ap.add_argument("--n", type=int, default=20000, help="frames to replay, 0 for the whole file")
@@ -405,8 +475,11 @@ def main():
         return
     if not (args.sender and args.receiver):
         ap.error("--sender and --receiver are required, for example --sender COM8 --receiver COM7")
-    if args.receiver.upper() == args.sender.upper():
-        sys.exit("--sender and --receiver must be two different COM ports")
+    ports = [p.upper() for p in (args.sender, args.receiver, args.attacker) if p]
+    if len(set(ports)) != len(ports):
+        sys.exit("--sender, --receiver and --attacker must be different COM ports")
+    if args.attacker and args.fast:
+        sys.exit("--fast cannot be used with --attacker: the attacker needs the original timing")
 
     path = os.path.join(args.data, args.file)
     if not os.path.exists(path):
@@ -414,6 +487,12 @@ def main():
     rows = load_timed(path, args.n)
     if not rows:
         sys.exit("No frames read from %s" % path)
+    start_frame = 0
+    if args.attacker:
+        start_frame = first_normal(rows)
+        if start_frame:
+            more = load_timed(path, args.n + start_frame if args.n else 0)
+            rows = more[start_frame:start_frame + len(rows)] if args.n else more[start_frame:]
     realtime = not args.fast
     span = rows[-1][0] - rows[0][0]
     print("Loaded %d frames from %s (capture spans %.2f s)" % (len(rows), args.file, span))
@@ -433,20 +512,31 @@ def main():
         print("Ignored %d old frames the receiver had buffered before this run" % rcv.ignored)
     rcv.arm()
 
-    tx = serial_link.open_board(args.sender, args.baud, "Sender   (ESP32 A)")
-    packets = [pack_timed(r, rel) for r, rel in zip(rows, start_offsets(rows, realtime))]
-
+    offsets = start_offsets(rows, realtime)
     started = time.strftime("%Y-%m-%d %H:%M:%S")
-    secs = serial_link.stream(tx, packets)
-    print("All frames handed to the sender after %.1f s" % secs)
-
-    tx.write(b"Q")                        # the sender answers once it has sent everything
-    txline, t_q, raw = "", time.time(), b""
-    while "#TX" not in txline and time.time() - t_q < 30:
-        time.sleep(0.2)
-        raw += tx.read(tx.in_waiting)
-        txline = raw.decode("ascii", "replace").replace("A", "").strip()
-    txline = txline[txline.find("#TX"):] if "#TX" in txline else ""
+    atk, atkline = None, None
+    if not args.attacker:
+        tx = serial_link.open_board(args.sender, args.baud, "Sender   (ESP32 A)")
+        packets = [pack_timed(r, rel) for r, rel in zip(rows, offsets)]
+        secs = serial_link.stream(tx, packets)
+        print("All frames handed to the sender after %.1f s" % secs)
+    else:
+        # The attacker must be listening before the normal sender sends the marker.
+        atk = serial_link.open_board(args.attacker, args.baud, "Attacker (ESP32 C)")
+        tx = serial_link.open_board(args.sender, args.baud, "Sender   (ESP32 A)")
+        normal = [marker_packet()] + [pack_timed(r, rel + GAP_US)
+                                      for r, rel in zip(rows, offsets) if r[11] == 0]
+        attack = [pack_timed(r, rel + GAP_US) for r, rel in zip(rows, offsets) if r[11] != 0]
+        print("Normal frames: %d to ESP32 A, attack frames: %d to ESP32 C"
+              % (len(normal) - 1, len(attack)))
+        th = threading.Thread(target=serial_link.stream, args=(atk, attack),
+                              kwargs={"name": "attacker"}, daemon=True)
+        th.start()
+        secs = serial_link.stream(tx, normal, name="normal sender")
+        th.join()
+        print("All frames handed to the senders after %.1f s" % secs)
+        atkline = ask_report(atk)
+    txline = ask_report(tx)
 
     while time.time() - rcv.last_data < 2.5:
         time.sleep(0.2)
@@ -459,9 +549,18 @@ def main():
         print("\nWARNING: ESP32 B stopped reporting %.0f s before the end. Its numbers are stale and "
               "frames after that point were not recorded." % silent)
     print("Sender says:   %s" % (txline or "no reply"))
+    if args.attacker:
+        print("Attacker says: %s" % (atkline or "no reply"))
+        if parse_report(atkline).get("synced") == 0:
+            print("WARNING: the attacker never heard the start marker, so it sent nothing. "
+                  "Is it on the same bus?")
     print("Receiver says: %s" % stat)
 
-    res = analyse(rows, rcv.frames, rcv.stamps, realtime)
+    frames, stamps = rcv.frames, rcv.stamps
+    if args.attacker:                     # the start marker is not part of the dataset
+        keep = [k for k, f in enumerate(frames) if f != MARKER]
+        frames, stamps = [frames[k] for k in keep], [stamps[k] for k in keep]
+    res = analyse(rows, frames, stamps, realtime, split=bool(args.attacker))
     rx_run = None
     try:
         a = int(stat_before.split("rx=")[1].split()[0]) if stat_before else None
@@ -471,12 +570,18 @@ def main():
         pass
     if rx_run is not None:
         stat = "%s (heard %d frames during this run)" % (stat, rx_run)
-    summary = summarise(rows, res, args, {"started": started, "sender_report": txline,
-                                          "receiver_report": stat,
-                                          "receiver_frames_this_run": rx_run})
+    nodes = {"normal sender (A)" if args.attacker else "sender (A)": parse_report(txline)}
+    if args.attacker:
+        nodes["attacker (C)"] = parse_report(atkline)
+    nodes["logger (B)"] = parse_report(stat.replace("#STAT", "#TX", 1))
+    extra = {"started": started, "sender_report": txline, "receiver_report": stat,
+             "receiver_frames_this_run": rx_run, "nodes": nodes, "start_frame": start_frame}
+    if args.attacker:
+        extra["attacker_report"] = atkline
+    summary = summarise(rows, res, args, extra)
     out = args.out or os.path.join(ROOT, "runs", "%s_%s" % (time.strftime("%Y%m%d_%H%M%S"),
                                                                args.file.replace(".csv", "")))
-    save_run(out, rows, res, rcv.frames, rcv.stamps, summary)
+    save_run(out, rows, res, frames, stamps, summary)
 
     print("\nSent %d, arrived %d, lost %d (%.3f%% delivered)"
           % (summary["frames_sent"], summary["frames_arrived"], summary["frames_lost"],
@@ -486,6 +591,9 @@ def main():
         print("Timing against the original capture, clock drift removed: median %.1f us, "
               "95%% within %.1f us, worst %.1f us" % (tj["p50"], tj["p95"], tj["max"]))
         print("Clock drift between the two boards: %.1f ppm" % summary["clock_drift_ppm"])
+    if "attacker_sync_offset_us" in summary:
+        print("Attacker: clock drift %.1f ppm, synced %.1f us from the normal sender"
+              % (summary["attacker_clock_drift_ppm"], summary["attacker_sync_offset_us"]))
     print("\nEvery frame is saved in:\n  %s" % out)
     print("Open report.html there for the results page.")
 

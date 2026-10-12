@@ -24,6 +24,7 @@ FILES = {
     "python/run_check.py": "python/run_check.py",
     "esp32/replay_sender/replay_sender.ino": "esp32/replay_sender/replay_sender.ino",
     "esp32/usb_receiver/usb_receiver.ino": "esp32/usb_receiver/usb_receiver.ino",
+    "esp32/attack_sender/attack_sender.ino": "esp32/attack_sender/attack_sender.ino",
     "esp32/link_sender/link_sender.ino": "esp32/link_sender/link_sender.ino",
     "esp32/link_receiver/link_receiver.ino": "esp32/link_receiver/link_receiver.ino",
 }

@@ -7,7 +7,8 @@
  *   board -> PC   "READY\n" once at boot
  *   board -> PC   frame record, 16 bytes: 0xA7 id_hi id_lo dlc d0..d7 t0 t1 t2 t3
  *                 t = low 32 bits of the microsecond clock, little endian
- *   board -> PC   once a second: "#STAT rx=<frames> ovf=<controller drops> drop=<USB drops> peak=<bytes>\n"
+ *   board -> PC   once a second: "#STAT rx=<frames> ovf=<controller drops> drop=<USB drops>
+ *                 peak=<bytes> buserr=<bus errors seen> rec=<receive error counter>\n"
  *
  * At 921600 baud a record takes about 174 us, less than a full 8 byte frame on
  * the bus (about 220 us). A 16 KB send buffer absorbs runs of short frames.
@@ -48,12 +49,13 @@ void loop()
     uint32_t now = millis();
     if (now - last_stat >= 1000) {
         last_stat = now;
-        twai_status_info_t s;
+        twai_status_info_t s = {};
         uint32_t ovf = 0;
         if (twai_get_status_info(&s) == ESP_OK)
             ovf = s.rx_missed_count + s.rx_overrun_count;
-        Serial.printf("#STAT rx=%lu ovf=%lu drop=%lu peak=%lu\n", (unsigned long)rx_count,
-                      (unsigned long)ovf, (unsigned long)usb_drop, (unsigned long)peak);
+        Serial.printf("#STAT rx=%lu ovf=%lu drop=%lu peak=%lu buserr=%lu rec=%lu\n", (unsigned long)rx_count,
+                      (unsigned long)ovf, (unsigned long)usb_drop, (unsigned long)peak,
+                      (unsigned long)s.bus_error_count, (unsigned long)s.rx_error_counter);
     }
 
     twai_message_t m;

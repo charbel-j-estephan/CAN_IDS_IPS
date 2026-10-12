@@ -6,8 +6,10 @@ dataset, open the results page.
     python run_check.py --dry-run                        only show what it would do
 
 Steps:
-  1. Finds the ESP32s and tells the sender (replay_sender) from the receiver
-     (usb_receiver) by what they print, so you never have to guess COM ports.
+  1. Finds the ESP32s and tells the sender (replay_sender), the receiver
+     (usb_receiver) and the attacker (attack_sender, optional third board)
+     apart by what they print, so you never have to guess COM ports. With an
+     attacker, normal and attack frames come from two separate boards.
   2. Link check: 300 frames sent flat out. Every one must arrive unchanged,
      otherwise it stops and says what to check.
   3. Replays the dataset with its original timing (replay_dataset.py).
@@ -34,7 +36,8 @@ def find_ports():
 
 def identify(port, listen=2.5):
     """Reset the board and listen. The receiver prints #STAT every second, the
-    sender prints only READY. Returns 'sender', 'receiver', 'busy' or 'unknown'."""
+    sender prints READY, the attacker READY ATTACKER.
+    Returns 'sender', 'receiver', 'attacker', 'busy' or 'unknown'."""
     import serial
     try:
         ser = serial.Serial(port, 921600, timeout=0.1)
@@ -52,6 +55,8 @@ def identify(port, listen=2.5):
     ser.close()
     if b"#STAT" in seen:
         return "receiver"
+    if b"READY ATTACKER" in seen:
+        return "attacker"
     if b"READY" in seen:
         return "sender"
     return "unknown"
@@ -76,13 +81,14 @@ def main():
     ap.add_argument("--n", type=int, default=20000, help="frames to replay, 0 for the whole file")
     ap.add_argument("--sender", help="skip detection: the sender's COM port")
     ap.add_argument("--receiver", help="skip detection: the receiver's COM port")
+    ap.add_argument("--attacker", help="skip detection: the attacker's COM port")
     ap.add_argument("--skip-check", action="store_true", help="skip the 300 frame link check")
     ap.add_argument("--dry-run", action="store_true", help="find the boards and print the plan only")
     args = ap.parse_args()
 
     # 1. Boards
     esp = find_ports()
-    sender, receiver = args.sender, args.receiver
+    sender, receiver, attacker = args.sender, args.receiver, args.attacker
     if not (sender and receiver):
         print("ESP32 USB ports found: %s" % (", ".join(esp) or "none"))
         roles = {}
@@ -97,6 +103,8 @@ def main():
         receivers = [p for p, r in roles.items() if r == "receiver"]
         sender = sender or (senders[0] if len(senders) == 1 else None)
         receiver = receiver or (receivers[0] if len(receivers) == 1 else None)
+        attackers = [p for p, r in roles.items() if r == "attacker"]
+        attacker = attacker or (attackers[0] if len(attackers) == 1 else None)
         if not sender or not receiver:
             sys.exit("\nCould not find exactly one sender and one receiver.\n"
                      "  - Both ESP32s must be plugged in with data cables.\n"
@@ -105,9 +113,12 @@ def main():
                      "Or name them yourself: --sender COMx --receiver COMy")
     print("\nSender   (ESP32 A): %s" % sender)
     print("Receiver (ESP32 B): %s" % receiver)
+    print("Attacker (ESP32 C): %s" % (attacker or "none, the sender plays the attacks too"))
 
     common = ["--sender", sender, "--receiver", receiver]
     full = common + ["--file", args.file, "--n", str(args.n)]
+    if attacker:
+        full += ["--attacker", attacker]
     if args.dry_run:
         print("\nWould run the link check, then: replay_dataset.py " + " ".join(full))
         return
