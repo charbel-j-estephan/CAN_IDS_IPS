@@ -1,0 +1,172 @@
+"""One command for the whole test: find the boards, check the link, replay the
+dataset, open the results page.
+
+    python run_check.py                                  20,000 DoS frames
+    python run_check.py --file gear_dataset.csv --n 100000
+    python run_check.py --gateway                        the STM32 sits between the buses
+    python run_check.py --dry-run                        only show what it would do
+
+Steps:
+  1. Finds the ESP32s and tells the sender (replay_sender) from the receiver
+     (usb_receiver) by what they print, so you never have to guess COM ports.
+     An STM32 gateway plugged into the PC is found too.
+  2. Link check: 300 frames sent flat out. Every one must arrive unchanged,
+     otherwise it stops and says what to check.
+  3. Replays the dataset with its original timing (replay_dataset.py).
+  4. Opens report.html.
+"""
+import argparse
+import glob
+import json
+import os
+import shutil
+import subprocess
+import sys
+import time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)
+ESP32_VIDS = {0x1A86, 0x10C4, 0x0403}      # CH340/CH9102, CP210x, FTDI USB-serial chips
+STM32_VID = 0x0483
+
+
+def find_ports():
+    import serial.tools.list_ports as lp
+    esp, stm = [], []
+    for p in lp.comports():
+        if p.vid in ESP32_VIDS:
+            esp.append(p.device)
+        elif p.vid == STM32_VID:
+            stm.append(p.device)
+    return esp, stm
+
+
+def identify(port, listen=2.5):
+    """Reset the board and listen. The receiver prints #STAT every second, the
+    sender prints only READY. Returns 'sender', 'receiver', 'busy' or 'unknown'."""
+    import serial
+    try:
+        ser = serial.Serial(port, 921600, timeout=0.1)
+    except serial.SerialException as e:
+        return "busy" if "denied" in str(e).lower() or "access" in str(e).lower() else "unknown"
+    ser.setDTR(False)
+    ser.setRTS(True)                      # pulse EN: restart the sketch
+    time.sleep(0.1)
+    ser.setRTS(False)
+    seen, t0 = b"", time.time()
+    while time.time() - t0 < listen:
+        seen += ser.read(512)
+        if b"#STAT" in seen:
+            break
+    ser.close()
+    if b"#STAT" in seen:
+        return "receiver"
+    if b"READY" in seen:
+        return "sender"
+    return "unknown"
+
+
+def run_replay(args_list):
+    cmd = [sys.executable, os.path.join(HERE, "replay_dataset.py")] + args_list
+    print("\n> " + " ".join(cmd[1:]) + "\n")
+    return subprocess.call(cmd, cwd=HERE)
+
+
+def newest_run():
+    runs = sorted(glob.glob(os.path.join(ROOT, "runs", "2*")), key=os.path.getmtime)
+    return runs[-1] if runs else None
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--file", default="DoS_dataset.csv",
+                    help="DoS_dataset.csv, Fuzzy_dataset.csv, gear_dataset.csv or RPM_dataset.csv")
+    ap.add_argument("--n", type=int, default=20000, help="frames to replay, 0 for the whole file")
+    ap.add_argument("--gateway", action="store_true",
+                    help="the STM32 gateway is between the two buses (powered, USB optional)")
+    ap.add_argument("--sender", help="skip detection: the sender's COM port")
+    ap.add_argument("--receiver", help="skip detection: the receiver's COM port")
+    ap.add_argument("--skip-check", action="store_true", help="skip the 300 frame link check")
+    ap.add_argument("--dry-run", action="store_true", help="find the boards and print the plan only")
+    args = ap.parse_args()
+
+    # 1. Boards
+    esp, stm = find_ports()
+    sender, receiver = args.sender, args.receiver
+    if not (sender and receiver):
+        print("ESP32 USB ports found: %s" % (", ".join(esp) or "none"))
+        roles = {}
+        for port in esp:
+            roles[port] = identify(port)
+            print("  %s: %s" % (port, roles[port]))
+        busy = [p for p, r in roles.items() if r == "busy"]
+        if busy:
+            sys.exit("\n%s is open in another program. Close the Arduino Serial Monitor "
+                     "(or the whole Arduino IDE) and run this again." % ", ".join(busy))
+        senders = [p for p, r in roles.items() if r == "sender"]
+        receivers = [p for p, r in roles.items() if r == "receiver"]
+        sender = sender or (senders[0] if len(senders) == 1 else None)
+        receiver = receiver or (receivers[0] if len(receivers) == 1 else None)
+        if not sender or not receiver:
+            sys.exit("\nCould not find exactly one sender and one receiver.\n"
+                     "  - Both ESP32s must be plugged in with data cables.\n"
+                     "  - The sender must run replay_sender, the receiver usb_receiver.\n"
+                     "  - A board shown as 'unknown' printed nothing: re-upload its sketch.\n"
+                     "Or name them yourself: --sender COMx --receiver COMy")
+    gw_port = stm[0] if stm else None
+    gw_arg = []
+    if args.gateway or gw_port:
+        gw_arg = ["--gateway", gw_port or "none"]
+    print("\nSender   (ESP32 A): %s" % sender)
+    print("Receiver (ESP32 B): %s" % receiver)
+    if gw_arg:
+        print("STM32 gateway:      %s" % (gw_port or "between the buses, not on USB"))
+
+    common = ["--sender", sender, "--receiver", receiver] + gw_arg
+    full = common + ["--file", args.file, "--n", str(args.n)]
+    if args.dry_run:
+        print("\nWould run the link check, then: replay_dataset.py " + " ".join(full))
+        return
+
+    # 2. Link check
+    if not args.skip_check:
+        check_dir = os.path.join(ROOT, "runs", "_link_check")
+        shutil.rmtree(check_dir, ignore_errors=True)
+        print("\n=== Link check: 300 frames ===")
+        code = run_replay(common + ["--file", args.file, "--n", "300", "--fast",
+                                    "--out", check_dir])
+        try:
+            s = json.load(open(os.path.join(check_dir, "summary.json")))
+        except (OSError, ValueError):
+            s = None
+        shutil.rmtree(check_dir, ignore_errors=True)
+        if code != 0 or not s:
+            sys.exit("\nThe link check did not finish. See the messages above.")
+        if s["frames_arrived"] != s["frames_sent"] or s.get("unmatched_received"):
+            sys.exit("\nLink check FAILED: %d of %d frames arrived, %d arrived altered.\n"
+                     "Check, with the power off:\n"
+                     "  - CANH to CANL reads about 60 ohm on each bus\n"
+                     "  - CANH to CANH and CANL to CANL, not crossed\n"
+                     "  - all grounds joined, every module powered\n"
+                     "  - with the STM32 in the middle: it is powered and LED D3 is off"
+                     % (s["frames_arrived"], s["frames_sent"], s.get("unmatched_received", 0)))
+        print("\nLink check passed: %d of %d frames arrived unchanged." % (s["frames_arrived"], s["frames_sent"]))
+
+    # 3. Replay
+    print("\n=== Replay: %s, %s frames, original timing ===" % (args.file, args.n or "all"))
+    before = newest_run()
+    code = run_replay(full)
+    after = newest_run()
+    if code != 0 or after == before:
+        sys.exit("\nThe replay did not finish. See the messages above.")
+
+    # 4. Results page
+    report = os.path.join(after, "report.html")
+    print("\nOpening %s" % report)
+    if hasattr(os, "startfile"):
+        os.startfile(report)
+
+
+if __name__ == "__main__":
+    main()
