@@ -26,7 +26,7 @@ Without C plugged in it runs the 2-board mode (A sends everything).
 | 3-board replay (separate attacker) | Tested 3 times: 20,000 of 20,000 delivered, no errors on any board |
 | Sync fix (normal sender takes time zero when the marker finished sending) | Tested (`20261012_223152`) |
 | Drift tracking (attacker follows A's clock during the run) | Tested (`20261012_225632`): drift 6.8 -> 0.2 ppm, 14,225 frames tracked, 0 missed, median 16.6 -> 7.6 us |
-| Sync trim (attacker time zero 35 us earlier) | Committed, **not yet tested on hardware** |
+| Sync trim (attacker time zero 35 us earlier) | Tested (`20261012_230423`): attacker offset 35 -> 7.5 us; against the 2-board run frame by frame, median deviation 15.4 -> 7.7 us |
 
 The attacker offset is now measured only on frames with a clear bus before
 them (100 us idle in the capture); the old number came from fits pulled by the
@@ -35,15 +35,21 @@ normal frames C pushed aside and read 9.6 us when C was really 35 us late
 received it, A when its controller reports it sent; the two latencies differ.
 `SYNC_TRIM_US` in `attack_sender` removes it.
 
+Judge 3-board runs against the 2-board run (`20261012_215932`, same frames,
+one clock), not only against the capture: after the trim the script's median
+read 11.4 us (was 7.6) although every frame moved closer to the 2-board run.
+Normal frames queued behind others differ most (p95 about 57 us), partly
+real arbitration: C's ID 0x000 now wins against A's next frame, where one
+board sending in file order never contends. Remaining attacker offset about
+8 us; SYNC_TRIM_US 43 would remove it if the next runs confirm it.
+
 Still unexplained, smaller: A's normal frames read 20 to 30 us late at the
 start and while the attack pauses, against about +3 us during the attack
 (also faintly in the 2-board runs).
 
 ## To do next
 
-1. Re-upload `attack_sender` to the attacker (COM9), run `run_check.bat`.
-   Expect the attacker offset within a few us of 0 and the normal frames near
-   the 2-board timing (median 6 to 7 us). Then the bench is final for now.
+1. Bench done for now. Optional: SYNC_TRIM_US 43 and one more run.
 2. STM32 alone IDS (report Fig. 3), per the approved plan: M1 bit-level CAN
    reception in software on PB8 (TX on PB9 held high), frames to the PC over
    USB in the logger's format; M2 the emlearn random forest per frame with
