@@ -4,12 +4,12 @@ The bench replays the Car Hacking Dataset onto a real CAN bus with the original
 timing, and records every frame that arrives.
 
 ```
-PC --USB--> ESP32 A  replay_sender  ==== CAN bus ====  ESP32 B  usb_receiver --USB--> PC
+PC --USB--> sender  replay_sender  ==== CAN bus ====  receiver  usb_receiver --USB--> PC
 ```
 
-- ESP32 A plays the car: every frame of a dataset file, normal and attack,
+- The sender plays the car: every frame of a dataset file, normal and attack,
   sent at its original time (each frame ends when it ended in the car).
-- ESP32 B is the logger: it stamps every frame it hears with a microsecond
+- The receiver is the logger: it stamps every frame it hears with a microsecond
   time and sends it to the PC.
 - The PC compares what arrived with what was sent and writes a results page.
 
@@ -38,7 +38,7 @@ CANH to CANL should read about 60 ohm.
 
 - Arduino IDE, ESP32 board package (core 3.x), board "ESP32 Dev Module". No
   extra library.
-- Upload `esp32/replay_sender` to ESP32 A and `esp32/usb_receiver` to ESP32 B.
+- Upload `esp32/replay_sender` to the sender and `esp32/usb_receiver` to the receiver.
 - Python with `numpy` and `pyserial` (`pip install numpy pyserial`).
 - Dataset files (`DoS_dataset.csv`, `Fuzzy_dataset.csv`, `gear_dataset.csv`,
   `RPM_dataset.csv`) in `data/car_hacking/`.
@@ -69,8 +69,8 @@ frame heard), `summary.json`.
 ## Three boards: a separate attacker
 
 ```
-PC --USB--> ESP32 A  replay_sender  (normal frames) --+
-PC --USB--> ESP32 C  attack_sender  (attack frames) --+== CAN bus ==  ESP32 B usb_receiver --USB--> PC
+PC --USB--> sender    replay_sender  (normal frames) --+
+PC --USB--> attacker  attack_sender  (attack frames) --+== CAN bus ==  receiver  usb_receiver --USB--> PC
 ```
 
 With a third ESP32 the attack frames come from their own node, as in the
@@ -78,26 +78,27 @@ block diagram report: they compete with the normal frames in real arbitration
 (a DoS frame with ID 0x000 always wins), and later an IPS can push only the
 attacker to bus off.
 
-- Upload `esp32/attack_sender` to ESP32 C. It prints `READY ATTACKER`, which
+- Upload `esp32/attack_sender` to the attacker. It prints `READY ATTACKER`, which
   is how `run_check` finds it. Wire its CAN module like the others, on the same
   CANH/CANL pair. Keep 120 ohm only on the two modules at the physical ends of
   the bus (multimeter: about 60 ohm CANH to CANL).
 - `run_check.bat` uses the attacker automatically when it is plugged in. By
   hand: `python replay_dataset.py --sender COM8 --receiver COM7 --attacker COM9`.
 
-How the two senders stay in step: ESP32 A first sends a start marker (ID
-0x7FF, data "CANSTART"). ESP32 C starts its clock when it hears it, so both
+How the two senders stay in step: the sender first sends a start marker (ID
+0x7FF, data "CANSTART"). The attacker starts its clock when it hears it, so both
 boards share one time base within a few microseconds, independent of USB.
 The two crystals then drift apart by a few ppm (tens of microseconds over a
-few seconds), so the PC also sends ESP32 C a timing reference for every normal
-frame. C hears those frames, sees how far its own clock has moved from A's and
+few seconds), so the PC also sends the attacker a timing reference for every normal
+frame. The attacker hears those frames, sees how far its own clock has moved
+from the sender's and
 shifts its schedule to match for the whole run.
 The marker is not counted in the results. The run starts at the first normal
 frame of the file.
 
 The results page then shows each board's numbers: frames sent, late frames,
 error counters, bus state, lost arbitrations, and how closely the attacker
-follows the normal sender's clock (offset measured on frames with a clear
+follows the sender's clock (offset measured on frames with a clear
 bus before them, so it is not hidden by frames queued behind others).
 
 ## Wiring check without any script
@@ -118,5 +119,5 @@ files to `Desktop\esp32 setup\can_replay`, where the runs are done.
 | "Access is denied" on a COM port | The Arduino Serial Monitor (or the IDE) still has it open |
 | A board never prints READY | Wrong sketch, or wrong port: unplug one board to see which port disappears |
 | Link check fails | 60 ohm check, CANH/CANL crossed, missing GND, module not powered |
-| Lost frames with `drop=` > 0 on the logger | USB could not keep up; should not happen at 500 kbit/s |
+| Lost frames with `drop=` > 0 on the receiver | USB could not keep up; should not happen at 500 kbit/s |
 | `late=` > 0 on the sender | The sender could not keep the original timing (bus busy) |

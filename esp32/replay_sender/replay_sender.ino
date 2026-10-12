@@ -1,4 +1,4 @@
-/* ESP32 A: replays dataset frames onto the CAN bus with their original timing.
+/* Sender: replays dataset frames onto the CAN bus with their original timing.
  *
  * The PC (python/replay_dataset.py) streams frames over USB serial, each with
  * the time it had in the original capture. This board waits until that moment
