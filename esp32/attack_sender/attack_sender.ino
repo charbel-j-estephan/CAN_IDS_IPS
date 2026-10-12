@@ -1,14 +1,14 @@
-/* ESP32 C: the attacker. Replays the attack frames of a dataset file at their
+/* Attacker: replays the attack frames of a dataset file at their
  * original times, as its own node on the bus.
  *
  * Same packets and flow control as replay_sender, with two differences.
  *
  * 1. This board does not start its clock when packets arrive over USB (USB
  *    timing differs by milliseconds between boards). It waits for the start
- *    marker frame that the normal sender (replay_sender) puts on the bus first,
+ *    marker frame that the sender (replay_sender) puts on the bus first,
  *    and starts its clock from that frame.
  *
- * 2. It keeps following the normal sender's clock for the whole run. The two
+ * 2. It keeps following the sender's clock for the whole run. The two
  *    crystals differ by a few ppm, which adds up to tens of microseconds over a
  *    few seconds: attack frames then land late and push the normal frames
  *    behind them aside. So the PC also sends this board a timing reference for
@@ -27,7 +27,7 @@
  *                 attack frame:  id_hi id_lo dlc d0..d7 t0 t1 t2 t3
  *                                t = microseconds after the START of the marker
  *                 reference:     0xFF id_hi id_lo 0 x 8 t0 t1 t2 t3
- *                                a normal frame A sends, t = when it ENDS
+ *                                a normal frame the sender sends, t = when it ENDS
  *   board -> PC   one byte 'A' after every ACK_EVERY packets (both kinds)
  *   PC -> board   'Q'  ->  same "#TX ..." line as replay_sender, plus
  *                 synced=<0|1> tracked=<n> missed=<n> skew=<us> drift=<ppb>
@@ -50,7 +50,7 @@
 // Start marker: ID 0x7FF with the bytes "CANSTART". On the wire it is 112 bits
 // long, 224 us at 500 kbit/s (python/can_bits.py, stuff bits included). The
 // controller reports a frame once it has ended, so the marker STARTED 224 us
-// before that, which is the normal sender's time zero.
+// before that, which is the sender's time zero.
 #define MARKER_ID   0x7FF
 #define MARKER_US   224
 // This board hears a frame later after it ends than replay_sender learns its
@@ -151,7 +151,7 @@ static void pair()
         if (j == ref_n && ref_n < MATCH_AHEAD)
             return;                    // its reference may not be here yet
         if (j == ref_n || j == MATCH_AHEAD) {
-            heard_head = (heard_head + 1) & (RING - 1);    // not one of A's frames
+            heard_head = (heard_head + 1) & (RING - 1);    // not one of the sender's frames
             heard_n--;
             continue;
         }

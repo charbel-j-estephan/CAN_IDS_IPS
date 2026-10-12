@@ -117,9 +117,9 @@ def main():
                      "  - The sender must run replay_sender, the receiver usb_receiver.\n"
                      "  - A board shown as 'unknown' printed nothing: re-upload its sketch.\n"
                      "Or name them yourself: --sender COMx --receiver COMy")
-    print("\nSender   (ESP32 A): %s" % sender)
-    print("Receiver (ESP32 B): %s" % receiver)
-    print("Attacker (ESP32 C): %s" % (attacker or "none, the sender plays the attacks too"))
+    print("\nSender:   %s" % sender)
+    print("Receiver: %s" % receiver)
+    print("Attacker: %s" % (attacker or "none, the sender plays the attacks too"))
 
     common = ["--sender", sender, "--receiver", receiver]
     full = common + ["--file", args.file, "--n", str(args.n)]

@@ -1,6 +1,6 @@
-/* ESP32 B: CAN receiver that sends every frame to the PC over USB.
+/* Receiver: CAN logger that sends every frame to the PC over USB.
  *
- * The logger of the bench. Each frame is stamped with the time it was received
+ * The receiver of the bench. Each frame is stamped with the time it was received
  * (microseconds, this board's clock) and sent to python/replay_dataset.py.
  *
  * Serial protocol, 921600 baud, 8N1:

@@ -1,13 +1,14 @@
 """Replay a Car Hacking dataset file onto a real CAN bus with its original timing,
-record every frame the logger hears, and write a results page.
+record every frame the receiver hears, and write a results page.
 
-    PC --USB--> ESP32 A (replay_sender) --CAN bus--> ESP32 B (usb_receiver) --USB--> PC
-    PC --USB--> ESP32 C (attack_sender) --+   (optional third board, --attacker)
+    PC --USB--> sender (replay_sender) --CAN bus--> receiver (usb_receiver) --USB--> PC
+    PC --USB--> attacker (attack_sender) --+   (optional third board, --attacker)
 
-Every frame arrives with the microsecond time ESP32 B received it. With
---attacker, A sends only the normal frames and C only the attack frames, as two
-real nodes. A sends a start marker first and C starts its clock from it. C
-also gets a timing reference for every normal frame, so it can follow A's
+Every frame arrives with the microsecond time the receiver received it. With
+--attacker, the sender sends only the normal frames and the attacker only the
+attack frames, as two real nodes. The sender sends a start marker first and the
+attacker starts its clock from it. The attacker also gets a timing reference
+for every normal frame, so it can follow the sender's
 clock for the whole run instead of drifting away from it.
 
     python replay_dataset.py --sender COM8 --receiver COM7
@@ -164,7 +165,7 @@ def parse_timed_stream(buf):
 
 
 class SerialReceiver(threading.Thread):
-    """Reads the logger (usb_receiver sketch) in the background.
+    """Reads the receiver (usb_receiver sketch) in the background.
 
     Frames are only kept once arm() is called. Anything earlier is frames the
     board heard before this run and would otherwise be mistaken for part of it.
@@ -227,7 +228,7 @@ CLEAR_US = 100               # bus idle this long before a frame: nothing could 
 
 
 def dedupe(frames, stamps):
-    """Drop records the logger reported twice.
+    """Drop records the receiver reported twice.
 
     Two different frames can never share one microsecond on a 500 kbit/s bus,
     so the same timestamp and ID means the same frame."""
@@ -371,10 +372,10 @@ def analyse(rows, frames, stamps, realtime, split=False):
     drift_ppm = float(fits[0][0] * 1e6) if 0 in fits else None
     attacker = None
     if 0 in fits and 1 in fits:
-        # How far the attacker sends from where A's clock says it should: only
+        # How far the attacker sends from where the sender's clock says it should: only
         # frames with a clear bus before them in the capture count. A frame
         # that queued behind another one is late for another reason, and the
-        # normal frames C pushes aside would otherwise hide part of the offset.
+        # normal frames the attacker pushes aside would otherwise hide part of the offset.
         starts = [orig_us[i] - frame_us(r[1], r[2], r[3:3 + r[2]]) for i, r in enumerate(rows)]
         on_a = lambda i: err[i] - (fits[0][0] * orig_us[i] + fits[0][1])
         clear = {g: [on_a(i) for i in idx if i > 0 and err[i] is not None
@@ -453,7 +454,7 @@ def save_run(out, rows, res, frames, stamps, summary):
 
 def first_normal(rows):
     """With an attacker the run starts at the first normal frame: the attacker
-    needs the normal sender's marker before it can send anything."""
+    needs the sender's marker before it can send anything."""
     return next((i for i, r in enumerate(rows) if r[11] == 0), 0)
 
 
@@ -496,10 +497,10 @@ def reanalyse(args):
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--sender", help="COM port of ESP32 A (replay_sender), for example COM8")
-    ap.add_argument("--receiver", help="COM port of ESP32 B (usb_receiver), for example COM7")
-    ap.add_argument("--attacker", help="COM port of ESP32 C (attack_sender): A sends the normal "
-                                      "frames, C the attack frames")
+    ap.add_argument("--sender", help="COM port of the sender (replay_sender), for example COM8")
+    ap.add_argument("--receiver", help="COM port of the receiver (usb_receiver), for example COM7")
+    ap.add_argument("--attacker", help="COM port of the attacker (attack_sender): the sender sends "
+                                      "the normal frames, the attacker the attack frames")
     ap.add_argument("--data", default=os.path.join(ROOT, "data", "car_hacking"))
     ap.add_argument("--file", default="DoS_dataset.csv", choices=sorted(FILE_CLASS))
     ap.add_argument("--n", type=int, default=20000, help="frames to replay, 0 for the whole file")
@@ -538,10 +539,10 @@ def main():
     if realtime and span > 3600:
         sys.exit("The timestamp counter on the ESP32 wraps after 71 minutes. Use a smaller --n.")
 
-    rcv = SerialReceiver(serial_link.open_board(args.receiver, args.baud, "Receiver (ESP32 B)"))
+    rcv = SerialReceiver(serial_link.open_board(args.receiver, args.baud, "Receiver"))
     rcv.start()
 
-    # Let the logger empty anything it heard before this run, then start keeping frames.
+    # Let the receiver empty anything it heard before this run, then start keeping frames.
     t_drain = time.time()
     while time.time() - rcv.last_data < 1.5 and time.time() - t_drain < 20:
         time.sleep(0.1)
@@ -555,26 +556,27 @@ def main():
     started = time.strftime("%Y-%m-%d %H:%M:%S")
     atk, atkline = None, None
     if not args.attacker:
-        tx = serial_link.open_board(args.sender, args.baud, "Sender   (ESP32 A)")
+        tx = serial_link.open_board(args.sender, args.baud, "Sender")
         packets = [pack_timed(r, rel) for r, rel in zip(rows, offsets)]
         secs = serial_link.stream(tx, packets)
         print("All frames handed to the sender after %.1f s" % secs)
     else:
-        # The attacker must be listening before the normal sender sends the marker.
-        atk = serial_link.open_board(args.attacker, args.baud, "Attacker (ESP32 C)")
-        tx = serial_link.open_board(args.sender, args.baud, "Sender   (ESP32 A)")
+        # The attacker must be listening before the sender sends the marker.
+        atk = serial_link.open_board(args.attacker, args.baud, "Attacker")
+        tx = serial_link.open_board(args.sender, args.baud, "Sender")
         normal = [marker_packet()] + [pack_timed(r, rel + GAP_US)
                                       for r, rel in zip(rows, offsets) if r[11] == 0]
-        # C gets its attack frames and, in file order between them, a reference
-        # for every normal frame (the order A sends them in), to follow A's clock.
+        # The attacker gets its attack frames and, in file order between them, a
+        # reference for every normal frame (the order the sender sends them in),
+        # to follow the sender's clock.
         attack = [ref_packet(r, rel + GAP_US) if r[11] == 0 else pack_timed(r, rel + GAP_US)
                   for r, rel in zip(rows, offsets)]
-        print("Normal frames: %d to ESP32 A, attack frames: %d to ESP32 C (plus a timing "
+        print("Normal frames: %d to the sender, attack frames: %d to the attacker (plus a timing "
               "reference for each normal frame)" % (len(normal) - 1, len(attack) - len(normal) + 1))
         th = threading.Thread(target=serial_link.stream, args=(atk, attack),
                               kwargs={"name": "attacker"}, daemon=True)
         th.start()
-        secs = serial_link.stream(tx, normal, name="normal sender")
+        secs = serial_link.stream(tx, normal, name="sender")
         th.join()
         print("All frames handed to the senders after %.1f s" % secs)
         atkline = ask_report(atk)
@@ -588,14 +590,14 @@ def main():
     silent = time.time() - rcv.last_stat_time
     if silent > 3:
         stat += " (WARNING: last report %.0f s ago, the receiver stopped talking during the run)" % silent
-        print("\nWARNING: ESP32 B stopped reporting %.0f s before the end. Its numbers are stale and "
+        print("\nWARNING: the receiver stopped reporting %.0f s before the end. Its numbers are stale and "
               "frames after that point were not recorded." % silent)
     print("Sender says:   %s" % (txline or "no reply"))
     if args.attacker:
         print("Attacker says: %s" % (atkline or "no reply"))
         ar = parse_report(atkline)
         if "tracked" in ar:
-            print("Attacker followed the normal sender's clock: %s frames matched, %s missed, "
+            print("Attacker followed the sender's clock: %s frames matched, %s missed, "
                   "shifted %s us by the end (%.1f ppm)"
                   % (ar["tracked"], ar.get("missed"), ar.get("skew"), int(ar.get("drift", 0)) / 1000))
         if ar.get("synced") == 0:
@@ -617,10 +619,10 @@ def main():
         pass
     if rx_run is not None:
         stat = "%s (heard %d frames during this run)" % (stat, rx_run)
-    nodes = {"normal sender (A)" if args.attacker else "sender (A)": parse_report(txline)}
+    nodes = {"sender": parse_report(txline)}
     if args.attacker:
-        nodes["attacker (C)"] = parse_report(atkline)
-    nodes["logger (B)"] = parse_report(stat.replace("#STAT", "#TX", 1))
+        nodes["attacker"] = parse_report(atkline)
+    nodes["receiver"] = parse_report(stat.replace("#STAT", "#TX", 1))
     extra = {"started": started, "sender_report": txline, "receiver_report": stat,
              "receiver_frames_this_run": rx_run, "nodes": nodes, "start_frame": start_frame}
     if args.attacker:
@@ -639,7 +641,7 @@ def main():
               "95%% within %.1f us, worst %.1f us" % (tj["p50"], tj["p95"], tj["max"]))
         print("Clock drift between the two boards: %.1f ppm" % summary["clock_drift_ppm"])
     if "attacker_sync_offset_us" in summary:
-        print("Attacker: clock drift %.1f ppm, sends %.1f us from the normal sender's clock "
+        print("Attacker: clock drift %.1f ppm, sends %.1f us from the sender's clock "
               "(frames with a clear bus before them)"
               % (summary["attacker_clock_drift_ppm"], summary["attacker_sync_offset_us"]))
     print("\nEvery frame is saved in:\n  %s" % out)

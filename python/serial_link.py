@@ -42,7 +42,7 @@ def stream(ser, packets, label_timeout=15, name="sender"):
                 last_progress = time.time()
         if sent - acked * ACK_EVERY >= MAX_INFLIGHT:
             if time.time() - last_progress > label_timeout:
-                sys.exit("The %s stalled. Is the logger powered, wired to the same bus "
+                sys.exit("The %s stalled. Is the receiver powered, wired to the same bus "
                          "and showing READY? Without a receiver nobody ACKs frames." % name)
             time.sleep(0.0005)
             continue
