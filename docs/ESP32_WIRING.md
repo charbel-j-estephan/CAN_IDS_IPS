@@ -97,7 +97,8 @@ frame of the file.
 
 The results page then shows each board's numbers: frames sent, late frames,
 error counters, bus state, lost arbitrations, and how closely the attacker
-synced to the normal sender.
+follows the normal sender's clock (offset measured on frames with a clear
+bus before them, so it is not hidden by frames queued behind others).
 
 ## Wiring check without any script
 

@@ -53,6 +53,11 @@
 // before that, which is the normal sender's time zero.
 #define MARKER_ID   0x7FF
 #define MARKER_US   224
+// This board hears a frame later after it ends than replay_sender learns its
+// own frame has gone out, so time zero taken from the marker comes out late.
+// Measured on the bench (frames with a clear bus before them, run
+// 20261012_225632): attack frames 35 us behind the normal sender's clock.
+#define SYNC_TRIM_US 35
 static const uint8_t MARKER_DATA[8] = {'C', 'A', 'N', 'S', 'T', 'A', 'R', 'T'};
 
 // Clock following. WINDOW_US of schedule time per estimate; the earliest
@@ -258,7 +263,7 @@ void loop()
         while (twai_receive(&m, 0) == ESP_OK) {
             int64_t now = esp_timer_get_time();
             if (is_marker(m)) {
-                t0 = now - MARKER_US;
+                t0 = now - MARKER_US - SYNC_TRIM_US;
                 break;
             }
         }

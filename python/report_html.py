@@ -108,7 +108,7 @@ if (S.nodes) {
     }).join("") + "</tr>";
   }
   if (S.attacker_sync_offset_us !== undefined)
-    t += `<tr><td colspan="${used.length + 1}" class="note">Attacker synced ${S.attacker_sync_offset_us} µs from the normal sender, its clock drifts ${S.attacker_clock_drift_ppm} ppm.</td></tr>`;
+    t += `<tr><td colspan="${used.length + 1}" class="note">Attacker sends ${S.attacker_sync_offset_us} µs from the normal sender's clock (frames with a clear bus before them, + is late), its clock drifts ${S.attacker_clock_drift_ppm} ppm.</td></tr>`;
   $("nodes").innerHTML = t;
 } else {
   $("nodes_card").style.display = "none";
