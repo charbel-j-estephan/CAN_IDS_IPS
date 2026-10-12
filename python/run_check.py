@@ -3,13 +3,11 @@ dataset, open the results page.
 
     python run_check.py                                  20,000 DoS frames
     python run_check.py --file gear_dataset.csv --n 100000
-    python run_check.py --gateway                        the STM32 sits between the buses
     python run_check.py --dry-run                        only show what it would do
 
 Steps:
   1. Finds the ESP32s and tells the sender (replay_sender) from the receiver
      (usb_receiver) by what they print, so you never have to guess COM ports.
-     An STM32 gateway plugged into the PC is found too.
   2. Link check: 300 frames sent flat out. Every one must arrive unchanged,
      otherwise it stops and says what to check.
   3. Replays the dataset with its original timing (replay_dataset.py).
@@ -27,18 +25,11 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 ESP32_VIDS = {0x1A86, 0x10C4, 0x0403}      # CH340/CH9102, CP210x, FTDI USB-serial chips
-STM32_VID = 0x0483
 
 
 def find_ports():
     import serial.tools.list_ports as lp
-    esp, stm = [], []
-    for p in lp.comports():
-        if p.vid in ESP32_VIDS:
-            esp.append(p.device)
-        elif p.vid == STM32_VID:
-            stm.append(p.device)
-    return esp, stm
+    return [p.device for p in lp.comports() if p.vid in ESP32_VIDS]
 
 
 def identify(port, listen=2.5):
@@ -83,8 +74,6 @@ def main():
     ap.add_argument("--file", default="DoS_dataset.csv",
                     help="DoS_dataset.csv, Fuzzy_dataset.csv, gear_dataset.csv or RPM_dataset.csv")
     ap.add_argument("--n", type=int, default=20000, help="frames to replay, 0 for the whole file")
-    ap.add_argument("--gateway", action="store_true",
-                    help="the STM32 gateway is between the two buses (powered, USB optional)")
     ap.add_argument("--sender", help="skip detection: the sender's COM port")
     ap.add_argument("--receiver", help="skip detection: the receiver's COM port")
     ap.add_argument("--skip-check", action="store_true", help="skip the 300 frame link check")
@@ -92,7 +81,7 @@ def main():
     args = ap.parse_args()
 
     # 1. Boards
-    esp, stm = find_ports()
+    esp = find_ports()
     sender, receiver = args.sender, args.receiver
     if not (sender and receiver):
         print("ESP32 USB ports found: %s" % (", ".join(esp) or "none"))
@@ -114,16 +103,10 @@ def main():
                      "  - The sender must run replay_sender, the receiver usb_receiver.\n"
                      "  - A board shown as 'unknown' printed nothing: re-upload its sketch.\n"
                      "Or name them yourself: --sender COMx --receiver COMy")
-    gw_port = stm[0] if stm else None
-    gw_arg = []
-    if args.gateway or gw_port:
-        gw_arg = ["--gateway", gw_port or "none"]
     print("\nSender   (ESP32 A): %s" % sender)
     print("Receiver (ESP32 B): %s" % receiver)
-    if gw_arg:
-        print("STM32 gateway:      %s" % (gw_port or "between the buses, not on USB"))
 
-    common = ["--sender", sender, "--receiver", receiver] + gw_arg
+    common = ["--sender", sender, "--receiver", receiver]
     full = common + ["--file", args.file, "--n", str(args.n)]
     if args.dry_run:
         print("\nWould run the link check, then: replay_dataset.py " + " ".join(full))
@@ -146,10 +129,9 @@ def main():
         if s["frames_arrived"] != s["frames_sent"] or s.get("unmatched_received"):
             sys.exit("\nLink check FAILED: %d of %d frames arrived, %d arrived altered.\n"
                      "Check, with the power off:\n"
-                     "  - CANH to CANL reads about 60 ohm on each bus\n"
+                     "  - CANH to CANL reads about 60 ohm\n"
                      "  - CANH to CANH and CANL to CANL, not crossed\n"
-                     "  - all grounds joined, every module powered\n"
-                     "  - with the STM32 in the middle: it is powered and LED D3 is off"
+                     "  - all grounds joined, every module powered"
                      % (s["frames_arrived"], s["frames_sent"], s.get("unmatched_received", 0)))
         print("\nLink check passed: %d of %d frames arrived unchanged." % (s["frames_arrived"], s["frames_sent"]))
 
