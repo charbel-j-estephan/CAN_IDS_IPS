@@ -258,7 +258,7 @@ def match_sequential(sent, frames):
     return rx_for, spurious
 
 
-def match_timed(sent, orig_us, frames, st):
+def match_timed(sent, orig_us, frames, st, node=None):
     """Original timing mode: match by content AND time.
 
     Many frames are identical (a DoS flood is the same frame thousands of
@@ -266,7 +266,13 @@ def match_timed(sent, orig_us, frames, st):
     is matched to the unused identical sent frame closest to the time it was
     expected. The offset between the board's clock and the capture clock is
     learned from the first frames and then tracked, so clock drift between
-    the two does not break the matching."""
+    the two does not break the matching.
+
+    One node sends its identical frames in order, so they also arrive in
+    order. Nearest in time can still pair two of them crosswise (one late
+    frame lands nearer the next one's time), so afterwards each node's
+    identical frames are paired in order. node[j] says which board sent
+    frame j (None: one board sent everything)."""
     from bisect import bisect_left
     by_content = {}
     for j, f in enumerate(sent):
@@ -309,6 +315,14 @@ def match_timed(sent, orig_us, frames, st):
         used[best] = True
         rx_for[best] = k
         offset += 0.05 * ((st[k] - orig_us[best]) - offset)   # follow slow clock drift
+
+    groups = {}
+    for j, k in enumerate(rx_for):
+        if k >= 0:
+            groups.setdefault((sent[j], node[j] if node else 0), []).append(j)
+    for js in groups.values():
+        for j, k in zip(js, sorted(rx_for[j] for j in js)):
+            rx_for[j] = k
     return rx_for, spurious
 
 
@@ -319,7 +333,8 @@ def analyse(rows, frames, stamps, realtime, split=False):
     orig_us = [(r[0] - rows[0][0]) * 1e6 for r in rows]
 
     if realtime:
-        rx_for, spurious = match_timed(sent, orig_us, frames, st)
+        node = [int(r[11] != 0) for r in rows] if split else None
+        rx_for, spurious = match_timed(sent, orig_us, frames, st, node)
     else:
         rx_for, spurious = match_sequential(sent, frames)
     arrived = [k >= 0 for k in rx_for]

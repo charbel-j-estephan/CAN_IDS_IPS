@@ -50,10 +50,8 @@ start and while the attack pauses, against about +3 us during the attack
 
 ## To do next
 
-1. Bench done for now. Known scoring quirk: two identical frames (DoS 0x000)
-   less than a frame apart can be matched crosswise, so one late frame shows
-   as +322 / -158 us instead of about +190 / +4 (run 20261012_231036 at
-   2.81 s). Matching identical frames in order would fix it.
+1. Bench done for now. (Identical frames from one board are now matched in
+   order: the 322 us worst case of run 20261012_231036 rescores to 178 us.)
 2. STM32 alone IDS (report Fig. 3), per the approved plan: M1 bit-level CAN
    reception in software on PB8 (TX on PB9 held high), frames to the PC over
    USB in the logger's format; M2 the emlearn random forest per frame with
