@@ -23,18 +23,28 @@ Without C plugged in it runs the 2-board mode (A sends everything).
 | Item | Status |
 |---|---|
 | 2-board replay | Tested: DoS 20k, Fuzzy 20k, gear 100k, 100% delivered, median 6 to 7 us, 95% within 13 to 22 us |
-| 3-board replay (separate attacker) | Tested once: 20,000 of 20,000 delivered, no errors on any board, attacker synced |
-| Sync fix (normal sender takes time zero when the marker finished sending) | Committed (`87539d0`), **not yet tested on hardware** |
+| 3-board replay (separate attacker) | Tested twice: 20,000 of 20,000 delivered, no errors on any board |
+| Sync fix (normal sender takes time zero when the marker finished sending) | Tested (`20261012_223152`): attacker synced 9.7 us from A, was 77 us |
+| Drift tracking (attacker follows A's clock during the run) | Committed, **not yet tested on hardware** |
 
-The first 3-board run had the attacker 77 us late: attack frames were accurate
-(median 3 us) but pushed the normal frames aside (median 57 us). The fix is in
-`replay_sender`. Next run should show the attacker synced within a few us and
-the normal frames back near the 2-board timing.
+After the sync fix the attacker started in step but its clock ran 6.4 ppm off
+A's, so attack frames fell 6 us per second further behind (about 80 us after
+14 s) and dragged the normal frames queued behind them: normal median 26 us,
+attack frames 3 us. The fix: the PC sends C a reference for every normal frame
+(when it should end), C compares with when it heard it and shifts its schedule
+(earliest frame per 250 ms window, drift measured from the start). Offline, on
+the recorded run, this followed the true drift within about 3 us.
+
+Still unexplained, smaller: A's normal frames read 20 to 30 us late at the
+start and while the attack pauses, against about +3 us during the attack
+(also faintly in the 2-board runs).
 
 ## To do next
 
-1. Re-upload `replay_sender` to the normal sender (COM8), run `run_check.bat`,
-   confirm the sync offset is a few us. Then the bench is final for now.
+1. Re-upload `attack_sender` to the attacker (COM9), run `run_check.bat`.
+   Expect the attacker line "followed the normal sender's clock" with about
+   6 ppm, and normal frames back near the 2-board timing (median 6 to 7 us).
+   Then the bench is final for now.
 2. STM32 alone IDS (report Fig. 3), per the approved plan: M1 bit-level CAN
    reception in software on PB8 (TX on PB9 held high), frames to the PC over
    USB in the logger's format; M2 the emlearn random forest per frame with

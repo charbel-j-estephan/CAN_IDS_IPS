@@ -88,6 +88,10 @@ attacker to bus off.
 How the two senders stay in step: ESP32 A first sends a start marker (ID
 0x7FF, data "CANSTART"). ESP32 C starts its clock when it hears it, so both
 boards share one time base within a few microseconds, independent of USB.
+The two crystals then drift apart by a few ppm (tens of microseconds over a
+few seconds), so the PC also sends ESP32 C a timing reference for every normal
+frame. C hears those frames, sees how far its own clock has moved from A's and
+shifts its schedule to match for the whole run.
 The marker is not counted in the results. The run starts at the first normal
 frame of the file.
 

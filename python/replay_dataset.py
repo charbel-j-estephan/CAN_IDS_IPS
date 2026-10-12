@@ -6,7 +6,9 @@ record every frame the logger hears, and write a results page.
 
 Every frame arrives with the microsecond time ESP32 B received it. With
 --attacker, A sends only the normal frames and C only the attack frames, as two
-real nodes. A sends a start marker first and C starts its clock from it.
+real nodes. A sends a start marker first and C starts its clock from it. C
+also gets a timing reference for every normal frame, so it can follow A's
+clock for the whole run instead of drifting away from it.
 
     python replay_dataset.py --sender COM8 --receiver COM7
     python replay_dataset.py --sender COM8 --receiver COM7 --attacker COM9
@@ -88,6 +90,17 @@ def start_offsets(rows, realtime):
     return [max(0, round(x - starts[0])) for x in starts]
 
 
+REF_TAG = 0xFF               # first byte of a timing reference packet for the attacker
+
+
+def ref_packet(row, rel_us):
+    """15 byte timing reference for the attacker: a normal frame and when it
+    should END on the bus (its start plus its length on the wire)."""
+    cid = row[1]
+    end = rel_us + frame_us(cid, row[2], row[3:3 + row[2]])
+    return bytes([REF_TAG, cid >> 8, cid & 0xFF]) + bytes(8) + int(round(end)).to_bytes(4, "little")
+
+
 def marker_packet():
     return bytes([MARKER[0] >> 8, MARKER[0] & 0xFF, MARKER[1]] + list(MARKER[2:])) + bytes(4)
 
@@ -99,7 +112,7 @@ def parse_report(line):
         if "=" not in part:
             continue
         k, _, v = part.partition("=")
-        out[k] = int(v) if v.isdigit() else v
+        out[k] = int(v) if v.lstrip("-").isdigit() else v
     return out
 
 
@@ -526,9 +539,12 @@ def main():
         tx = serial_link.open_board(args.sender, args.baud, "Sender   (ESP32 A)")
         normal = [marker_packet()] + [pack_timed(r, rel + GAP_US)
                                       for r, rel in zip(rows, offsets) if r[11] == 0]
-        attack = [pack_timed(r, rel + GAP_US) for r, rel in zip(rows, offsets) if r[11] != 0]
-        print("Normal frames: %d to ESP32 A, attack frames: %d to ESP32 C"
-              % (len(normal) - 1, len(attack)))
+        # C gets its attack frames and, in file order between them, a reference
+        # for every normal frame (the order A sends them in), to follow A's clock.
+        attack = [ref_packet(r, rel + GAP_US) if r[11] == 0 else pack_timed(r, rel + GAP_US)
+                  for r, rel in zip(rows, offsets)]
+        print("Normal frames: %d to ESP32 A, attack frames: %d to ESP32 C (plus a timing "
+              "reference for each normal frame)" % (len(normal) - 1, len(attack) - len(normal) + 1))
         th = threading.Thread(target=serial_link.stream, args=(atk, attack),
                               kwargs={"name": "attacker"}, daemon=True)
         th.start()
@@ -551,7 +567,12 @@ def main():
     print("Sender says:   %s" % (txline or "no reply"))
     if args.attacker:
         print("Attacker says: %s" % (atkline or "no reply"))
-        if parse_report(atkline).get("synced") == 0:
+        ar = parse_report(atkline)
+        if "tracked" in ar:
+            print("Attacker followed the normal sender's clock: %s frames matched, %s missed, "
+                  "shifted %s us by the end (%.1f ppm)"
+                  % (ar["tracked"], ar.get("missed"), ar.get("skew"), int(ar.get("drift", 0)) / 1000))
+        if ar.get("synced") == 0:
             print("WARNING: the attacker never heard the start marker, so it sent nothing. "
                   "Is it on the same bus?")
     print("Receiver says: %s" % stat)
