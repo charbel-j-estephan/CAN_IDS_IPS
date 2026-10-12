@@ -223,6 +223,7 @@ def unwrap(stamps):
 
 MATCH_WINDOW_US = 20000      # how far a frame may be from its expected time
 SEQ_WINDOW = 4096            # fast mode: how far ahead to look for a frame
+CLEAR_US = 100               # bus idle this long before a frame: nothing could delay it
 
 
 def dedupe(frames, stamps):
@@ -336,8 +337,7 @@ def analyse(rows, frames, stamps, realtime, split=False):
     # drift between the boards, not replay timing. Fit it and keep what is left
     # over as the jitter: how far each frame was from where it should have been.
     # With an attacker board, attack frames run on that board's clock, so each
-    # sender gets its own fit. The difference between the two fits at the
-    # start is how well the attacker synced on the marker.
+    # sender gets its own fit.
     jitter, fits = [None] * len(sent), {}
     groups = {0: [i for i in range(len(rows)) if not split or rows[i][11] == 0]}
     if split:
@@ -356,8 +356,19 @@ def analyse(rows, frames, stamps, realtime, split=False):
     drift_ppm = float(fits[0][0] * 1e6) if 0 in fits else None
     attacker = None
     if 0 in fits and 1 in fits:
-        attacker = {"drift_ppm": float(fits[1][0] * 1e6),
-                    "offset_us": float(fits[1][1] - fits[0][1])}
+        # How far the attacker sends from where A's clock says it should: only
+        # frames with a clear bus before them in the capture count. A frame
+        # that queued behind another one is late for another reason, and the
+        # normal frames C pushes aside would otherwise hide part of the offset.
+        starts = [orig_us[i] - frame_us(r[1], r[2], r[3:3 + r[2]]) for i, r in enumerate(rows)]
+        on_a = lambda i: err[i] - (fits[0][0] * orig_us[i] + fits[0][1])
+        clear = {g: [on_a(i) for i in idx if i > 0 and err[i] is not None
+                     and starts[i] - orig_us[i - 1] >= CLEAR_US] for g, idx in groups.items()}
+        if len(clear[0]) >= 10 and len(clear[1]) >= 10:
+            offset = float(np.median(clear[1]) - np.median(clear[0]))
+        else:
+            offset = float(fits[1][1] - fits[0][1])
+        attacker = {"drift_ppm": float(fits[1][0] * 1e6), "offset_us": offset}
     return {"arrived": arrived, "spurious": spurious, "duplicates": dups, "rx_rel": rx_rel,
             "err": err, "jitter": jitter, "drift_ppm": drift_ppm, "attacker_fit": attacker,
             "t0": rows[0][0], "realtime": realtime, "split": split}
@@ -613,7 +624,8 @@ def main():
               "95%% within %.1f us, worst %.1f us" % (tj["p50"], tj["p95"], tj["max"]))
         print("Clock drift between the two boards: %.1f ppm" % summary["clock_drift_ppm"])
     if "attacker_sync_offset_us" in summary:
-        print("Attacker: clock drift %.1f ppm, synced %.1f us from the normal sender"
+        print("Attacker: clock drift %.1f ppm, sends %.1f us from the normal sender's clock "
+              "(frames with a clear bus before them)"
               % (summary["attacker_clock_drift_ppm"], summary["attacker_sync_offset_us"]))
     print("\nEvery frame is saved in:\n  %s" % out)
     print("Open report.html there for the results page.")
