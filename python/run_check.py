@@ -105,6 +105,12 @@ def main():
         receiver = receiver or (receivers[0] if len(receivers) == 1 else None)
         attackers = [p for p, r in roles.items() if r == "attacker"]
         attacker = attacker or (attackers[0] if len(attackers) == 1 else None)
+        if len(attackers) > 1:
+            sys.exit("\n%s all run attack_sender. Upload esp32/replay_sender to the board that "
+                     "plays the normal car, then run this again." % ", ".join(attackers))
+        if len(senders) > 1:
+            sys.exit("\n%s all run replay_sender. Upload esp32/attack_sender to the attacker "
+                     "board (or unplug it to run without an attacker)." % ", ".join(senders))
         if not sender or not receiver:
             sys.exit("\nCould not find exactly one sender and one receiver.\n"
                      "  - Both ESP32s must be plugged in with data cables.\n"
