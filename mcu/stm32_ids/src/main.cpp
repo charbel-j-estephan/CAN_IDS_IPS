@@ -35,7 +35,7 @@
 #include <Arduino.h>
 #include "can_rx.h"
 
-#define FW_VERSION  3            // in READY and #STAT: which build is running
+#define FW_VERSION  4            // in READY and #STAT: which build is running
 #define BITRATE     500000
 #define RING        512          // frames waiting for USB, power of two
 #define LED         PA6          // on (low) while frames arrive
@@ -211,6 +211,15 @@ static void start_timers()
     can_rx_reset();
     sampling(true);
     sample_at(TIM4->CNT + bit_ticks);
+}
+
+// After an upload, dfu-util starts this program straight from the bootloader,
+// which leaves the vector table pointing at the bootloader: USB then breaks
+// ("A device attached to the system is not functioning") until a reset. Point
+// it at this program before anything else runs, USB included.
+__attribute__((constructor(101))) static void own_vector_table()
+{
+    SCB->VTOR = FLASH_BASE;
 }
 
 void setup()
