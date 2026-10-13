@@ -149,7 +149,8 @@ static void start_timers()
     TIM4->EGR = TIM_EGR_UG;
     TIM4->SR = 0;
     TIM4->DIER = TIM_DIER_CC3IE;
-    NVIC_SetPriority(TIM4_IRQn, 0);        // above USB: a late sample reads the wrong bit
+    NVIC_SetPriority(TIM4_IRQn, 0);        // above USB (1) and SysTick (1, platformio.ini):
+                                           // a late sample reads the wrong bit
     NVIC_EnableIRQ(TIM4_IRQn);
     TIM4->CR1 = TIM_CR1_CEN;
 
@@ -161,8 +162,17 @@ static void start_timers()
 
 void setup()
 {
-    pinMode(PB9, OUTPUT_OPEN_DRAIN);       // CAN TX released: recessive
-    digitalWrite(PB9, HIGH);
+    // CAN TX released (recessive). High is written before the pin becomes an
+    // output, so it is never low for a moment: that would put a dominant bit
+    // on the bus and could break a frame from another node.
+    __HAL_RCC_GPIOB_CLK_ENABLE();
+    GPIOB->BSRR = GPIO_PIN_9;
+    GPIO_InitTypeDef tx = {};
+    tx.Pin = GPIO_PIN_9;
+    tx.Mode = GPIO_MODE_OUTPUT_OD;
+    tx.Pull = GPIO_NOPULL;
+    tx.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOB, &tx);
     pinMode(LED, OUTPUT);
     digitalWrite(LED, HIGH);
 
