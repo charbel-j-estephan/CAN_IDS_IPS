@@ -20,3 +20,4 @@ quartus/*.summary
 .qodo/
 runs/
 .pio/
+.venv/
