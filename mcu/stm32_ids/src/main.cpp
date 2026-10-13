@@ -240,8 +240,10 @@ void setup()
 #define DFU_KEY     "DFU!"
 
 // The STM32's built-in bootloader (system memory at 0x1FFF0000) does the USB
-// DFU upload. Jumping there from this program saves moving the BOOT0 jumper.
-// If it ever fails, the jumper still works.
+// DFU upload. Jumping there from this program would save moving the BOOT0
+// jumper. DOES NOT WORK YET: tried once (2026-10-13), the board dropped off
+// USB and the bootloader never appeared; a reset brings the program back.
+// Nothing sends "DFU!" any more; upload with the BOOT0 jumper.
 static void enter_dfu()
 {
     Serial.print("#DFU restarting into the USB bootloader\n");
