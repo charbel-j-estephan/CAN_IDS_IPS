@@ -34,6 +34,9 @@ FILES = {
     "mcu/stm32_ids/src/main.cpp": "stm32_ids/src/main.cpp",
     "mcu/stm32_ids/src/can_rx.c": "stm32_ids/src/can_rx.c",
     "mcu/stm32_ids/src/can_rx.h": "stm32_ids/src/can_rx.h",
+    "mcu/stm32_ids/src/classify.c": "stm32_ids/src/classify.c",
+    "mcu/stm32_ids/src/classify.h": "stm32_ids/src/classify.h",
+    "mcu/stm32_ids/src/can_ids_model.h": "stm32_ids/src/can_ids_model.h",
     "mcu/stm32_ids/test/host_test.c": "stm32_ids/test/host_test.c",
 }
 

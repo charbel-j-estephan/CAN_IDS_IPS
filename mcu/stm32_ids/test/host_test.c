@@ -47,7 +47,7 @@ int main(int argc, char **argv)
                 continue;              /* idle bus, no sampling */
             can_rx_sof();              /* falling edge: start of frame */
         }
-        if (!can_rx_bit(level, &f))
+        if (can_rx_bit(level, &f) != CAN_RX_FRAME)
             continue;
 
         /* Next good frame in the expected list (skip the broken ones). */
