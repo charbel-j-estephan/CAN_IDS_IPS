@@ -10,6 +10,7 @@ can_rx_stats_t can_rx_stats;
 static uint8_t state = WAIT_IDLE;
 static uint16_t nbits;          /* bits received after destuffing, start of frame is bit 0 */
 static uint16_t frame_end;      /* bit count when the CRC field is complete */
+static uint16_t feat_end;       /* bit count when the IDS features are complete */
 static uint16_t crc;            /* CRC-15 over all bits: 0 at the end of a good frame */
 static uint8_t last, run;       /* last bit and how many in a row, for destuffing */
 static uint8_t stuff_next;      /* the next bit on the wire is a stuff bit */
@@ -42,6 +43,7 @@ CAN_RX_FAST void can_rx_sof(void)
     int i;
     nbits = 0;
     frame_end = 0xFFFF;
+    feat_end = 0xFFFF;
     crc = 0;
     run = 0;
     stuff_next = 0;
@@ -74,8 +76,11 @@ CAN_RX_FAST static void data_bit(uint8_t level)
         f.rtr = level;
     } else if (i >= dlc_at && i < dlc_at + 4) {
         f.dlc = (uint8_t)((f.dlc << 1) | level);
-        if (i == dlc_at + 3)
-            frame_end = dlc_at + 4 + (f.rtr ? 0 : 8 * (f.dlc > 8 ? 8 : f.dlc)) + 15;
+        if (i == dlc_at + 3) {
+            uint16_t n = f.rtr ? 0 : (f.dlc > 8 ? 8 : f.dlc);
+            frame_end = dlc_at + 4 + 8 * n + 15;
+            feat_end = dlc_at + 4 + 8 * (n > CAN_RX_FEATURE_BYTES ? CAN_RX_FEATURE_BYTES : n);
+        }
     } else if (frame_end != 0xFFFF && i >= dlc_at + 4 && i < frame_end - 15) {
         uint16_t k = (uint16_t)((i - dlc_at - 4) >> 3);
         f.data[k] = (uint8_t)((f.data[k] << 1) | level);
@@ -124,6 +129,10 @@ CAN_RX_FAST int can_rx_bit(uint8_t level, can_frame_t *out)
             state = TAIL;
             tail = 0;
         }
+        if (nbits == feat_end) {        /* ID, DLC and the first data bytes are in */
+            *out = f;
+            return CAN_RX_FEATURES;
+        }
         return 0;
 
     case TAIL:
@@ -143,7 +152,7 @@ CAN_RX_FAST int can_rx_bit(uint8_t level, can_frame_t *out)
         if (tail == 9) {                /* 6th end of frame bit done: received */
             can_rx_stats.frames++;
             *out = f;
-            return 1;
+            return CAN_RX_FRAME;
         }
         if (tail == 10)
             state = IDLE;

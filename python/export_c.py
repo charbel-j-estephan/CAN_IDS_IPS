@@ -46,6 +46,24 @@ def integer_safe_copy(model):
     return model
 
 
+def model_id(bundle):
+    """Short name of a trained model: size, bytes read and a hash of every
+    split, leaf and known ID, e.g. rf5-d9-p5-3fa2c1d0."""
+    import zlib
+    import numpy as np
+    model = bundle["model"]
+    h = 0
+    for est in model.estimators_:
+        t = est.tree_
+        for a in (t.feature, t.threshold, t.children_left, t.children_right,
+                  np.argmax(t.value, axis=-1)):
+            h = zlib.crc32(np.ascontiguousarray(a).tobytes(), h)
+    h = zlib.crc32(np.asarray(bundle.get("known_ids", []), dtype=np.int64).tobytes(), h)
+    depth = max(e.tree_.max_depth for e in model.estimators_)
+    return "rf%d-d%d-p%d-%08x" % (len(model.estimators_), depth,
+                                  bundle.get("payload_bytes", 8), h)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -59,6 +77,9 @@ def main():
                              dtype="float")
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     cmodel.save(file=args.out, name="can_ids")
+    with open(args.out, "a") as f:
+        f.write('\n// Which model this is: shown by the firmware in READY and #STAT.\n'
+                '#define CAN_IDS_MODEL_ID "%s"\n' % model_id(bundle))
     if "known_ids" in bundle:
         bits = [0] * 256
         for i in bundle["known_ids"]:

@@ -50,8 +50,16 @@ int can_rx_idle(void);
  * bit itself is dominant by definition; the caller passes it to can_rx_bit()
  * as 0 instead of sampling it, so a late first interrupt cannot misread it. */
 void can_rx_sof(void);
-/* One sampled bit. Returns 1 when a good frame is complete (*out filled), at
- * the 6th end of frame bit, where CAN counts a frame as received. */
+/* What can_rx_bit() returns (0: nothing to report). */
+#define CAN_RX_FRAME          1   /* a good frame is complete, at the 6th end of
+                                     frame bit, where CAN counts it as received */
+#define CAN_RX_FEATURES       2   /* the IDS features are in: ID, DLC and the
+                                     first CAN_RX_FEATURE_BYTES data bytes (all
+                                     the data if there are fewer). Later bytes
+                                     are 0. The frame is not checked yet. */
+#define CAN_RX_FEATURE_BYTES  5
+
+/* One sampled bit. *out is filled for CAN_RX_FRAME and CAN_RX_FEATURES. */
 int can_rx_bit(uint8_t level, can_frame_t *out);
 
 #ifdef __cplusplus

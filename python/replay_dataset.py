@@ -42,6 +42,9 @@ CLASS_NAMES = ["Normal", "DoS", "Fuzzy", "Gear_spoof", "RPM_spoof"]
 FILE_CLASS = {"DoS_dataset.csv": 1, "Fuzzy_dataset.csv": 2,
               "gear_dataset.csv": 3, "RPM_dataset.csv": 4}
 SYNC_TS = 0xA7
+SYNC_IDS = 0xA8              # STM32 IDS node: frame record plus its decision
+IDS_TICKS_PER_US = 84        # the STM32's TIM4 runs at 84 MHz
+IDS_LATE, IDS_OFF = 0xFF, 0xFE
 # Start marker for the attacker (must match attack_sender.ino): ID 0x7FF, "CANSTART".
 MARKER = (0x7FF, 8) + tuple(b"CANSTART")
 GAP_US = 20000               # first dataset frame starts this long after the marker
@@ -135,21 +138,31 @@ def ask_report(ser, timeout=30):
 # ---- receiving ------------------------------------------------------------------
 
 def parse_timed_stream(buf):
-    """Records are 0xA7 id_hi id_lo dlc d0..d7 t0..t3 (16 bytes), lines start with '#'.
+    """Records are 0xA7 id_hi id_lo dlc d0..d7 t0..t3 (16 bytes, the receiver),
+    or 0xA8 with the same 16 bytes plus the STM32 IDS decision (23 bytes):
+    cls ready(2) decided(2) end(2), TIM4 ticks after the start of frame.
+    Lines start with '#'.
 
-    Returns ([(can_id, dlc, d0..d7)], [timestamp us], [text lines])."""
-    frames, stamps, texts = [], [], []
+    Returns ([(can_id, dlc, d0..d7)], [timestamp us], [text lines],
+    [IDS decision (cls, ready, decided, end) or None])."""
+    frames, stamps, texts, dets = [], [], [], []
     i, n = 0, len(buf)
     while i < n:
         b = buf[i]
-        if b == SYNC_TS:
-            if i + 16 > n:
+        if b in (SYNC_TS, SYNC_IDS):
+            size = 16 if b == SYNC_TS else 23
+            if i + size > n:
                 break
             hi, lo, dlc = buf[i + 1], buf[i + 2], buf[i + 3]
             if hi < 8 and dlc <= 8:
                 frames.append((hi << 8 | lo, dlc) + tuple(buf[i + 4:i + 12]))
                 stamps.append(int.from_bytes(buf[i + 12:i + 16], "little"))
-                i += 16
+                if b == SYNC_IDS:
+                    dets.append((buf[i + 16],) + tuple(
+                        int.from_bytes(buf[i + k:i + k + 2], "little") for k in (17, 19, 21)))
+                else:
+                    dets.append(None)
+                i += size
                 continue
             i += 1
         elif b == 0x23:
@@ -161,7 +174,7 @@ def parse_timed_stream(buf):
         else:
             i += 1
     del buf[:i]
-    return frames, stamps, texts
+    return frames, stamps, texts, dets
 
 
 class SerialReceiver(threading.Thread):
@@ -174,7 +187,7 @@ class SerialReceiver(threading.Thread):
     def __init__(self, ser):
         super().__init__(daemon=True)
         self.ser = ser
-        self.frames, self.stamps, self.texts = [], [], []
+        self.frames, self.stamps, self.texts, self.dets = [], [], [], []
         self.armed = False
         self.ignored = 0                   # frames received before arm()
         self.last_data = time.time()       # time of the last FRAME received
@@ -195,7 +208,7 @@ class SerialReceiver(threading.Thread):
             if not data:
                 continue
             buf += data
-            f, s, t = parse_timed_stream(buf)
+            f, s, t, d = parse_timed_stream(buf)
             self.texts += t
             if any(x.startswith("#STAT") for x in t):
                 self.last_stat_time = time.time()
@@ -205,6 +218,7 @@ class SerialReceiver(threading.Thread):
             if self.armed:
                 self.frames += f
                 self.stamps += s
+                self.dets += d
             else:
                 self.ignored += len(f)
 
@@ -227,20 +241,23 @@ SEQ_WINDOW = 4096            # fast mode: how far ahead to look for a frame
 CLEAR_US = 100               # bus idle this long before a frame: nothing could delay it
 
 
-def dedupe(frames, stamps):
+def dedupe(frames, stamps, dets=None):
     """Drop records the receiver reported twice.
 
     Two different frames can never share one microsecond on a 500 kbit/s bus,
-    so the same timestamp and ID means the same frame."""
-    seen, f2, s2 = set(), [], []
-    for f, t in zip(frames, stamps):
+    so the same timestamp and ID means the same frame. dets (the STM32's
+    decisions, one per record) is thinned the same way."""
+    dets = dets if dets is not None else [None] * len(frames)
+    seen, f2, s2, d2 = set(), [], [], []
+    for f, t, d in zip(frames, stamps, dets):
         key = (t, f[0])
         if key in seen:
             continue
         seen.add(key)
         f2.append(f)
         s2.append(t)
-    return f2, s2, len(frames) - len(f2)
+        d2.append(d)
+    return f2, s2, len(frames) - len(f2), d2
 
 
 def match_sequential(sent, frames):
@@ -327,9 +344,9 @@ def match_timed(sent, orig_us, frames, st, node=None):
     return rx_for, spurious
 
 
-def analyse(rows, frames, stamps, realtime, split=False):
+def analyse(rows, frames, stamps, realtime, split=False, dets=None):
     sent = [tuple(int(v) for v in r[1:11]) for r in rows]
-    frames, stamps, dups = dedupe(frames, stamps)
+    frames, stamps, dups, dets = dedupe(frames, stamps, dets)
     st = unwrap(stamps)
     orig_us = [(r[0] - rows[0][0]) * 1e6 for r in rows]
 
@@ -387,7 +404,76 @@ def analyse(rows, frames, stamps, realtime, split=False):
         attacker = {"drift_ppm": float(fits[1][0] * 1e6), "offset_us": offset}
     return {"arrived": arrived, "spurious": spurious, "duplicates": dups, "rx_rel": rx_rel,
             "err": err, "jitter": jitter, "drift_ppm": drift_ppm, "attacker_fit": attacker,
-            "t0": rows[0][0], "realtime": realtime, "split": split}
+            "t0": rows[0][0], "realtime": realtime, "split": split,
+            "det": [dets[k] if k >= 0 else None for k in rx_for]}
+
+
+def ids_summary(label, det):
+    """Score the STM32 IDS node's decisions against the dataset labels.
+
+    det[i] is (cls, ready, decided, end) for sent frame i, TIM4 ticks after its
+    start of frame edge, or None when that frame did not arrive (or came from a
+    receiver without a model)."""
+    have = [i for i, d in enumerate(det) if d is not None]
+    if not have:
+        return None
+    cls = np.array([det[i][0] for i in have])
+    y = np.array([label[i] for i in have])
+    t = np.array([det[i][1:] for i in have], dtype=float) / IDS_TICKS_PER_US
+    off = cls == IDS_OFF
+    if off.all():
+        return {"model": "off", "frames": len(have)}
+    late = cls == IDS_LATE
+    ok = ~late & ~off
+    cm = [[int(((y == a) & (cls == b) & ok).sum()) for b in range(len(CLASS_NAMES))]
+          for a in range(len(CLASS_NAMES))]
+    s = {"model": "on", "frames": len(have), "no_decision_by_frame_end": int(late.sum()),
+         "model_off_frames": int(off.sum()), "confusion": cm, "classes": CLASS_NAMES,
+         "recall": {}, "attack_frames": int((y != 0).sum()), "normal_frames": int((y == 0).sum())}
+    for c, name in enumerate(CLASS_NAMES):
+        m = (y == c) & ~off
+        if m.any():
+            s["recall"][name] = round(100.0 * float(((cls == c) & m).sum()) / m.sum(), 3)
+    att, nor = (y != 0) & ~off, (y == 0) & ~off
+    if att.any():   # a late decision counts as a miss
+        s["attacks_flagged_percent"] = round(100.0 * float((ok & att & (cls != 0)).sum()) / att.sum(), 3)
+    if nor.any():
+        fa = int((ok & nor & (cls != 0)).sum())
+        s["false_alarms"] = fa
+        s["false_alarm_percent"] = round(100.0 * fa / nor.sum(), 4)
+    s["accuracy_percent"] = round(100.0 * float(((cls == y) & ok).sum()) / (~off).sum(), 4)
+    if ok.any():
+        after = t[ok, 1] - t[ok, 0]          # decision after the features were complete
+        left = t[ok, 2] - t[ok, 1]           # decision before the 6th end of frame bit
+        pc = lambda a, p: round(float(np.percentile(a, p)), 2)
+        s["decision_after_features_us"] = {"p50": pc(after, 50), "p99": pc(after, 99),
+                                           "max": round(float(after.max()), 2)}
+        s["decision_from_frame_start_us"] = {"p50": pc(t[ok, 1], 50), "max": round(float(t[ok, 1].max()), 2)}
+        s["time_left_to_frame_end_us"] = {"min": round(float(left.min()), 2), "p1": pc(left, 1),
+                                          "p50": pc(left, 50)}
+    return s
+
+
+def print_ids(s):
+    if not s:
+        return
+    if s["model"] == "off":
+        print("STM32 IDS: model switched off, %d frames not classified" % s["frames"])
+        return
+    print("\nSTM32 IDS, decisions on %d frames (%d attack, %d normal):"
+          % (s["frames"], s["attack_frames"], s["normal_frames"]))
+    print("  recall: " + ", ".join("%s %.3f%%" % kv for kv in s["recall"].items()))
+    if "attacks_flagged_percent" in s:
+        print("  attack frames flagged: %.3f%%" % s["attacks_flagged_percent"])
+    if "false_alarms" in s:
+        print("  false alarms: %d (%.4f%% of normal frames)" % (s["false_alarms"], s["false_alarm_percent"]))
+    print("  no decision by the end of the frame: %d" % s["no_decision_by_frame_end"])
+    if "decision_after_features_us" in s:
+        a, l = s["decision_after_features_us"], s["time_left_to_frame_end_us"]
+        print("  decision after the 5th data byte: median %.2f us, 99%% within %.2f us, worst %.2f us"
+              % (a["p50"], a["p99"], a["max"]))
+        print("  time still left before the frame ended: at least %.2f us (median %.2f us)"
+              % (l["min"], l["p50"]))
 
 
 def summarise(rows, res, args, extra):
@@ -425,28 +511,47 @@ def summarise(rows, res, args, extra):
                 s["attacker_sync_offset_us"] = round(res["attacker_fit"]["offset_us"], 1)
         rr = [x for x in res["rx_rel"] if x is not None]
         s["replay_duration_s"] = round(rr[-1] / 1e6, 6) if rr else None
+    ids = ids_summary(label, res.get("det", []))
+    if ids:
+        s["ids"] = ids
     s.update(extra)
     return s
 
 
-def save_run(out, rows, res, frames, stamps, summary):
+def ids_class_name(cls):
+    return {IDS_LATE: "late", IDS_OFF: "off"}.get(cls, CLASS_NAMES[cls] if cls < len(CLASS_NAMES) else str(cls))
+
+
+def save_run(out, rows, res, frames, stamps, summary, dets=None):
     os.makedirs(out, exist_ok=True)
+    det = res.get("det") or [None] * len(rows)
     with open(os.path.join(out, "frames.csv"), "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["index", "capture_time_s", "can_id", "dlc", "data", "class", "arrived",
-                    "received_us", "timing_error_us", "timing_jitter_us"])
+                    "received_us", "timing_error_us", "timing_jitter_us",
+                    "ids_class", "ids_decided_after_features_us", "ids_time_left_us"])
         for i, r in enumerate(rows):
+            d = det[i]
+            ids = ["", "", ""]
+            if d is not None:
+                ids[0] = ids_class_name(d[0])
+                if d[0] < len(CLASS_NAMES):
+                    ids[1] = round((d[2] - d[1]) / IDS_TICKS_PER_US, 2)
+                    ids[2] = round((d[3] - d[2]) / IDS_TICKS_PER_US, 2)
             w.writerow([i, "%.6f" % r[0], "%03X" % r[1], r[2], " ".join("%02X" % b for b in r[3:3 + r[2]]),
                         CLASS_NAMES[r[11]], int(res["arrived"][i]),
                         "" if res["rx_rel"][i] is None else int(res["rx_rel"][i]),
                         "" if res["err"][i] is None else round(res["err"][i], 1),
-                        "" if res["jitter"][i] is None else round(res["jitter"][i], 1)])
+                        "" if res["jitter"][i] is None else round(res["jitter"][i], 1)] + ids)
     st = unwrap(stamps)
+    dets = dets if dets is not None else [None] * len(frames)
     with open(os.path.join(out, "received.csv"), "w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["receive_order", "board_time_us", "can_id", "dlc", "data"])
+        w.writerow(["receive_order", "board_time_us", "can_id", "dlc", "data",
+                    "ids_cls", "ids_ready_ticks", "ids_decided_ticks", "ids_end_ticks"])
         for k, fr in enumerate(frames):
-            w.writerow([k, st[k], "%03X" % fr[0], fr[1], " ".join("%02X" % b for b in fr[2:2 + fr[1]])])
+            w.writerow([k, st[k], "%03X" % fr[0], fr[1], " ".join("%02X" % b for b in fr[2:2 + fr[1]])]
+                       + (list(dets[k]) if dets[k] is not None else ["", "", "", ""]))
     with open(os.path.join(out, "summary.json"), "w") as f:
         json.dump(summary, f, indent=2)
     report_html.write(os.path.join(out, "report.html"), summary, rows, res, CLASS_NAMES)
@@ -469,27 +574,30 @@ def reanalyse(args):
     old = json.load(open(os.path.join(out, "summary.json")))
     args.file = old["file"]
     rows = load_timed(os.path.join(args.data, args.file), old["frames_sent"])
-    frames, stamps = [], []
+    frames, stamps, dets = [], [], []
     with open(os.path.join(out, "received.csv")) as f:
         for r in csv.DictReader(f):
             data = [int(b, 16) for b in r["data"].split()]
             frames.append((int(r["can_id"], 16), int(r["dlc"])) + tuple(data + [0] * (8 - len(data))))
             stamps.append(int(r["board_time_us"]))
+            ids = [r.get(k) for k in ("ids_cls", "ids_ready_ticks", "ids_decided_ticks", "ids_end_ticks")]
+            dets.append(tuple(int(v) for v in ids) if all(ids) else None)
     realtime = old.get("mode", "").startswith("original")
     split = bool(old.get("attacker_report"))
     if split:
         rows = rows_from(load_timed(os.path.join(args.data, args.file),
                                     old.get("start_frame", 0) + old["frames_sent"]), old)
-    res = analyse(rows, frames, stamps, realtime, split=split)
+    res = analyse(rows, frames, stamps, realtime, split=split, dets=dets)
     keep = {k: old[k] for k in ("started", "sender_report", "receiver_report", "attacker_report",
                                 "nodes", "receiver_frames_this_run", "start_frame") if k in old}
     summary = summarise(rows, res, args, keep)
-    save_run(out, rows, res, frames, stamps, summary)
+    save_run(out, rows, res, frames, stamps, summary, dets)
     print("Rebuilt %s: arrived %d of %d" % (out, summary["frames_arrived"], summary["frames_sent"]))
     if "timing_jitter_us" in summary:
         tj = summary["timing_jitter_us"]
         print("Timing, clock drift removed: median %.1f us, 95%% within %.1f us, worst %.1f us; "
               "drift %.1f ppm" % (tj["p50"], tj["p95"], tj["max"], summary["clock_drift_ppm"]))
+    print_ids(summary.get("ids"))
 
 
 # ---- run ------------------------------------------------------------------------
@@ -606,11 +714,12 @@ def main():
                   "Is it on the same bus?")
     print("Receiver says: %s" % stat)
 
-    frames, stamps = rcv.frames, rcv.stamps
+    frames, stamps, dets = rcv.frames, rcv.stamps, rcv.dets
     if args.attacker:                     # the start marker is not part of the dataset
         keep = [k for k, f in enumerate(frames) if f != MARKER]
-        frames, stamps = [frames[k] for k in keep], [stamps[k] for k in keep]
-    res = analyse(rows, frames, stamps, realtime, split=bool(args.attacker))
+        frames, stamps, dets = ([frames[k] for k in keep], [stamps[k] for k in keep],
+                                [dets[k] for k in keep])
+    res = analyse(rows, frames, stamps, realtime, split=bool(args.attacker), dets=dets)
     rx_run = None
     try:
         a = int(stat_before.split("rx=")[1].split()[0]) if stat_before else None
@@ -631,7 +740,7 @@ def main():
     summary = summarise(rows, res, args, extra)
     out = args.out or os.path.join(ROOT, "runs", "%s_%s" % (time.strftime("%Y%m%d_%H%M%S"),
                                                                args.file.replace(".csv", "")))
-    save_run(out, rows, res, frames, stamps, summary)
+    save_run(out, rows, res, frames, stamps, summary, dets)
 
     print("\nSent %d, arrived %d, lost %d (%.3f%% delivered)"
           % (summary["frames_sent"], summary["frames_arrived"], summary["frames_lost"],
@@ -645,6 +754,7 @@ def main():
         print("Attacker: clock drift %.1f ppm, sends %.1f us from the sender's clock "
               "(frames with a clear bus before them)"
               % (summary["attacker_clock_drift_ppm"], summary["attacker_sync_offset_us"]))
+    print_ids(summary.get("ids"))
     print("\nEvery frame is saved in:\n  %s" % out)
     print("Open report.html there for the results page.")
 

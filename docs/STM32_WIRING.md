@@ -103,6 +103,25 @@ step 1 passed: look at those counters instead.
 A miswired STM32 module (TX stuck low) holds the bus dominant and every board
 shows errors: unplug the STM32's module first when that happens.
 
+## M2: the model on the STM32
+
+From fw 5 the STM32 also classifies every frame (5 trees, depth 9, ID + DLC +
+first 5 data bytes, plus the unknown ID rule), as soon as the 5th data byte is
+in, while the rest of the frame is still on the bus. `run_check_stm32.bat`
+then prints, after the usual results:
+
+- recall per class, attack frames flagged, false alarms
+- frames with no decision by the end of the frame (must be 0)
+- how long after the 5th data byte the decision came, and how much of the
+  frame was still left: the time M3 has to send an error flag
+
+The model comes from `python/train.py` and `python/export_c.py --out
+mcu/stm32_ids/src/can_ids_model.h`; READY and #STAT show its id.
+`python/check_stm32_model.py --run <run folder>` (repo `.venv`) checks that
+the STM32 gave exactly the class Python gives, frame by frame. Sending 'c' to
+the STM32's port switches the model off ('C' on), to see whether running it
+disturbs the bit timing (#STAT `lat`, `nlate`, `stuff`, `crc`).
+
 ## Free pins used
 
 PB8 and PB9 only. The board's LEDs (PA6, PA7), buttons (PE3, PE4, PA0),
