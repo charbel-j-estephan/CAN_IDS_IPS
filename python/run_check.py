@@ -4,6 +4,7 @@ dataset, open the results page.
     python run_check.py                                  20,000 DoS frames
     python run_check.py --file gear_dataset.csv --n 100000
     python run_check.py --dry-run                        only show what it would do
+    python run_check.py --stm32                          check the frames the STM32 decodes
 
 Steps:
   1. Finds the ESP32s and tells the sender (replay_sender), the receiver
@@ -14,6 +15,10 @@ Steps:
      otherwise it stops and says what to check.
   3. Replays the dataset with its original timing (replay_dataset.py).
   4. Opens report.html.
+
+With --stm32 the STM32 IDS node (mcu/stm32_ids) is the receiver whose frames
+are checked. The ESP32 receiver must still be on the bus to acknowledge
+frames, since the STM32 only listens.
 """
 import argparse
 import glob
@@ -27,11 +32,12 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 ESP32_VIDS = {0x1A86, 0x10C4, 0x0403}      # CH340/CH9102, CP210x, FTDI USB-serial chips
+STM32_VID = 0x0483                         # the STM32's own USB serial port
 
 
-def find_ports():
+def find_ports(vids=ESP32_VIDS):
     import serial.tools.list_ports as lp
-    return [p.device for p in lp.comports() if p.vid in ESP32_VIDS]
+    return [p.device for p in lp.comports() if p.vid in vids]
 
 
 def identify(port, listen=2.5):
@@ -82,6 +88,9 @@ def main():
     ap.add_argument("--sender", help="skip detection: the sender's COM port")
     ap.add_argument("--receiver", help="skip detection: the receiver's COM port")
     ap.add_argument("--attacker", help="skip detection: the attacker's COM port")
+    ap.add_argument("--stm32", nargs="?", const="auto", metavar="COM",
+                    help="check the frames the STM32 IDS node decodes (its port is found "
+                         "automatically, or give it); the ESP32 receiver only ACKs")
     ap.add_argument("--skip-check", action="store_true", help="skip the 300 frame link check")
     ap.add_argument("--dry-run", action="store_true", help="find the boards and print the plan only")
     args = ap.parse_args()
@@ -89,6 +98,15 @@ def main():
     # 1. Boards
     esp = find_ports()
     sender, receiver, attacker = args.sender, args.receiver, args.attacker
+    stm32 = None
+    if args.stm32:
+        found = find_ports({STM32_VID})
+        stm32 = args.stm32 if args.stm32 != "auto" else (found[0] if len(found) == 1 else None)
+        if not stm32:
+            sys.exit("STM32 USB port %s. Is it running mcu/stm32_ids (BOOT0 jumper back on GND, "
+                     "then RST)? Or give it: --stm32 COMx"
+                     % ("not found" if not found else "unclear: " + ", ".join(found)))
+        receiver = stm32
     if not (sender and receiver):
         print("ESP32 USB ports found: %s" % (", ".join(esp) or "none"))
         roles = {}
@@ -111,6 +129,9 @@ def main():
         if len(senders) > 1:
             sys.exit("\n%s all run replay_sender. Upload esp32/attack_sender to the attacker "
                      "board (or unplug it to run without an attacker)." % ", ".join(senders))
+        if stm32 and sender and not receivers:
+            print("  (no ESP32 receiver found on USB: it must still be powered and on the "
+                  "bus to ACK frames)")
         if not sender or not receiver:
             sys.exit("\nCould not find exactly one sender and one receiver.\n"
                      "  - Both ESP32s must be plugged in with data cables.\n"
@@ -118,7 +139,7 @@ def main():
                      "  - A board shown as 'unknown' printed nothing: re-upload its sketch.\n"
                      "Or name them yourself: --sender COMx --receiver COMy")
     print("\nSender:   %s" % sender)
-    print("Receiver: %s" % receiver)
+    print("Receiver: %s%s" % (receiver, " (STM32 IDS node)" if stm32 else ""))
     print("Attacker: %s" % (attacker or "none, the sender plays the attacks too"))
 
     common = ["--sender", sender, "--receiver", receiver]
