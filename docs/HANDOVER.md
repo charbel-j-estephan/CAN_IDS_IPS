@@ -88,9 +88,16 @@ start and while the attack pauses, against about +3 us during the attack
 
 - The dataset's timestamps are noisy (some gaps are physically impossible), so
   timing cannot be judged finer than about 10 us.
-- The trained model uses ID, DLC and data only, with a random split; retrain
-  with a time split and the report's features before any accuracy figure goes
-  into the report.
+- Random forest (2026-10-13), report settings: 5 trees, depth 9, ID + DLC +
+  first 5 bytes, `--split time` (each file cut where 20% of its attack frames
+  remain; attacks fill only the first ~80% of every recording, 300 episodes).
+  Test: 6.54 M frames, accuracy 0.99916 (hard vote). Recall: DoS, Gear, RPM
+  100%, Fuzzy 95.2% (4,745 Fuzzy frames called Normal), Normal 99.99% (669
+  Normal called Gear, 51 Fuzzy). 1,385 nodes. Model `models/rf5_d9_p5_time.joblib`,
+  C `mcu/generated/can_ids_model_rf5_d9_p5.h` (141 KB). A random split gave
+  0.99720, not higher: different test traffic, not comparable.
+  Train with `.venv` (Python 3.12: `pip install -r requirements.txt setuptools`;
+  emlearn needs setuptools for distutils).
 - Icarus Verilog is in `C:\iverilog\bin`, but the PATH says `C:\iverlog\bin`.
 - Uncommitted, paused: Verilog receiver testbench and vectors
   (`hdl/can_rx_tb.v`, `hdl/vectors/`, `python/make_can_vectors.py`).
