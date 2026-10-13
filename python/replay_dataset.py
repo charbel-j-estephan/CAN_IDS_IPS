@@ -539,7 +539,8 @@ def main():
     if realtime and span > 3600:
         sys.exit("The timestamp counter on the ESP32 wraps after 71 minutes. Use a smaller --n.")
 
-    rcv = SerialReceiver(serial_link.open_board(args.receiver, args.baud, "Receiver"))
+    rcv = SerialReceiver(serial_link.open_board(args.receiver, args.baud, "Receiver",
+                                                ready=(b"READY", b"#STAT")))
     rcv.start()
 
     # Let the receiver empty anything it heard before this run, then start keeping frames.
