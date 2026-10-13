@@ -96,6 +96,19 @@ start and while the attack pauses, against about +3 us during the attack
   Normal called Gear, 51 Fuzzy). 1,385 nodes. Model `models/rf5_d9_p5_time.joblib`,
   C `mcu/generated/can_ids_model_rf5_d9_p5.h` (141 KB). A random split gave
   0.99720, not higher: different test traffic, not comparable.
+- Fuzzy fix (2026-10-13): 4,653 of the 4,745 missed Fuzzy frames carried an ID
+  the car never sends (the normal traffic uses 38 IDs; 9 comparisons per tree
+  cannot single them out of 2048). Unknown ID rule: a Normal verdict on an ID
+  not in the training traffic becomes Fuzzy (forest.known_id_rule, a 2048 bit
+  table in the C header, `can_ids_id_known()`). Fuzzy recall 95.18% -> 99.91%,
+  attacks flagged 98.982% -> 99.980%, false alarms unchanged (720 of 6.07 M,
+  0.012%), accuracy 0.99988. Tried and dropped: the known ID bit as a forest
+  feature (Fuzzy 99.45% but 3,992 false alarms), the rule before the forest
+  (DoS 0x000 is also unknown, so DoS became Fuzzy). 8 bytes instead of 5:
+  Fuzzy 99.95%, 55 false alarms, but a later decision (19 bits left, not 43).
+  669 of the false alarms are the car's own 0x43F 01 45 60 FF 6C, one off from
+  the Gear attack frame (... FF 6B), a value missing from the training traffic.
+  Verilog exporter does not have the rule yet.
   Train with `.venv` (Python 3.12: `pip install -r requirements.txt setuptools`;
   emlearn needs setuptools for distutils).
 - Icarus Verilog is in `C:\iverilog\bin`, but the PATH says `C:\iverlog\bin`.
