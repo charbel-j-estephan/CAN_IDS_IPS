@@ -60,17 +60,40 @@ from the receiver's VIN pin instead, grounds joined.
 - Power off, multimeter CANH to CANL: about **60 ohm**. 40 ohm means three
   terminators are fitted; remove one.
 
-## Before the first upload
+## Upload M1 (software CAN receiver)
+
+The firmware is `mcu/stm32_ids` (in the bench folder: `stm32_ids`), a
+PlatformIO project.
 
 1. Close every Arduino Serial Monitor.
-2. Upload over USB DFU: BOOT0 jumper (BT0 to 3V3), press RST, Upload in
-   PlatformIO, remove the jumper, press RST. Zadig driver for the DFU device:
-   libusbK.
-3. With all boards powered and the bus idle: PB8 reads about 5 V (recessive),
-   and so does PB9 (pulled up by the module).
-4. Run `run_check.bat` once as before: still 20,000 of 20,000 with the STM32
-   connected. A miswired STM32 module (TX stuck low) holds the bus dominant and
-   every board shows errors: unplug the STM32's module first when that happens.
+2. VS Code: File > Open Folder > `stm32_ids`. PlatformIO sets it up.
+3. BOOT0 jumper: BT0 to 3V3 (BT1 stays on GND), press RST. Windows now shows
+   a DFU device, not a COM port. Zadig driver for it: libusbK.
+4. PlatformIO: Upload (the arrow in the bottom bar).
+5. BT0 back to GND, press RST. The STM32 now shows up as a new COM port
+   (USB serial, ST's 0483:5740).
+
+Check before the first run:
+
+- All boards powered and the bus idle: PB8 reads about 5 V (recessive), and
+  so does PB9 (pulled up by the module).
+- LED D2 (PA6) lights while frames arrive.
+
+## Test M1
+
+Double-click `run_check_stm32.bat` (or `run_check.bat --stm32`). It is the
+usual test, but the frames checked are the ones the STM32 decoded:
+
+- the link check (300 frames back to back) must pass, 300 of 300;
+- the replay must deliver 100%, like the ESP32 receiver.
+
+The receiver line on the results page shows the STM32's counters: `rx`
+frames sent to the PC, `ovf` frames lost because its buffer was full,
+`stuff`, `form` and `crc` frames thrown away for errors, `other` extended or
+remote frames (none in the datasets). All but `rx` should stay 0.
+
+A miswired STM32 module (TX stuck low) holds the bus dominant and every board
+shows errors: unplug the STM32's module first when that happens.
 
 ## Free pins used
 

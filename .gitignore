@@ -19,3 +19,4 @@ quartus/*.summary
 .pio/
 .qodo/
 runs/
+.pio/

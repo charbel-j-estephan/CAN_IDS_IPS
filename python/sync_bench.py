@@ -27,6 +27,14 @@ FILES = {
     "esp32/attack_sender/attack_sender.ino": "esp32/attack_sender/attack_sender.ino",
     "esp32/link_sender/link_sender.ino": "esp32/link_sender/link_sender.ino",
     "esp32/link_receiver/link_receiver.ino": "esp32/link_receiver/link_receiver.ino",
+    "run_check_stm32.bat": "run_check_stm32.bat",
+    "docs/STM32_WIRING.md": "STM32_WIRING.md",
+    "mcu/stm32_ids/platformio.ini": "stm32_ids/platformio.ini",
+    "mcu/stm32_ids/boards/black_f407ve_usb.json": "stm32_ids/boards/black_f407ve_usb.json",
+    "mcu/stm32_ids/src/main.cpp": "stm32_ids/src/main.cpp",
+    "mcu/stm32_ids/src/can_rx.c": "stm32_ids/src/can_rx.c",
+    "mcu/stm32_ids/src/can_rx.h": "stm32_ids/src/can_rx.h",
+    "mcu/stm32_ids/test/host_test.c": "stm32_ids/test/host_test.c",
 }
 
 # Files and folders from earlier versions of the bench.

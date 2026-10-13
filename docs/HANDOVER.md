@@ -29,6 +29,7 @@ everything).
 | Drift tracking (attacker follows the sender's clock during the run) | Tested (`20261012_225632`): drift 6.8 -> 0.2 ppm, 14,225 frames tracked, 0 missed, median 16.6 -> 7.6 us |
 | Sync trim 35 us (attacker time zero earlier) | Tested (`20261012_230423`): attacker offset 35 -> 7.5 us; against the 2-board run frame by frame, median deviation 15.4 -> 7.7 us |
 | Sync trim raised to 43 us | Tested (`20261012_231036`): attacker offset 1.8 us; against the 2-board run, attack frames +2.6 us, median deviation 7.0 us |
+| STM32 M1: software CAN receiver (`mcu/stm32_ids`) | Builds; decoder checked on the PC (20,010 frames, CRC and stuff errors, extended, remote, overload frames); **not yet run on hardware** |
 
 The attacker offset is now measured only on frames with a clear bus before
 them (100 us idle in the capture); the old number came from fits pulled by the
