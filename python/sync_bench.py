@@ -28,8 +28,6 @@ FILES = {
     "esp32/link_sender/link_sender.ino": "esp32/link_sender/link_sender.ino",
     "esp32/link_receiver/link_receiver.ino": "esp32/link_receiver/link_receiver.ino",
     "run_check_stm32.bat": "run_check_stm32.bat",
-    "upload_stm32.bat": "upload_stm32.bat",
-    "python/stm32_dfu.py": "python/stm32_dfu.py",
     "docs/STM32_WIRING.md": "STM32_WIRING.md",
     "mcu/stm32_ids/platformio.ini": "stm32_ids/platformio.ini",
     "mcu/stm32_ids/boards/black_f407ve_usb.json": "stm32_ids/boards/black_f407ve_usb.json",
@@ -46,6 +44,8 @@ OBSOLETE = [
     "python/__pycache__",
     "esp32/wifi_receiver",
     "stm32/gateway",
+    "upload_stm32.bat",
+    "python/stm32_dfu.py",
     "stm32",
 ]
 
