@@ -14,9 +14,11 @@
 
 #include <stdint.h>
 
-/* On the STM32 the decoder runs from RAM: no flash wait states, and no
- * slow first interrupt after the flash cache was filled with other code. */
-#if defined(__arm__)
+/* -D CAN_RX_IN_RAM puts the decoder and the bit interrupt in RAM. Off by
+ * default: the one build that ran from RAM decoded 0 of 300 frames (code
+ * fetched from SRAM competes with the data and the peripherals on one bus),
+ * against 247 of 300 from flash. */
+#if defined(__arm__) && defined(CAN_RX_IN_RAM)
 #define CAN_RX_FAST __attribute__((section(".RamFunc")))
 #else
 #define CAN_RX_FAST
