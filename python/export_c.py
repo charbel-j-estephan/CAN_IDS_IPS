@@ -8,6 +8,12 @@ dependency. Call it like this:
 
     float features[10] = {can_id, dlc, d0, d1, d2, d3, d4, d5, d6, d7};
     int32_t cls = can_ids_predict(features, 10);
+    if (cls == 0 && !can_ids_id_known(can_id))   // the unknown ID rule
+        cls = 2;                                  // Fuzzy
+
+can_ids_id_known() reads a 2048 bit table of the IDs in the normal training
+traffic (written when the model has "known_ids", see train.py and
+forest.known_id_rule).
 
 Two details keep the C model identical to scikit learn:
   1. scikit learn splits with x <= t but emlearn writes x < t. When t is a
@@ -53,6 +59,18 @@ def main():
                              dtype="float")
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     cmodel.save(file=args.out, name="can_ids")
+    if "known_ids" in bundle:
+        bits = [0] * 256
+        for i in bundle["known_ids"]:
+            bits[int(i) >> 3] |= 1 << (int(i) & 7)
+        rows = ",\n".join("    " + ", ".join("0x%02x" % b for b in bits[r:r + 16])
+                          for r in range(0, 256, 16))
+        with open(args.out, "a") as f:
+            f.write("\n// CAN IDs in the normal training traffic (%d of 2048), one bit per ID.\n"
+                    "static const uint8_t can_ids_known[256] = {\n%s\n};\n\n"
+                    "static inline int can_ids_id_known(uint32_t can_id)\n{\n"
+                    "    return (can_ids_known[(can_id >> 3) & 0xFF] >> (can_id & 7)) & 1;\n}\n"
+                    % (len(bundle["known_ids"]), rows))
     print("Wrote %s (%.1f KB). Classes: %s" % (
         args.out, os.path.getsize(args.out) / 1024,
         ", ".join("%d=%s" % (i, n) for i, n in enumerate(bundle["class_names"]))))

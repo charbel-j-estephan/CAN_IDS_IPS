@@ -29,7 +29,23 @@ from sklearn.metrics import confusion_matrix
 from sklearn.model_selection import train_test_split
 
 from dataset import CLASS_NAMES, FEATURES, load
-from forest import hard_vote_predict
+from forest import hard_vote_predict, known_id_rule
+
+
+def show(title, y_true, pred, classes, names):
+    print("\n=== %s ===" % title)
+    print("Accuracy %.5f" % accuracy_score(y_true, pred))
+    print(classification_report(y_true, pred, labels=classes, target_names=names,
+                                digits=4, zero_division=0))
+    cm = confusion_matrix(y_true, pred, labels=classes)
+    print("Confusion matrix (rows: true class, columns: predicted):")
+    print("  %-10s" % "" + "".join("%11s" % n for n in names))
+    for name, row in zip(names, cm):
+        print("  %-10s" % name + "".join("%11d" % v for v in row))
+    attacks = y_true != 0
+    print("Attack frames flagged as an attack: %.3f%%   Normal frames flagged (false alarms): %d of %d (%.4f%%)"
+          % (100 * np.mean(pred[attacks] != 0), np.sum(pred[~attacks] != 0), np.sum(~attacks),
+             100 * np.mean(pred[~attacks] != 0)))
 
 
 def main():
@@ -93,13 +109,13 @@ def main():
     hard = model.classes_[hard_vote_predict(model, X_te)]
     print("Accuracy, scikit learn soft vote: %.5f" % accuracy_score(y_te, soft))
     print("Accuracy, hardware hard vote:     %.5f" % accuracy_score(y_te, hard))
-    print(classification_report(y_te, hard, labels=model.classes_,
-                                target_names=names, digits=4))
-    print("Confusion matrix (rows: true class, columns: predicted), hard vote:")
-    cm = confusion_matrix(y_te, hard, labels=model.classes_)
-    print("  %-10s" % "" + "".join("%11s" % n for n in names))
-    for name, row in zip(names, cm):
-        print("  %-10s" % name + "".join("%11d" % v for v in row))
+
+    # IDs the car itself sends, from the training traffic only.
+    known_ids = np.unique(X_tr[y_tr == 0, 0])
+    print("\n%d CAN IDs in the normal training traffic" % len(known_ids))
+    show("Forest alone (hard vote)", y_te, hard, model.classes_, names)
+    show("Forest + unknown ID rule (Normal on an unknown ID -> Fuzzy)",
+         y_te, known_id_rule(hard, X_te[:, 0], known_ids), model.classes_, names)
     nodes = sum(t.tree_.node_count for t in model.estimators_)
     depth = max(t.tree_.max_depth for t in model.estimators_)
     print("Forest size: %d nodes total, deepest tree %d levels" % (nodes, depth))
@@ -111,6 +127,7 @@ def main():
         "features": FEATURES,
         "payload_bytes": args.payload_bytes,
         "split": args.split,
+        "known_ids": known_ids,
         "X_test": X_te,
         "y_test": y_te,
     }, args.out)
