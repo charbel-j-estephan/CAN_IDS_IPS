@@ -14,6 +14,14 @@
 
 #include <stdint.h>
 
+/* On the STM32 the decoder runs from RAM: no flash wait states, and no
+ * slow first interrupt after the flash cache was filled with other code. */
+#if defined(__arm__)
+#define CAN_RX_FAST __attribute__((section(".RamFunc")))
+#else
+#define CAN_RX_FAST
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -36,7 +44,9 @@ extern can_rx_stats_t can_rx_stats;
 void can_rx_reset(void);
 /* The bus is idle: stop sampling, the next falling edge is a start of frame. */
 int can_rx_idle(void);
-/* A falling edge while idle: a frame starts with this bit. */
+/* A falling edge while idle: a frame starts with this bit. The start of frame
+ * bit itself is dominant by definition; the caller passes it to can_rx_bit()
+ * as 0 instead of sampling it, so a late first interrupt cannot misread it. */
 void can_rx_sof(void);
 /* One sampled bit. Returns 1 when a good frame is complete (*out filled), at
  * the 6th end of frame bit, where CAN counts a frame as received. */

@@ -29,7 +29,7 @@ everything).
 | Drift tracking (attacker follows the sender's clock during the run) | Tested (`20261012_225632`): drift 6.8 -> 0.2 ppm, 14,225 frames tracked, 0 missed, median 16.6 -> 7.6 us |
 | Sync trim 35 us (attacker time zero earlier) | Tested (`20261012_230423`): attacker offset 35 -> 7.5 us; against the 2-board run frame by frame, median deviation 15.4 -> 7.7 us |
 | Sync trim raised to 43 us | Tested (`20261012_231036`): attacker offset 1.8 us; against the 2-board run, attack frames +2.6 us, median deviation 7.0 us |
-| STM32 M1: software CAN receiver (`mcu/stm32_ids`) | Builds. The decoder's logic was checked on the PC through a line by line Python copy of `can_rx.c` (20,010 frames, CRC and stuff errors, extended, remote, overload frames); the C itself only compiles (no desktop C compiler here: MSVC lacks its headers), and `test/host_test.c` has never run. Uploaded 2026-10-13 (COM11, 0483:5740), answers with #STAT; **not yet tested on the bus** |
+| STM32 M1: software CAN receiver (`mcu/stm32_ids`) | Builds. The decoder's logic was checked on the PC through a line by line Python copy of `can_rx.c` (20,010 frames, CRC and stuff errors, extended, remote, overload frames); the C itself only compiles (no desktop C compiler here: MSVC lacks its headers), and `test/host_test.c` has never run. First bus test 2026-10-13: 300 of 300 with the PC not reading it, 247 of 300 while it was read (IDs 0x400 and up lost: the first interrupt after an idle bus came over 1 us late and misread the start bit). Fixed: start bit taken from its edge, interrupt path in RAM; **re-upload and retest** |
 
 The attacker offset is now measured only on frames with a clear bus before
 them (100 us idle in the capture); the old number came from fits pulled by the
