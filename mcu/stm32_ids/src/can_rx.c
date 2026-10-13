@@ -19,7 +19,7 @@ static can_frame_t f;
 
 /* Something was wrong with this frame: ignore the bus until it has been
  * recessive for 11 bits (the error frame and the gap after it). */
-static void give_up(uint32_t *counter)
+CAN_RX_FAST static void give_up(uint32_t *counter)
 {
     if (counter)
         (*counter)++;
@@ -32,12 +32,12 @@ void can_rx_reset(void)
     give_up(0);
 }
 
-int can_rx_idle(void)
+CAN_RX_FAST int can_rx_idle(void)
 {
     return state == IDLE;
 }
 
-void can_rx_sof(void)
+CAN_RX_FAST void can_rx_sof(void)
 {
     int i;
     nbits = 0;
@@ -52,7 +52,7 @@ void can_rx_sof(void)
     state = IN_FRAME;
 }
 
-static void data_bit(uint8_t level)
+CAN_RX_FAST static void data_bit(uint8_t level)
 {
     uint16_t i = nbits, top, dlc_at;
 
@@ -83,7 +83,7 @@ static void data_bit(uint8_t level)
     nbits++;
 }
 
-int can_rx_bit(uint8_t level, can_frame_t *out)
+CAN_RX_FAST int can_rx_bit(uint8_t level, can_frame_t *out)
 {
     switch (state) {
     case WAIT_IDLE:

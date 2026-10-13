@@ -52,14 +52,14 @@ static uint16_t bit_ticks, sample_ticks;                 // TIM4 ticks
 
 // Next sample at TIM4 tick `at`. If that moment has already passed (a late
 // interrupt), sample at once instead of waiting for the 16 bit counter to wrap.
-static inline void sample_at(uint16_t at)
+CAN_RX_FAST static inline void sample_at(uint16_t at)
 {
     TIM4->CCR1 = at;
     if ((int16_t)(TIM4->CNT - at) >= 0)
         TIM4->EGR = TIM_EGR_CC1G;
 }
 
-static inline void sampling(bool on)
+CAN_RX_FAST static inline void sampling(bool on)
 {
     if (on) {
         TIM4->SR = ~TIM_SR_CC1IF;
@@ -69,7 +69,7 @@ static inline void sampling(bool on)
     }
 }
 
-static void keep(const can_frame_t &f)
+CAN_RX_FAST static void keep(const can_frame_t &f)
 {
     if (f.ide || f.rtr) {
         n_other++;
@@ -85,7 +85,7 @@ static void keep(const can_frame_t &f)
     ring_head = next;
 }
 
-extern "C" void TIM4_IRQHandler(void)
+extern "C" CAN_RX_FAST void TIM4_IRQHandler(void)
 {
     uint32_t sr = TIM4->SR;
     if ((sr & TIM_SR_CC1IF) && (TIM4->DIER & TIM_DIER_CC1IE)) {
@@ -101,11 +101,21 @@ extern "C" void TIM4_IRQHandler(void)
     if (sr & TIM_SR_CC3IF) {
         uint16_t at = TIM4->CCR3;          // reading it clears the flag
         TIM4->SR = ~TIM_SR_CC3OF;
-        if (can_rx_idle()) {               // start of frame: hard sync
+        if (can_rx_idle()) {
+            // Start of frame: hard sync. The edge itself says the bit is
+            // dominant, so it is not sampled: the first sample is the next
+            // bit, 1.5 bits after the edge. Sampling the start bit 0.5 bit
+            // after the edge failed when that first interrupt after an idle
+            // bus came more than 1 us late: frames whose ID starts with a 1
+            // (0x400 and up) were lost while USB was busy.
+            can_frame_t f;
             can_rx_sof();
+            can_rx_bit(0, &f);
             sampling(true);
-        }                                  // otherwise resync: the sample point follows the edge
-        sample_at(at + sample_ticks);
+            sample_at(at + sample_ticks + bit_ticks);
+        } else {                           // resync: the sample point follows the edge
+            sample_at(at + sample_ticks);
+        }
     }
 }
 
