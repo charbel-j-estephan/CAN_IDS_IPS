@@ -81,8 +81,14 @@ Check before the first run:
 
 ## Test M1
 
-Double-click `run_check_stm32.bat` (or `run_check.bat --stm32`). It is the
-usual test, but the frames checked are the ones the STM32 decoded:
+1. First, with the STM32 wired in and running: the usual `run_check.bat`.
+   The ESP32 receiver must still get 20,000 of 20,000. That shows the STM32's
+   module leaves the bus alone, so any problem in step 2 is the decoding, not
+   the wiring.
+2. Then `run_check_stm32.bat` (or `run_check.bat --stm32`): the same test,
+   but the frames checked are the ones the STM32 decoded.
+
+In step 2:
 
 - the link check (300 frames back to back) must pass, 300 of 300;
 - the replay must deliver 100%, like the ESP32 receiver.
@@ -90,7 +96,9 @@ usual test, but the frames checked are the ones the STM32 decoded:
 The receiver line on the results page shows the STM32's counters: `rx`
 frames sent to the PC, `ovf` frames lost because its buffer was full,
 `stuff`, `form` and `crc` frames thrown away for errors, `other` extended or
-remote frames (none in the datasets). All but `rx` should stay 0.
+remote frames (none in the datasets). All but `rx` should stay 0. If step 2
+fails, the script's advice about wiring (60 ohm and so on) does not apply when
+step 1 passed: look at those counters instead.
 
 A miswired STM32 module (TX stuck low) holds the bus dominant and every board
 shows errors: unplug the STM32's module first when that happens.
