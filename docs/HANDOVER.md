@@ -29,7 +29,7 @@ everything).
 | Drift tracking (attacker follows the sender's clock during the run) | Tested (`20261012_225632`): drift 6.8 -> 0.2 ppm, 14,225 frames tracked, 0 missed, median 16.6 -> 7.6 us |
 | Sync trim 35 us (attacker time zero earlier) | Tested (`20261012_230423`): attacker offset 35 -> 7.5 us; against the 2-board run frame by frame, median deviation 15.4 -> 7.7 us |
 | Sync trim raised to 43 us | Tested (`20261012_231036`): attacker offset 1.8 us; against the 2-board run, attack frames +2.6 us, median deviation 7.0 us |
-| STM32 M1: software CAN receiver (`mcu/stm32_ids`) | Builds. The decoder's logic was checked on the PC through a line by line Python copy of `can_rx.c` (20,010 frames, CRC and stuff errors, extended, remote, overload frames); the C itself only compiles (no desktop C compiler here: MSVC lacks its headers), and `test/host_test.c` has never run. **Not yet run on hardware** |
+| STM32 M1: software CAN receiver (`mcu/stm32_ids`) | Builds. The decoder's logic was checked on the PC through a line by line Python copy of `can_rx.c` (20,010 frames, CRC and stuff errors, extended, remote, overload frames); the C itself only compiles (no desktop C compiler here: MSVC lacks its headers), and `test/host_test.c` has never run. Uploaded 2026-10-13 (COM11, 0483:5740), answers with #STAT; **not yet tested on the bus** |
 
 The attacker offset is now measured only on frames with a clear bus before
 them (100 us idle in the capture); the old number came from fits pulled by the
@@ -77,7 +77,11 @@ start and while the attack pauses, against about +3 us during the attack
   rails one at a time to find it.
 - Close every Arduino Serial Monitor before running (COM port "Access is denied").
 - STM32 (black F407VET6): upload over USB DFU: BOOT0 jumper (BT0 to 3V3), RST,
-  Upload in PlatformIO, remove the jumper, RST. Zadig driver must be libusbK.
+  Upload in PlatformIO, remove the jumper, RST. Zadig driver for STM32 BOOTLOADER
+  is now WinUSB (libusbK gave LIBUSB_ERROR_PIPE). "Unknown USB Device (Device
+  Descriptor Request Failed)" means not in DFU mode or a bad cable/port.
+- Windows does not pass RTS changes to the STM32's USB port, so the scripts take
+  its #STAT line as ready (serial_link.open_board(ready=...)).
   ST downloads (CubeIDE) are blocked in your country; use PlatformIO in VS Code.
 
 ## Known limits

@@ -16,8 +16,9 @@
  *
  * To the PC it looks like the receiver (usb_receiver), so
  * python/replay_dataset.py --receiver <this COM port> checks every frame:
- *   board -> PC   "READY STM32\n" at boot and whenever the PC opens the port
- *                 (the RTS pulse the scripts use to restart a board)
+ *   board -> PC   "READY STM32\n" at boot. The scripts' restart pulse (RTS)
+ *                 never reaches this board on Windows, so they take the
+ *                 once a second #STAT line as the sign it is alive
  *   board -> PC   frame record, 16 bytes: 0xA7 id_hi id_lo dlc d0..d7 t0 t1 t2 t3
  *                 t = microseconds (TIM2), stamped at the 6th end of frame bit,
  *                 where CAN counts the frame as received
@@ -189,7 +190,8 @@ void loop()
     static bool rts_was = false;
     static uint32_t last_stat = 0, last_frame = 0;
 
-    bool rts = Serial.rts();               // the scripts pulse RTS to restart a board
+    bool rts = Serial.rts();               // the scripts pulse RTS to restart a board; Windows
+                                           // passes RTS on only along with a DTR change
     if (rts_was && !rts)
         Serial.print("READY STM32\n");
     rts_was = rts;

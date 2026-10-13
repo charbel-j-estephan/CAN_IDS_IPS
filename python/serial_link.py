@@ -6,8 +6,13 @@ ACK_EVERY = 64       # a sender writes 'A' after this many frames
 MAX_INFLIGHT = 256   # frames the PC may have sent that the sender has not acked yet
 
 
-def open_board(port, baud, label):
-    """Open a board, restart its sketch and wait for its READY line."""
+def open_board(port, baud, label, ready=(b"READY",)):
+    """Open a board, restart its sketch and wait for one of the `ready` marks.
+
+    The ESP32s restart (EN pulsed through RTS) and print READY. The STM32's
+    own USB port cannot be restarted that way, and Windows does not even pass
+    an RTS change on to it, so for a receiver its once a second #STAT line
+    counts as ready too."""
     import serial
     ser = serial.Serial(port, baud, timeout=0.1)
     # Same reset sequence as esptool: pulse EN so the sketch starts from scratch.
@@ -16,7 +21,7 @@ def open_board(port, baud, label):
     time.sleep(0.1)
     ser.setRTS(False)
     seen, t0 = b"", time.time()
-    while b"READY" not in seen:
+    while not any(r in seen for r in ready):
         if time.time() - t0 > 20:
             sys.exit("%s on %s never printed READY. Is the sketch flashed and the "
                      "baud rate 921600? If it prints 'CAN init failed', check the wiring."
