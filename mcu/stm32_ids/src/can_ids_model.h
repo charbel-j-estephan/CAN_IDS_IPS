@@ -4,9 +4,20 @@
     // !!! This file is generated using emlearn !!!
 
     #include <stdint.h>
+
+// Where the model's code goes. By default these are ordinary functions. A
+// firmware can define CAN_IDS_FN / CAN_IDS_PUBLIC before including this file
+// to put them in a linker section, for example RAM (stm32_ids/src/classify.c).
+#ifndef CAN_IDS_FN
+#define CAN_IDS_FN static inline
+#endif
+#ifndef CAN_IDS_PUBLIC
+#define CAN_IDS_PUBLIC
+#endif
+
     
 
-static inline int32_t can_ids_tree_0(const float *features, int32_t features_length) {
+CAN_IDS_FN int32_t can_ids_tree_0(const float *features, int32_t features_length) {
           if (features[5] < 143.500000f) {
               if (features[0] < 0.500000f) {
                   if (features[2] < 2.500000f) {
@@ -551,7 +562,7 @@ static inline int32_t can_ids_tree_0(const float *features, int32_t features_len
         }
         
 
-static inline int32_t can_ids_tree_1(const float *features, int32_t features_length) {
+CAN_IDS_FN int32_t can_ids_tree_1(const float *features, int32_t features_length) {
           if (features[0] < 0.500000f) {
               if (features[5] < 0.500000f) {
                   if (features[3] < 78.500000f) {
@@ -1116,7 +1127,7 @@ static inline int32_t can_ids_tree_1(const float *features, int32_t features_len
         }
         
 
-static inline int32_t can_ids_tree_2(const float *features, int32_t features_length) {
+CAN_IDS_FN int32_t can_ids_tree_2(const float *features, int32_t features_length) {
           if (features[5] < 143.500000f) {
               if (features[2] < 0.500000f) {
                   if (features[4] < 0.500000f) {
@@ -1805,7 +1816,7 @@ static inline int32_t can_ids_tree_2(const float *features, int32_t features_len
         }
         
 
-static inline int32_t can_ids_tree_3(const float *features, int32_t features_length) {
+CAN_IDS_FN int32_t can_ids_tree_3(const float *features, int32_t features_length) {
           if (features[0] < 0.500000f) {
               if (features[4] < 1.500000f) {
                   if (features[6] < 77.500000f) {
@@ -2290,7 +2301,7 @@ static inline int32_t can_ids_tree_3(const float *features, int32_t features_len
         }
         
 
-static inline int32_t can_ids_tree_4(const float *features, int32_t features_length) {
+CAN_IDS_FN int32_t can_ids_tree_4(const float *features, int32_t features_length) {
           if (features[5] < 143.500000f) {
               if (features[1] < 7.500000f) {
                   return 0;
@@ -2791,7 +2802,7 @@ static inline int32_t can_ids_tree_4(const float *features, int32_t features_len
         }
         
 
-int32_t can_ids_predict(const float *features, int32_t features_length) {
+CAN_IDS_PUBLIC int32_t can_ids_predict(const float *features, int32_t features_length) {
 
         int32_t votes[5] = {0,};
         int32_t _class = -1;
@@ -2859,7 +2870,7 @@ static const uint8_t can_ids_known[256] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00, 0x46, 0x00, 0x03, 0x00, 0x00
 };
 
-static inline int can_ids_id_known(uint32_t can_id)
+CAN_IDS_FN int can_ids_id_known(uint32_t can_id)
 {
     return (can_ids_known[(can_id >> 3) & 0xFF] >> (can_id & 7)) & 1;
 }
