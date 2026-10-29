@@ -64,6 +64,30 @@ def model_id(bundle):
                                   bundle.get("payload_bytes", 8), h)
 
 
+PLACEMENT = """
+// Where the model's code goes. By default these are ordinary functions. A
+// firmware can define CAN_IDS_FN / CAN_IDS_PUBLIC before including this file
+// to put them in a linker section, for example RAM (stm32_ids/src/classify.c).
+#ifndef CAN_IDS_FN
+#define CAN_IDS_FN static inline
+#endif
+#ifndef CAN_IDS_PUBLIC
+#define CAN_IDS_PUBLIC
+#endif
+"""
+
+
+def add_placement(text):
+    """Mark the functions the firmware calls so it can choose where they live."""
+    if "CAN_IDS_FN" in text:
+        return text
+    text = text.replace("#include <stdint.h>", "#include <stdint.h>\n" + PLACEMENT, 1)
+    text = text.replace("static inline int32_t can_ids_tree_", "CAN_IDS_FN int32_t can_ids_tree_")
+    text = text.replace("\nint32_t can_ids_predict(", "\nCAN_IDS_PUBLIC int32_t can_ids_predict(")
+    text = text.replace("static inline int can_ids_id_known", "CAN_IDS_FN int can_ids_id_known")
+    return text
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -92,6 +116,10 @@ def main():
                     "static inline int can_ids_id_known(uint32_t can_id)\n{\n"
                     "    return (can_ids_known[(can_id >> 3) & 0xFF] >> (can_id & 7)) & 1;\n}\n"
                     % (len(bundle["known_ids"]), rows))
+    with open(args.out) as f:
+        text = add_placement(f.read())
+    with open(args.out, "w") as f:
+        f.write(text)
     print("Wrote %s (%.1f KB). Classes: %s" % (
         args.out, os.path.getsize(args.out) / 1024,
         ", ".join("%d=%s" % (i, n) for i, n in enumerate(bundle["class_names"]))))

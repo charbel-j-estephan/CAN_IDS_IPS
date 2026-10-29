@@ -30,7 +30,8 @@ everything).
 | Sync trim 35 us (attacker time zero earlier) | Tested (`20261012_230423`): attacker offset 35 -> 7.5 us; against the 2-board run frame by frame, median deviation 15.4 -> 7.7 us |
 | Sync trim raised to 43 us | Tested (`20261012_231036`): attacker offset 1.8 us; against the 2-board run, attack frames +2.6 us, median deviation 7.0 us |
 | STM32 M1: software CAN receiver (`mcu/stm32_ids`) | **Works** (fw 3, 2026-10-13): 3-board DoS replay through the STM32, 20,000 of 20,000, 0 new stuff/form/CRC errors, no buffer overflow; longest bit interrupt 417 cycles, latest sample 50 ticks (limit 84), none near the limit. History: fw 1 (two interrupts per bit, start bit sampled) lost IDs 0x400+ while USB was busy (247/300); fw 2 (interrupt in RAM) 0/300. Upload with the BOOT0 jumper; after an upload the USB port fails until RST (BT0 on GND). The "DFU!" restart into the bootloader does not work (board drops off USB) |
-| STM32 M2: model on the STM32 (fw 5) | Builds (7.8% flash). Classifies at the 5th data byte in a priority 1 interrupt (TIM7 vector), records 0xA8 with class and TIM4 times, scored by `replay_dataset.py`, checked against Python by `check_stm32_model.py`. **Not yet run on hardware** |
+| STM32 M2: model on the STM32 (fw 5) | Ran on hardware 2026-10-29: link check failed, 296 of 300 frames thrown away (crc 250, stuff 46): bit samples up to 120 TIM4 ticks late (limit 84, fw 3: 58), longest bit interrupt 465 cycles. Cause (likely): the model runs from flash and its code pushes the bit interrupt's code out of the 1 KB flash cache |
+| STM32 M2 fw 6: model in RAM | The forest (`can_ids_predict`, 10 KB) and `classify` run from RAM (.RamFunc), the bit interrupt stays in flash (RAM made it worse in fw 2). Builds; **not yet run on hardware** |
 
 The attacker offset is now measured only on frames with a clear bus before
 them (100 us idle in the capture); the old number came from fits pulled by the
