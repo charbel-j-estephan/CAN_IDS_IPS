@@ -53,7 +53,7 @@
 #include "can_rx.h"
 #include "classify.h"
 
-#define FW_VERSION  6            // in READY and #STAT: which build is running
+#define FW_VERSION  7            // in READY and #STAT: which build is running
 #define BITRATE     500000
 #define RING        512          // frames waiting for USB, power of two
 #define LED         PA6          // on (low) while frames arrive
@@ -138,7 +138,11 @@ static inline void sampling(bool on)
 
 // Features complete: hand them to the model interrupt. Kept short: a copy
 // and a pending flag, the model itself runs at a lower priority.
-static inline void features_in(const can_frame_t &f, uint16_t due)
+// noinline (here and keep()): fw 5 inlined both into the bit interrupt, which
+// then saved 9 registers on every bit instead of fw 3's 5. They run once per
+// frame, so the call costs nothing that matters; the bigger entry cost on all
+// ~120 bits of every frame did.
+static __attribute__((noinline)) void features_in(const can_frame_t &f, uint16_t due)
 {
     ready_tick = due;
     if (!model_on || f.ide || f.rtr)
@@ -154,7 +158,7 @@ static inline void features_in(const can_frame_t &f, uint16_t due)
     NVIC_SetPendingIRQ(MODEL_IRQ);
 }
 
-static void keep(const can_frame_t &f, uint16_t end_tick)
+static __attribute__((noinline)) void keep(const can_frame_t &f, uint16_t end_tick)
 {
     if (f.ide || f.rtr) {
         n_other++;
@@ -205,6 +209,14 @@ static inline void edge_irq(bool on)
 static volatile uint32_t isr_max = 0;    // longest interrupt, CPU cycles
 static volatile uint16_t lat_max = 0;    // latest sample after its time, TIM4 ticks
 static volatile uint32_t n_late = 0;     // samples more than LATE_TICKS late
+static volatile uint64_t isr_sum = 0;    // all bit interrupts together, CPU cycles (for the average)
+static volatile uint32_t isr_n = 0;      // how many bit interrupts
+static volatile uint32_t n_slow = 0;     // bit interrupts over SLOW_CYCLES
+#define SLOW_CYCLES 300                  // one bit is 336 cycles: over 300 leaves almost nothing
+
+// Diagnostic switches (fw 7), set over USB, see loop().
+static volatile bool feat_on = true;     // 'F'/'f': hand the features to the model mid frame
+static volatile bool prio_fw3 = false;   // 'p'/'P': fw 3's priorities (USB 1, SysTick 1, no model IRQ)
 
 extern "C" void TIM4_IRQHandler(void)
 {
@@ -227,7 +239,7 @@ extern "C" void TIM4_IRQHandler(void)
         sample_at(next);
         can_frame_t f;
         int got = can_rx_bit(level, &f);
-        if (got == CAN_RX_FEATURES)
+        if (got == CAN_RX_FEATURES && feat_on)
             features_in(f, due);
         else if (got == CAN_RX_FRAME)
             keep(f, due);
@@ -253,6 +265,10 @@ extern "C" void TIM4_IRQHandler(void)
     uint32_t took = DWT->CYCCNT - start;
     if (took > isr_max)
         isr_max = took;
+    isr_sum += took;
+    isr_n++;
+    if (took > SLOW_CYCLES)
+        n_slow++;
 }
 
 // ---- setup ---------------------------------------------------------------------------
@@ -318,6 +334,30 @@ static void start_timers()
     sample_at(TIM4->CNT + bit_ticks);
 }
 
+// fw 3 had USB and SysTick at 1 and no model interrupt; fw 5 moved both to 2
+// and enabled the model's (TIM7) vector. The bit interrupt stays at 0 either way.
+static void set_priorities(bool like_fw3)
+{
+    prio_fw3 = like_fw3;
+    NVIC_SetPriority(OTG_FS_IRQn, like_fw3 ? 1 : 2);
+    NVIC_SetPriority(SysTick_IRQn, like_fw3 ? 1 : 2);
+    if (like_fw3)
+        NVIC_DisableIRQ(MODEL_IRQ);
+    else
+        NVIC_EnableIRQ(MODEL_IRQ);
+}
+
+static void zero_counters()
+{
+    __disable_irq();
+    isr_max = 0; isr_sum = 0; isr_n = 0; n_slow = 0;
+    lat_max = 0; n_late = 0;
+    cls_max = 0; n_dlate = 0;
+    n_ovf = 0; n_other = 0; peak = 0;
+    can_rx_stats.stuff = can_rx_stats.form = can_rx_stats.crc = 0;
+    __enable_irq();
+}
+
 static void ready_line()
 {
     Serial.printf("READY STM32 fw=%d model=%s\n", FW_VERSION, classify_model_id);
@@ -359,12 +399,21 @@ void loop()
         ready_line();
     rts_was = rts;
 
-    while (Serial.available()) {           // 'C' model on, 'c' model off
+    // 'C'/'c' model on/off. Diagnostics (fw 7): 'F'/'f' features step on/off
+    // (off: no mid frame copy at all), 'P'/'p' fw 5 / fw 3 priorities,
+    // 'Z' zero the timing and error counters (rx keeps counting).
+    while (Serial.available()) {
         int c = Serial.read();
         if (c == 'C')
             model_on = true;
         else if (c == 'c')
             model_on = false;
+        else if (c == 'F' || c == 'f')
+            feat_on = can_rx_features_on = (c == 'F');
+        else if (c == 'P' || c == 'p')
+            set_priorities(c == 'p');
+        else if (c == 'Z')
+            zero_counters();
     }
 
     uint32_t waiting = (ring_head - ring_tail) & (RING - 1);
@@ -400,13 +449,20 @@ void loop()
     if (now - last_stat >= 1000) {
         last_stat = now;
         const can_rx_stats_t &s = can_rx_stats;
+        __disable_irq();
+        uint64_t sum = isr_sum;
+        uint32_t n = isr_n;
+        __enable_irq();
         Serial.printf("#STAT rx=%lu ovf=%lu drop=0 peak=%lu buserr=%lu rec=0 stuff=%lu form=%lu crc=%lu other=%lu"
-                      " isr=%lu lat=%u nlate=%lu model=%s cmax=%lu dlate=%lu fw=%d id=%s\n",
+                      " isr=%lu lat=%u nlate=%lu avg=%lu slow=%lu model=%s cmax=%lu dlate=%lu"
+                      " feat=%s prio=%s fw=%d id=%s\n",
                       (unsigned long)n_sent, (unsigned long)n_ovf, (unsigned long)peak,
                       (unsigned long)(s.stuff + s.form + s.crc), (unsigned long)s.stuff,
                       (unsigned long)s.form, (unsigned long)s.crc, (unsigned long)n_other,
                       (unsigned long)isr_max, (unsigned)lat_max, (unsigned long)n_late,
+                      (unsigned long)(n ? sum / n : 0), (unsigned long)n_slow,
                       model_on ? "on" : "off", (unsigned long)cls_max, (unsigned long)n_dlate,
+                      feat_on ? "on" : "off", prio_fw3 ? "fw3" : "fw5",
                       FW_VERSION, classify_model_id);
     }
 }

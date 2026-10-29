@@ -6,6 +6,7 @@
 enum { IDLE, IN_FRAME, TAIL, WAIT_IDLE };
 
 can_rx_stats_t can_rx_stats;
+volatile uint8_t can_rx_features_on = 1;
 
 static uint8_t state = WAIT_IDLE;
 static uint16_t nbits;          /* bits received after destuffing, start of frame is bit 0 */
@@ -129,7 +130,7 @@ CAN_RX_FAST int can_rx_bit(uint8_t level, can_frame_t *out)
             state = TAIL;
             tail = 0;
         }
-        if (nbits == feat_end) {        /* ID, DLC and the first data bytes are in */
+        if (nbits == feat_end && can_rx_features_on) {   /* ID, DLC and the first data bytes are in */
             *out = f;
             return CAN_RX_FEATURES;
         }

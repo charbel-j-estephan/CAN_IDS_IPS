@@ -42,6 +42,11 @@ typedef struct {
 
 extern can_rx_stats_t can_rx_stats;
 
+/* 1: can_rx_bit() reports CAN_RX_FEATURES mid frame (default). 0: it never
+ * does (diagnostic switch 'f' in main.cpp, to time the bit interrupt without
+ * the mid frame copy). */
+extern volatile uint8_t can_rx_features_on;
+
 /* Wait for 11 recessive bits before taking a start of frame (power up). */
 void can_rx_reset(void);
 /* The bus is idle: stop sampling, the next falling edge is a start of frame. */
