@@ -1,24 +1,24 @@
 /* The IDS model on the STM32, see classify.h. can_ids_model.h defines
  * can_ids_predict() (not static), so it is included here only.
  *
- * The model runs from RAM (.RamFunc, copied there at startup), not flash.
- * fw 5 ran it from flash and the bit interrupt started sampling up to 120
- * TIM4 ticks late (limit 84): the forest's code is far bigger than the
- * flash cache (1 KB), so every time the bit interrupt cut into the model its
- * own code had been pushed out of the cache and came back through the flash
- * wait states. From RAM the model never goes through the flash cache, so the
- * bit interrupt (still in flash, where it decodes best: fw 3) keeps its code
- * cached. The STM32 has one core, so the two never fetch at the same time. */
+ * Build with -D MODEL_IN_RAM to run the model from RAM (.RamFunc) instead of
+ * flash. fw 6 did that, to keep the model out of the flash cache the bit
+ * interrupt uses; it did not fix the late bit samples (they came with the
+ * model switched off as well), so flash is the default again. */
 #include "classify.h"
 
-#define MODEL_IN_RAM __attribute__((section(".RamFunc")))
-#define CAN_IDS_FN static inline MODEL_IN_RAM
-#define CAN_IDS_PUBLIC MODEL_IN_RAM
+#ifdef MODEL_IN_RAM
+#define MODEL_PLACE __attribute__((section(".RamFunc")))
+#define CAN_IDS_FN static inline MODEL_PLACE
+#define CAN_IDS_PUBLIC MODEL_PLACE
+#else
+#define MODEL_PLACE
+#endif
 #include "can_ids_model.h"
 
 const char *const classify_model_id = CAN_IDS_MODEL_ID;
 
-MODEL_IN_RAM int classify(uint16_t can_id, uint8_t dlc, const uint8_t d[5])
+MODEL_PLACE int classify(uint16_t can_id, uint8_t dlc, const uint8_t d[5])
 {
     /* Features in dataset.FEATURES order: ID, DLC (at most 8), data bytes 0-7.
      * The model reads bytes 0-4; bytes 5-7 are 0, as in training. */
