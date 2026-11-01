@@ -38,3 +38,6 @@ quartus_board/*.qws
 quartus_board/*_assignment_defaults.qdf
 quartus_board/compile.log
 quartus_board/*.jditmp
+
+# The dataset zip (953 MB): over GitHub's 100 MB limit, kept locally only
+docs/refrences/*.zip
