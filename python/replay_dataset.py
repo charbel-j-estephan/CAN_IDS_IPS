@@ -121,11 +121,12 @@ def parse_report(line):
 
 
 class IpsNode(threading.Thread):
-    """The STM32 IDS node when it runs prevention (--ips): commands and its #STAT.
+    """The STM32 IDS node when it runs prevention (--ips): commands, its #STAT and
+    the frames it decoded (with its verdict), kept once keep() is called.
 
     It is not the receiver in an IPS run (the ESP32 logger is, it records what
-    survived on the bus); this only switches prevention on and off and reads the
-    STM32's counters. Prevention is switched off again however the script ends."""
+    survived on the bus); its own records only explain the leaks (explain_leaks).
+    Prevention is switched off again however the script ends."""
 
     def __init__(self, port):
         super().__init__(daemon=True)
@@ -133,19 +134,27 @@ class IpsNode(threading.Thread):
         import serial
         self.ser = serial.Serial(port, 115200, timeout=0.2)
         self.lines, self.last, self.stop = [], None, False
+        self.frames, self.stamps, self.dets, self.keeping = [], [], [], False
         self.lock = threading.Lock()
         atexit.register(self.close)
 
+    def keep(self):
+        self.keeping = True
+
     def run(self):
-        buf = b""
+        buf = bytearray()
         while not self.stop:
             try:
                 buf += self.ser.read(max(1, self.ser.in_waiting))
             except Exception:
                 break
-            while b"\n" in buf:
-                line, buf = buf.split(b"\n", 1)
-                text = line.decode("ascii", "replace").strip()
+            f, st, t, d = parse_timed_stream(buf)
+            if self.keeping:
+                self.frames += f
+                self.stamps += st
+                self.dets += d
+            for text in t:
+                text = text.strip()
                 if text.startswith("#STAT"):
                     with self.lock:
                         self.lines.append(text)
@@ -206,6 +215,51 @@ def print_ips(summary):
               % (a.get("state"), a.get("tec"), a.get("txfail")))
     print("  (A destroyed frame is retransmitted by its sender until it gets through or the "
           "sender goes bus off, so 'error flags sent' can be larger than 'destroyed'.)")
+
+
+def explain_leaks(rows, frames, stamps, ips, window_us=400):
+    """For every attack frame that survived on the bus (logger frames, marker
+    included), did the STM32 hear it, and what did it decide? The two clocks
+    are lined up on the start marker, which both record."""
+    att = {(r[1], r[2]) + tuple(r[3:3 + r[2]]) for r in rows if r[11] != 0}
+    att -= {(r[1], r[2]) + tuple(r[3:3 + r[2]]) for r in rows if r[11] == 0}
+    key = lambda f: tuple(f[:2]) + tuple(f[2:2 + f[1]])
+    try:
+        t_log = unwrap(stamps)[frames.index(MARKER)]
+        t_stm = unwrap(ips.stamps)[ips.frames.index(MARKER)]
+    except ValueError:
+        print("  (leaks not explained: the start marker is missing from one of the two records)")
+        return []
+    stm = {}
+    for t, f, d in zip(unwrap(ips.stamps), ips.frames, ips.dets):
+        stm.setdefault(key(f), []).append((t - t_stm, d))
+    out = []
+    for t, f in zip(unwrap(stamps), frames):
+        k = key(f)
+        if k not in att:
+            continue
+        t -= t_log
+        near = [x for x in stm.get(k, []) if abs(x[0] - t) <= window_us]
+        if not near:
+            out.append((t, k, "not heard by the STM32"))
+            continue
+        cls, ready, decided, end = min(near, key=lambda x: abs(x[0] - t))[1]
+        if cls == IDS_LATE:
+            why = "heard, no decision by the end of the frame"
+        elif cls == 0:
+            why = "heard, model said Normal"
+        else:
+            why = "heard, model said %s %.1f us after the features, %.1f us before the frame end" % (
+                CLASS_NAMES[cls] if cls < len(CLASS_NAMES) else cls,
+                (decided - ready) / IDS_TICKS_PER_US, (end - decided) / IDS_TICKS_PER_US)
+        out.append((t, k, why))
+    if out:
+        print("  attack frames that got through (time after the marker, ID, why):")
+        for t, k, why in out[:20]:
+            print("    %10.0f us  %03X  %s" % (t, k[0], why))
+        if len(out) > 20:
+            print("    ... %d more" % (len(out) - 20))
+    return out
 
 
 def ask_report(ser, timeout=30):
@@ -765,6 +819,7 @@ def main():
             sys.exit("The STM32 on %s did not confirm prevention on (no #STAT with ips=on). "
                      "Is it running stm32_ids fw 8 or later?" % args.ips)
         print("STM32 IPS on %s: prevention on (fw %s)" % (args.ips, parse_report(line).get("fw")))
+        ips.keep()
 
     offsets = start_offsets(rows, realtime)
     started = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -870,6 +925,11 @@ def main():
     print_ids(summary.get("ids"))
     if ips:
         print_ips(summary)
+        leaks = explain_leaks(rows, rcv.frames, rcv.stamps, ips)
+        with open(os.path.join(out, "leaks.csv"), "w") as fh:
+            fh.write("us_after_marker,can_id,why\n")
+            for t, k, why in leaks:
+                fh.write("%.0f,%03X,%s\n" % (t, k[0], why.replace(",", ";")))
     print("\nEvery frame is saved in:\n  %s" % out)
     print("Open report.html there for the results page.")
 

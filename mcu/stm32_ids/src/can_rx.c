@@ -52,10 +52,7 @@ CAN_RX_FAST int can_rx_idle(void)
 /* Still in time for an error flag that destroys the frame for every node:
  * anywhere before the end of frame field (TAIL: 0 CRC delimiter, 1 ACK slot,
  * 2 ACK delimiter, 3.. end of frame). */
-#ifdef __arm__
-__attribute__((section(".RamFunc")))   /* called by the error flag code, see main.cpp */
-#endif
-int can_rx_before_eof(void)
+CAN_RX_FAST int can_rx_before_eof(void)
 {
     return state == IN_FRAME || (state == TAIL && tail < 3);
 }
