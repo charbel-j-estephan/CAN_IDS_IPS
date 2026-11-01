@@ -53,7 +53,7 @@
 #include "can_rx.h"
 #include "classify.h"
 
-#define FW_VERSION  13          // in READY and #STAT: which build is running
+#define FW_VERSION  14          // in READY and #STAT: which build is running
 #define BITRATE     500000
 #define RING        512          // frames waiting for USB, power of two
 #define LED         PA6          // on (low) while frames arrive
@@ -127,11 +127,13 @@ static volatile uint8_t m3_pending = 0;  // the bit interrupt's only M3 test: a 
                                          // scheduled or on the bus
 static volatile uint32_t allow_seq = 0;  // frame the model called an attack but the allow list kept
 static uint8_t flag_state = 0;           // 0 none, 1 scheduled or on the bus, 2 end scheduled
-static uint16_t flag_start, flag_end;    // TIM4 ticks
+static uint16_t flag_end;                // TIM4 tick
+static uint8_t flag_bits;                // bits since the flag was scheduled (safety cut)
 static volatile uint32_t n_rej = 0;      // error flags sent
 static volatile uint32_t n_ilate = 0;    // attack verdicts that came after the end of frame field began
 static volatile uint32_t n_allow = 0;    // attack verdicts on allowed frames
-static volatile uint32_t n_abort = 0;    // flags cut short by the safety limit (should stay 0)
+static volatile uint32_t n_abort = 0;    // flags that did not start or end on time, cut by the
+                                         // safety limit (should stay 0)
 
 static inline void set_oc4(uint32_t mode)
 {
@@ -168,38 +170,50 @@ static void ips_enable(bool on)
 }
 
 // Bit interrupt, at the sample point `due`: start the flag at the next bit
-// boundary (bit_ticks - sample_ticks after the sample point).
+// boundary (bit_ticks - sample_ticks after the sample point), or a later one
+// if this interrupt came late. The boundary is checked against a fresh
+// counter read: a compare value already passed never matches (fw 12/13 could
+// count a flag that never went on the bus).
+#define FLAG_LEAD 16                     // ticks the compare must be ahead when it is set
 static void flag_begin(uint16_t due)
 {
     if (!can_rx_before_eof())            // too late: the frame stands, an alert only
         return;                          // (keep() counts it in n_ilate when it completes)
     uint16_t at = due + (bit_ticks - sample_ticks);
-    if ((int16_t)(at - TIM4->CNT) < 8)   // boundary (nearly) passed: take the next one,
-        at += bit_ticks;                 // a missed compare would fire 780 us later
-    flag_start = at;
+    uint16_t now = TIM4->CNT;
+    int pushed = 0;
+    while ((int16_t)(at - now) < FLAG_LEAD) {
+        at += bit_ticks;
+        if (++pushed > 2)                // this interrupt is far too late: let it go
+            return;
+    }
     flag_end = at + FLAG_BITS * bit_ticks;
+    TIM4->SR = ~TIM_SR_CC4IF;            // a stale match from an old compare value
     TIM4->CCR4 = at;
     set_oc4(OC_ACTIVE);
     flag_state = 1;
+    flag_bits = 0;
     can_rx_quiet = 1;
     n_rej++;
 }
 
-// Bit interrupt, every bit while a flag is pending: once it is on the bus,
-// schedule its end; once it has ended, release the pin for good.
-static void flag_step(void)
+// Bit interrupt, while a flag is scheduled or on the bus. The hardware marks
+// both moments in CC4IF (in `sr`, read on entry): the start matched, so
+// schedule the end; the end matched, release the pin for good. Every other
+// bit only counts, for the safety cut.
+static void flag_step(uint32_t sr)
 {
-    uint16_t now = TIM4->CNT;
-    int16_t since = (int16_t)(now - flag_start);
-    if (flag_state == 1 && since >= 0) {
-        TIM4->CCR4 = flag_end;
-        set_oc4(OC_INACTIVE);
-        flag_state = 2;
-    } else if (flag_state == 2 && (int16_t)(now - flag_end) >= 0) {
-        set_oc4(OC_OFF);
-        flag_state = 0;
-    }
-    if (flag_state && since > (int16_t)((FLAG_BITS + 2) * bit_ticks)) {   // never hold the bus
+    if (sr & TIM_SR_CC4IF) {
+        TIM4->SR = ~TIM_SR_CC4IF;
+        if (flag_state == 1) {
+            TIM4->CCR4 = flag_end;
+            set_oc4(OC_INACTIVE);
+            flag_state = 2;
+        } else {
+            set_oc4(OC_OFF);
+            flag_state = 0;
+        }
+    } else if (++flag_bits > FLAG_BITS + 4) {   // a compare was missed: never hold the bus
         set_oc4(OC_OFF);
         flag_state = 0;
         n_abort++;
@@ -237,14 +251,12 @@ extern "C" void TIM7_IRQHandler(void)
 // interrupt), sample at once instead of waiting for the 16 bit counter to wrap.
 // Bit interrupt, only while m3_pending: start the flag, step it, and clear
 // m3_pending once it is over. Kept out of the bit interrupt (noinline) so the
-// other ~120 bits of a frame pay one byte test for M3, nothing more. In RAM
-// (with flag_begin, flag_step and can_rx_before_eof, which it inlines or
-// calls): it runs only around a flag, so from flash it ran cold, and the first
-// IPS run saw samples up to 281 ticks late (no IPS: 96).
-static __attribute__((noinline, section(".RamFunc"))) void m3_step(uint16_t due)
+// other ~120 bits of a frame pay one byte test for M3, nothing more. In flash:
+// fw 13 ran it from RAM and the samples around a flag came later, not sooner.
+static __attribute__((noinline)) void m3_step(uint16_t due, uint32_t sr)
 {
     if (flag_state)
-        flag_step();
+        flag_step(sr);
     else
         flag_begin(due);
     m3_pending = flag_state != 0;
@@ -256,16 +268,19 @@ static __attribute__((noinline, section(".RamFunc"))) void m3_step(uint16_t due)
 static uint16_t due_tick;                // the sample time last written to CCR1
 static uint8_t sampling_on, edge_on;     // CC1IE and CC3IE as last set
 
-// Next sample at TIM4 tick `at`; `now` is a recent TIM4->CNT. If that moment
-// has passed, or is closer than SAMPLE_SLACK ticks (the time from reading
-// `now` to here), sample at once instead of waiting for the 16 bit counter to
-// wrap. At once is at most SAMPLE_SLACK ticks early: still after the edge.
-#define SAMPLE_SLACK 24
+// Next sample at TIM4 tick `at`; `now` is a TIM4->CNT read earlier in this
+// interrupt. Normally `at` is most of a bit ahead and nothing more is needed.
+// If it is less than half a bit ahead of `now` (a late interrupt), the counter
+// is read again after the compare is set: if `at` has passed (or is within
+// SAMPLE_SLACK ticks), sample at once. Otherwise the compare would only match
+// after the 16 bit counter wraps, 780 us of a deaf decoder.
+#define SAMPLE_SLACK 8
 static inline void sample_at(uint16_t at, uint16_t now)
 {
     TIM4->CCR1 = at;
     due_tick = at;
-    if ((int16_t)(now + SAMPLE_SLACK - at) >= 0)
+    if ((int16_t)(at - now) < (int16_t)(bit_ticks / 2)
+        && (int16_t)(TIM4->CNT + SAMPLE_SLACK - at) >= 0)
         TIM4->EGR = TIM_EGR_CC1G;
 }
 
@@ -383,7 +398,7 @@ extern "C" void TIM4_IRQHandler(void)
             next = TIM4->CCR3 + sample_ticks + bit_ticks;   // reading CCR3 clears the flag
         sample_at(next, now);
         if (m3_pending)                  // M3: an error flag is wanted or on the bus
-            m3_step(due);
+            m3_step(due, sr);
         can_frame_t f;
         int got = can_rx_bit(level, &f);
         if (got == CAN_RX_FEATURES)
