@@ -8,6 +8,12 @@ dependency. Call it like this:
 
     float features[10] = {can_id, dlc, d0, d1, d2, d3, d4, d5, d6, d7};
     int32_t cls = can_ids_predict(features, 10);
+    if (cls == 0 && !can_ids_id_known(can_id))   // the unknown ID rule
+        cls = 2;                                  // Fuzzy
+
+can_ids_id_known() reads a 2048 bit table of the IDs in the normal training
+traffic (written when the model has "known_ids", see train.py and
+forest.known_id_rule).
 
 Two details keep the C model identical to scikit learn:
   1. scikit learn splits with x <= t but emlearn writes x < t. When t is a
@@ -40,6 +46,48 @@ def integer_safe_copy(model):
     return model
 
 
+def model_id(bundle):
+    """Short name of a trained model: size, bytes read and a hash of every
+    split, leaf and known ID, e.g. rf5-d9-p5-3fa2c1d0."""
+    import zlib
+    import numpy as np
+    model = bundle["model"]
+    h = 0
+    for est in model.estimators_:
+        t = est.tree_
+        for a in (t.feature, t.threshold, t.children_left, t.children_right,
+                  np.argmax(t.value, axis=-1)):
+            h = zlib.crc32(np.ascontiguousarray(a).tobytes(), h)
+    h = zlib.crc32(np.asarray(bundle.get("known_ids", []), dtype=np.int64).tobytes(), h)
+    depth = max(e.tree_.max_depth for e in model.estimators_)
+    return "rf%d-d%d-p%d-%08x" % (len(model.estimators_), depth,
+                                  bundle.get("payload_bytes", 8), h)
+
+
+PLACEMENT = """
+// Where the model's code goes. By default these are ordinary functions. A
+// firmware can define CAN_IDS_FN / CAN_IDS_PUBLIC before including this file
+// to put them in a linker section, for example RAM (stm32_ids/src/classify.c).
+#ifndef CAN_IDS_FN
+#define CAN_IDS_FN static inline
+#endif
+#ifndef CAN_IDS_PUBLIC
+#define CAN_IDS_PUBLIC
+#endif
+"""
+
+
+def add_placement(text):
+    """Mark the functions the firmware calls so it can choose where they live."""
+    if "CAN_IDS_FN" in text:
+        return text
+    text = text.replace("#include <stdint.h>", "#include <stdint.h>\n" + PLACEMENT, 1)
+    text = text.replace("static inline int32_t can_ids_tree_", "CAN_IDS_FN int32_t can_ids_tree_")
+    text = text.replace("\nint32_t can_ids_predict(", "\nCAN_IDS_PUBLIC int32_t can_ids_predict(")
+    text = text.replace("static inline int can_ids_id_known", "CAN_IDS_FN int can_ids_id_known")
+    return text
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -53,6 +101,25 @@ def main():
                              dtype="float")
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     cmodel.save(file=args.out, name="can_ids")
+    with open(args.out, "a") as f:
+        f.write('\n// Which model this is: shown by the firmware in READY and #STAT.\n'
+                '#define CAN_IDS_MODEL_ID "%s"\n' % model_id(bundle))
+    if "known_ids" in bundle:
+        bits = [0] * 256
+        for i in bundle["known_ids"]:
+            bits[int(i) >> 3] |= 1 << (int(i) & 7)
+        rows = ",\n".join("    " + ", ".join("0x%02x" % b for b in bits[r:r + 16])
+                          for r in range(0, 256, 16))
+        with open(args.out, "a") as f:
+            f.write("\n// CAN IDs in the normal training traffic (%d of 2048), one bit per ID.\n"
+                    "static const uint8_t can_ids_known[256] = {\n%s\n};\n\n"
+                    "static inline int can_ids_id_known(uint32_t can_id)\n{\n"
+                    "    return (can_ids_known[(can_id >> 3) & 0xFF] >> (can_id & 7)) & 1;\n}\n"
+                    % (len(bundle["known_ids"]), rows))
+    with open(args.out) as f:
+        text = add_placement(f.read())
+    with open(args.out, "w") as f:
+        f.write(text)
     print("Wrote %s (%.1f KB). Classes: %s" % (
         args.out, os.path.getsize(args.out) / 1024,
         ", ".join("%d=%s" % (i, n) for i, n in enumerate(bundle["class_names"]))))

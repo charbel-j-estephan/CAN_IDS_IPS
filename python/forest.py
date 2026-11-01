@@ -19,6 +19,23 @@ def hard_vote_predict(model, X):
     return np.argmax(votes, axis=1)
 
 
+FUZZY = 2   # dataset.CLASS_NAMES.index("Fuzzy")
+
+
+def known_id_rule(pred, can_ids, known_ids):
+    """The forest's verdict, except that Normal on an ID the car never sent in
+    the training traffic becomes Fuzzy.
+
+    With 9 comparisons per tree a forest cannot single out the car's 38 IDs
+    among 2048, so most Fuzzy frames it misses carry an ID the car never uses.
+    The STM32 and the FPGA check the ID in a 2048 bit table, known after the
+    12th bit of the frame. Other verdicts stay: DoS (ID 0x000, also not a car
+    ID) keeps its class."""
+    pred = np.array(pred, copy=True)
+    pred[(pred == 0) & ~np.isin(can_ids, known_ids)] = FUZZY
+    return pred
+
+
 def load_model(path):
     import joblib
     bundle = joblib.load(path)
