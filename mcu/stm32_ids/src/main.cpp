@@ -53,7 +53,7 @@
 #include "can_rx.h"
 #include "classify.h"
 
-#define FW_VERSION  12          // in READY and #STAT: which build is running
+#define FW_VERSION  13          // in READY and #STAT: which build is running
 #define BITRATE     500000
 #define RING        512          // frames waiting for USB, power of two
 #define LED         PA6          // on (low) while frames arrive
@@ -237,8 +237,11 @@ extern "C" void TIM7_IRQHandler(void)
 // interrupt), sample at once instead of waiting for the 16 bit counter to wrap.
 // Bit interrupt, only while m3_pending: start the flag, step it, and clear
 // m3_pending once it is over. Kept out of the bit interrupt (noinline) so the
-// other ~120 bits of a frame pay one byte test for M3, nothing more.
-static __attribute__((noinline)) void m3_step(uint16_t due)
+// other ~120 bits of a frame pay one byte test for M3, nothing more. In RAM
+// (with flag_begin, flag_step and can_rx_before_eof, which it inlines or
+// calls): it runs only around a flag, so from flash it ran cold, and the first
+// IPS run saw samples up to 281 ticks late (no IPS: 96).
+static __attribute__((noinline, section(".RamFunc"))) void m3_step(uint16_t due)
 {
     if (flag_state)
         flag_step();

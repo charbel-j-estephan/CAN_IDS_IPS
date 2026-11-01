@@ -18,21 +18,30 @@ static uint8_t last, run;       /* last bit and how many in a row, for destuffin
 static uint8_t stuff_next;      /* the next bit on the wire is a stuff bit */
 static uint8_t tail;            /* position after the CRC field */
 static uint16_t rec_run;        /* recessive bits in a row while waiting for an idle bus */
+static uint8_t idle_need;       /* how many of them make the bus idle */
 static can_frame_t f;
 
-/* Something was wrong with this frame: ignore the bus until it has been
- * recessive for 11 bits (the error frame and the gap after it). */
+/* Something was wrong with this frame: ignore the bus until the error frame
+ * is over. Every node ends its error flag with an 8 bit recessive delimiter,
+ * and inside a frame stuffing never allows more than 5 equal bits (only the
+ * end of frame field has 8 in a row), so 8 recessive bits mean the next
+ * falling edge is a start of frame. Waiting for 11 (fw 12) left no slack: the
+ * sender of a destroyed frame resends it right after the 3 bit intermission,
+ * and the STM32 missed 5 of those resends in the first IPS run. */
 CAN_RX_FAST static void give_up(uint32_t *counter)
 {
     if (counter && !can_rx_quiet)
         (*counter)++;
     state = WAIT_IDLE;
     rec_run = 0;
+    idle_need = 8;
 }
 
+/* Power up: 11 recessive bits (bus integration, as the CAN standard asks). */
 void can_rx_reset(void)
 {
     give_up(0);
+    idle_need = 11;
 }
 
 CAN_RX_FAST int can_rx_idle(void)
@@ -43,7 +52,10 @@ CAN_RX_FAST int can_rx_idle(void)
 /* Still in time for an error flag that destroys the frame for every node:
  * anywhere before the end of frame field (TAIL: 0 CRC delimiter, 1 ACK slot,
  * 2 ACK delimiter, 3.. end of frame). */
-CAN_RX_FAST int can_rx_before_eof(void)
+#ifdef __arm__
+__attribute__((section(".RamFunc")))   /* called by the error flag code, see main.cpp */
+#endif
+int can_rx_before_eof(void)
 {
     return state == IN_FRAME || (state == TAIL && tail < 3);
 }
@@ -104,7 +116,7 @@ CAN_RX_FAST int can_rx_bit(uint8_t level, can_frame_t *out)
     switch (state) {
     case WAIT_IDLE:
         rec_run = level ? rec_run + 1 : 0;
-        if (rec_run >= 11) {
+        if (rec_run >= idle_need) {
             state = IDLE;
             return CAN_RX_IDLE;
         }
