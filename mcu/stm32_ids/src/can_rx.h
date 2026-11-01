@@ -18,6 +18,13 @@
  * default: the one build that ran from RAM decoded 0 of 300 frames (code
  * fetched from SRAM competes with the data and the peripherals on one bus),
  * against 247 of 300 from flash. */
+/* IDS_HOT 1: the bit interrupt also feeds the model mid frame (M2), drives the
+ * error flag (M3) and keeps the fw 7 timing counters. 0: the per bit work is
+ * fw 3's, the one that decoded 20,000 of 20,000 (fw 9 test build). */
+#ifndef IDS_HOT
+#define IDS_HOT 1
+#endif
+
 #if defined(__arm__) && defined(CAN_RX_IN_RAM)
 #define CAN_RX_FAST __attribute__((section(".RamFunc")))
 #else
