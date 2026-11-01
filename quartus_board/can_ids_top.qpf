@@ -1,0 +1,6 @@
+DATE = "00:29:27 November 02, 2026"
+QUARTUS_VERSION = "16.0.0"
+
+# Revisions
+
+PROJECT_REVISION = "can_ids_top"
