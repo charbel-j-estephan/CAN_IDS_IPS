@@ -53,7 +53,7 @@
 #include "can_rx.h"
 #include "classify.h"
 
-#define FW_VERSION  14          // in READY and #STAT: which build is running
+#define FW_VERSION  15          // in READY and #STAT: which build is running
 #define BITRATE     500000
 #define RING        512          // frames waiting for USB, power of two
 #define LED         PA6          // on (low) while frames arrive
@@ -134,6 +134,14 @@ static volatile uint32_t n_ilate = 0;    // attack verdicts that came after the 
 static volatile uint32_t n_allow = 0;    // attack verdicts on allowed frames
 static volatile uint32_t n_abort = 0;    // flags that did not start or end on time, cut by the
                                          // safety limit (should stay 0)
+// fw 15 diagnostics (#STAT dbg= and ab=), to find why RPM flags were cut:
+static volatile uint32_t n_fstart = 0, n_fend = 0;   // start / end matches handled
+static volatile uint32_t n_fpush = 0, n_fgive = 0;   // start moved to a later boundary / given up
+static volatile uint32_t n_catch = 0;                // samples taken at once (late interrupt)
+static volatile uint32_t ab_n = 0;                   // snapshot of the first abort:
+static volatile int32_t ab_state, ab_bits, ab_dend, ab_dccr4, ab_dbegin;
+static volatile uint32_t ab_ccmr2, ab_ccer, ab_sr, ab_idle;
+static uint16_t flag_begun;                          // TIM4 tick flag_begin ran
 
 static inline void set_oc4(uint32_t mode)
 {
@@ -184,9 +192,14 @@ static void flag_begin(uint16_t due)
     int pushed = 0;
     while ((int16_t)(at - now) < FLAG_LEAD) {
         at += bit_ticks;
-        if (++pushed > 2)                // this interrupt is far too late: let it go
+        if (++pushed > 2) {              // this interrupt is far too late: let it go
+            n_fgive++;
             return;
+        }
     }
+    if (pushed)
+        n_fpush++;
+    flag_begun = now;
     flag_end = at + FLAG_BITS * bit_ticks;
     TIM4->SR = ~TIM_SR_CC4IF;            // a stale match from an old compare value
     TIM4->CCR4 = at;
@@ -209,11 +222,26 @@ static void flag_step(uint32_t sr)
             TIM4->CCR4 = flag_end;
             set_oc4(OC_INACTIVE);
             flag_state = 2;
+            n_fstart++;
         } else {
             set_oc4(OC_OFF);
             flag_state = 0;
+            n_fend++;
         }
     } else if (++flag_bits > FLAG_BITS + 4) {   // a compare was missed: never hold the bus
+        if (!ab_n) {
+            uint16_t c = TIM4->CNT;
+            ab_state = flag_state;
+            ab_bits = flag_bits;
+            ab_dend = (int16_t)(c - flag_end);
+            ab_dccr4 = (int16_t)(TIM4->CCR4 - c);
+            ab_dbegin = (int16_t)(c - flag_begun);
+            ab_ccmr2 = TIM4->CCMR2;
+            ab_ccer = TIM4->CCER;
+            ab_sr = TIM4->SR;
+            ab_idle = can_rx_idle();
+        }
+        ab_n++;
         set_oc4(OC_OFF);
         flag_state = 0;
         n_abort++;
@@ -280,8 +308,10 @@ static inline void sample_at(uint16_t at, uint16_t now)
     TIM4->CCR1 = at;
     due_tick = at;
     if ((int16_t)(at - now) < (int16_t)(bit_ticks / 2)
-        && (int16_t)(TIM4->CNT + SAMPLE_SLACK - at) >= 0)
+        && (int16_t)(TIM4->CNT + SAMPLE_SLACK - at) >= 0) {
         TIM4->EGR = TIM_EGR_CC1G;
+        n_catch++;
+    }
 }
 
 static inline void sampling(bool on)
@@ -516,6 +546,7 @@ static void zero_counters()
     lat_max = 0; n_late = 0;
     cls_max = 0; n_dlate = 0;
     n_rej = 0; n_ilate = 0; n_allow = 0; n_abort = 0;
+    n_fstart = 0; n_fend = 0; n_fpush = 0; n_fgive = 0; n_catch = 0; ab_n = 0;
     n_ovf = 0; n_other = 0; peak = 0;
     can_rx_stats.stuff = can_rx_stats.form = can_rx_stats.crc = 0;
     __enable_irq();
@@ -626,5 +657,13 @@ void loop()
                       ips_on ? "on" : "off", (unsigned long)n_rej, (unsigned long)n_ilate,
                       (unsigned long)n_allow, (unsigned long)n_abort,
                       FW_VERSION, classify_model_id);
+        Serial.printf("#DBG fstart=%lu fend=%lu fpush=%lu fgive=%lu catch=%lu ab=%lu"
+                      " ab_state=%ld ab_bits=%ld ab_dend=%ld ab_dccr4=%ld ab_dbegin=%ld"
+                      " ab_ccmr2=%lx ab_ccer=%lx ab_sr=%lx ab_idle=%lu\n",
+                      (unsigned long)n_fstart, (unsigned long)n_fend, (unsigned long)n_fpush,
+                      (unsigned long)n_fgive, (unsigned long)n_catch, (unsigned long)ab_n,
+                      (long)ab_state, (long)ab_bits, (long)ab_dend, (long)ab_dccr4, (long)ab_dbegin,
+                      (unsigned long)ab_ccmr2, (unsigned long)ab_ccer, (unsigned long)ab_sr,
+                      (unsigned long)ab_idle);
     }
 }
