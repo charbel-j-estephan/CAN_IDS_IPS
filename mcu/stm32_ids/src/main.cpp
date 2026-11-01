@@ -53,7 +53,7 @@
 #include "can_rx.h"
 #include "classify.h"
 
-#define FW_VERSION  8           // in READY and #STAT: which build is running
+#define FW_VERSION  9           // in READY and #STAT: which build is running
 #define BITRATE     500000
 #define RING        512          // frames waiting for USB, power of two
 #define LED         PA6          // on (low) while frames arrive
@@ -78,7 +78,7 @@ static uint16_t bit_ticks, sample_ticks;                 // TIM4 ticks
 
 // ---- M2: the model runs in its own interrupt ------------------------------------------
 
-static volatile bool model_on = true;
+static volatile bool model_on = IDS_HOT;   // without IDS_HOT the model never gets a frame
 
 // The frame on the bus now (bit interrupt only).
 static uint16_t sof_tick, ready_tick;
@@ -352,18 +352,25 @@ extern "C" void TIM4_IRQHandler(void)
         if (TIM4->SR & TIM_SR_CC3IF)
             next = TIM4->CCR3 + sample_ticks + bit_ticks;   // reading CCR3 clears the flag
         sample_at(next);
+#if IDS_HOT
         if (flag_state)                  // M3: our error flag is pending or on the bus
             flag_step();
         else if (reject_seq && reject_seq == frame_seq)
             flag_begin(due);
+#endif
         can_frame_t f;
         int got = can_rx_bit(level, &f);
+#if IDS_HOT
         if (got == CAN_RX_FEATURES && feat_on)
             features_in(f, due);
-        else if (got == CAN_RX_FRAME)
+        else
+#endif
+        if (got == CAN_RX_FRAME)
             keep(f, due);
         if (can_rx_idle()) {
+#if IDS_HOT
             can_rx_quiet = 0;            // our flag (if any) and its error frame are over
+#endif
             sampling(false);
             edge_irq(true);
         }
@@ -385,10 +392,12 @@ extern "C" void TIM4_IRQHandler(void)
     uint32_t took = DWT->CYCCNT - start;
     if (took > isr_max)
         isr_max = took;
+#if IDS_HOT
     isr_sum += took;
     isr_n++;
     if (took > SLOW_CYCLES)
         n_slow++;
+#endif
 }
 
 // ---- setup ---------------------------------------------------------------------------
