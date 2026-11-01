@@ -29,7 +29,23 @@
 //
 // Bytes the model reads (default 5, the STM32's model): -DFEAT_BYTES=6 with a
 // 6-byte rf_ids.v (python/export_verilog.py on a --payload-bytes 6 model).
+//
+//   + the IPS (hdl/ips_flag.v, prevention on): -DWITH_IPS, and add hdl/ips_flag.v.
+//     The bus becomes wired-AND, as a real CAN bus: dominant (0) wins, so
+//     bus = sender's bit AND NOT the IPS's flag. can_rx (the FPGA) reads that
+//     bus, and a second can_rx on it plays the ESP32 receiver: the record of
+//     what survived. Extra events:
+//       FLAG       the IPS put an error flag on the bus
+//       BUSFRAME   the receiver got a good frame (id, dlc, data)
+//       BUSERR     the receiver threw a frame away (CRC or stuff error)
+//     Not modelled: a real sender stops after the error flag and sends the
+//     frame again (an attacker until it goes bus off); here the bit stream
+//     just goes on, so every frame is judged once.
+//     +log=build/sim/got_ips.csv writes the log somewhere else.
 `timescale 1ns/1ps
+`ifdef WITH_IPS
+`define WITH_RF
+`endif
 `ifdef WITH_RF
 `define HAS_FEAT
 `endif
@@ -44,7 +60,7 @@ module frames_tb;
     always #10 clk = ~clk;                 // 50 MHz, the DE10 Lite oscillator
 
     reg rst = 1;
-    reg rxd = 1;                           // recessive = idle bus
+    reg rxd = 1;                           // what the sender puts on the bus, recessive = idle
     wire        frame_valid, crc_err, stuff_err, id_ready, dlc_ready;
     wire [10:0] can_id;
     wire [3:0]  dlc;
@@ -52,14 +68,23 @@ module frames_tb;
 `ifdef HAS_FEAT
     wire        feat_ready;
 `endif
+`ifdef WITH_IPS
+    wire        tx_dominant, flag_start, before_eof, bit_edge;
+    wire        bus = rxd & ~tx_dominant;  // wired-AND: dominant (0) wins
+`else
+    wire        bus = rxd;
+`endif
 
     can_rx #(.FEAT_BYTES(`FEAT_BYTES)) dut (
-        .clk(clk), .rst(rst), .rxd(rxd),
+        .clk(clk), .rst(rst), .rxd(bus),
         .frame_valid(frame_valid), .can_id(can_id), .dlc(dlc), .data(data),
         .crc_err(crc_err), .stuff_err(stuff_err),
         .id_ready(id_ready), .dlc_ready(dlc_ready)
 `ifdef HAS_FEAT
         , .feat_ready(feat_ready)
+`endif
+`ifdef WITH_IPS
+        , .before_eof(before_eof), .bit_edge(bit_edge)
 `endif
     );
 
@@ -83,16 +108,46 @@ module frames_tb;
     wire [2:0] final_class = (rf_class == 3'd0 && !id_known) ? 3'd2 : rf_class;
 `endif
 
+`ifdef WITH_IPS
+    // The IPS, prevention on (+ips_off: off, the same run without prevention):
+    // acts on the final class.
+    reg         ips_enable = 1;
+    initial if ($test$plusargs("ips_off")) ips_enable = 0;
+    wire [31:0] n_rej, n_ilate, n_allow, n_abort;
+    ips_flag ips (
+        .clk(clk), .rst(rst), .enable(ips_enable),
+        .verdict_valid(rf_valid), .verdict(final_class), .can_id(can_id), .data(data),
+        .before_eof(before_eof), .bit_edge(bit_edge),
+        .tx_dominant(tx_dominant), .flag_start(flag_start),
+        .n_rej(n_rej), .n_ilate(n_ilate), .n_allow(n_allow), .n_abort(n_abort)
+    );
+
+    // The ESP32 receiver: another node on the same bus.
+    wire        r_valid, r_crc, r_stuff;
+    wire [10:0] r_id;
+    wire [3:0]  r_dlc;
+    wire [63:0] r_data;
+    can_rx receiver (
+        .clk(clk), .rst(rst), .rxd(bus),
+        .frame_valid(r_valid), .can_id(r_id), .dlc(r_dlc), .data(r_data),
+        .crc_err(r_crc), .stuff_err(r_stuff), .id_ready(), .dlc_ready()
+    );
+    integer n_bus = 0, n_buserr = 0;
+`endif
+
     reg bits [0:N_BITS-1];
     integer i = 0;                         // the bus bit being played now
     integer drift_ppm = 0;
     real    bit_ns;
     integer log;
     integer n_feat = 0, n_frame = 0, n_crc = 0, n_stuff = 0, n_class = 0;
+    reg [8*256-1:0] log_name;
 
     initial begin
         $readmemb("build/sim/bus_bits.mem", bits);
-        log = $fopen("build/sim/got.csv", "w");
+        if (!$value$plusargs("log=%s", log_name))
+            log_name = "build/sim/got.csv";
+        log = $fopen(log_name, "w");
         $fdisplay(log, "event,bit,id,dlc,data,class");
         if ($value$plusargs("drift_ppm=%d", drift_ppm))
             $display("Sender bit time off by %0d ppm", drift_ppm);
@@ -114,7 +169,11 @@ module frames_tb;
         $fclose(log);
         $display("Played %0d frames (%0d bus bits). can_rx reported: %0d FRAME, %0d FEAT, %0d CLASS, %0d CRC_ERR, %0d STUFF_ERR",
                  N_FRAMES, N_BITS, n_frame, n_feat, n_class, n_crc, n_stuff);
-        $display("Log: build/sim/got.csv. Next: py -3.13 python/compare_sim.py");
+`ifdef WITH_IPS
+        $display("IPS: %0d error flags (rej), %0d too late (ilate), %0d allowed, %0d cut (abort). Receiver: %0d frames survived, %0d thrown away",
+                 n_rej, n_ilate, n_allow, n_abort, n_bus, n_buserr);
+`endif
+        $display("Log: %0s. Next: py -3.13 python/compare_sim.py", log_name);
         $finish;
     end
 
@@ -143,6 +202,18 @@ module frames_tb;
             $fdisplay(log, "CLASS,%0d,%03h,,,%0d", i, can_id, rf_class);
             $fdisplay(log, "FINAL,%0d,%03h,,,%0d", i, can_id, final_class);
             n_class = n_class + 1;
+        end
+`endif
+`ifdef WITH_IPS
+        if (flag_start)
+            $fdisplay(log, "FLAG,%0d,%03h,,,", i, can_id);
+        if (r_valid) begin
+            $fdisplay(log, "BUSFRAME,%0d,%03h,%0d,%016h,", i, r_id, r_dlc, r_data);
+            n_bus = n_bus + 1;
+        end
+        if (r_crc || r_stuff) begin
+            $fdisplay(log, "BUSERR,%0d,,,,", i);
+            n_buserr = n_buserr + 1;
         end
 `endif
     end

@@ -4,7 +4,10 @@ rem   1. can_rx_tb.v: 1012 test frames, at 0 and +-3000 ppm sender clock error
 rem   2. real dataset frames from the 4 dataset files (make_sim_frames.py)
 rem   3. known_id.v on all 2048 IDs against the model's list
 rem   4. those frames through can_rx + the forest (rf_ids.v) + the unknown ID
-rem      rule, compared with Python frame by frame; the table opens in the browser
+rem      rule, compared with Python frame by frame
+rem   5. ips_flag.v unit test (every prevention rule)
+rem   6. the IPS on a simulated bus: attack frames must be destroyed, normal
+rem      frames must reach a second receiver; that table opens in the browser
 rem
 rem   run_sim.bat              the 5-byte model (rf5_d9_p5_time, the original)
 rem   run_sim.bat 6            the 6-byte model (rf5_d9_p6_time)
@@ -54,7 +57,18 @@ echo === 4. dataset frames through can_rx, the forest and the unknown ID rule ==
 "%IV%\iverilog" -g2005 -DWITH_RF -DFEAT_BYTES=%FB% -I build/sim -o build/frames_sim hdl/frames_tb.v hdl/can_rx.v %GEN%/rf_ids.v hdl/known_id.v || goto :fail
 "%IV%\vvp" -n build/frames_sim | findstr /v "finish called"
 py -3.13 python/compare_sim.py || goto :fail
-start "" "build\sim\compare.html"
+
+echo.
+echo === 5. ips_flag: every prevention rule on its own ===
+"%IV%\iverilog" -g2005 -o build/ips_flag_sim hdl/ips_flag_tb.v hdl/ips_flag.v || goto :fail
+"%IV%\vvp" -n build/ips_flag_sim | findstr /r "FAIL PASS"
+
+echo.
+echo === 6. IPS on the bus: attack frames destroyed, normal frames received ===
+"%IV%\iverilog" -g2005 -DWITH_IPS -DFEAT_BYTES=%FB% -I build/sim -o build/ips_sim hdl/frames_tb.v hdl/can_rx.v %GEN%/rf_ids.v hdl/known_id.v hdl/ips_flag.v || goto :fail
+"%IV%\vvp" -n build/ips_sim +log=build/sim/got_ips.csv | findstr /v "finish called"
+py -3.13 python/compare_sim.py --got got_ips.csv --name compare_ips || goto :fail
+start "" "build\sim\compare_ips.html"
 goto :end
 
 :fail

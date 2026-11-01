@@ -33,11 +33,13 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dir", default=os.path.join(ROOT, "build", "sim"))
     ap.add_argument("--show", type=int, default=10, help="mismatches printed in full")
+    ap.add_argument("--got", default="got.csv", help="the testbench's log, in --dir")
+    ap.add_argument("--name", default="compare", help="writes <name>.csv and <name>.html")
     args = ap.parse_args()
 
     with open(os.path.join(args.dir, "sent.csv")) as f:
         sent = list(csv.DictReader(f))
-    with open(os.path.join(args.dir, "got.csv")) as f:
+    with open(os.path.join(args.dir, args.got)) as f:
         got = list(csv.DictReader(f))
 
     starts = [int(s["start_bit"]) for s in sent]
@@ -46,6 +48,10 @@ def main():
     has_feat = any(e["event"] == "FEAT" for e in got)
     has_class = any(e["event"] == "CLASS" for e in got)
     has_final = any(e["event"] == "FINAL" for e in got)
+    # With the IPS on the bus (frames_tb -DWITH_IPS): a frame whose final class
+    # is an attack must be destroyed (one FLAG, no FRAME at the FPGA, nothing
+    # at the receiver); every other frame must reach the receiver unchanged.
+    has_ips = any(e["event"] in ("FLAG", "BUSFRAME", "BUSERR") for e in got)
 
     # Events per frame.
     per = [[] for _ in sent]
@@ -61,10 +67,14 @@ def main():
         sent_feat = [int(s[c]) for c in feat_cols]
         kinds = [e["event"] for e in events]
         problems = []
+        destroy = has_ips and s["final"] != "Normal"       # the IPS must stop this frame
 
         frames = [e for e in events if e["event"] == "FRAME"]
         g_id = g_dlc = g_data = ""
-        if len(frames) != 1:
+        if destroy:
+            if frames:
+                problems.append("attack frame completed at the FPGA (not destroyed)")
+        elif len(frames) != 1:
             problems.append("%d FRAME events (expected 1)" % len(frames))
         if frames:
             e = frames[0]
@@ -79,9 +89,30 @@ def main():
                 problems.append("data differs")
             if any(gd[min(g_dlc, 8):]):
                 problems.append("bytes past the DLC are not 0")
-        for err in ("CRC_ERR", "STUFF_ERR"):
-            if err in kinds:
-                problems.append("%d %s" % (kinds.count(err), err))
+        if not destroy:                                    # our own flag breaks the frame: expected
+            for err in ("CRC_ERR", "STUFF_ERR"):
+                if err in kinds:
+                    problems.append("%d %s" % (kinds.count(err), err))
+
+        bus = ""
+        if has_ips:
+            n_flag = kinds.count("FLAG")
+            on_bus = [e for e in events if e["event"] == "BUSFRAME"]
+            if destroy:
+                bus = "destroyed" if not on_bus else "GOT THROUGH"
+                if n_flag != 1:
+                    problems.append("%d error flags (expected 1)" % n_flag)
+                if on_bus:
+                    problems.append("attack frame reached the receiver")
+            else:
+                bus = "received" if on_bus else "LOST"
+                if n_flag:
+                    problems.append("%d error flags on a normal frame" % n_flag)
+                if len(on_bus) != 1:
+                    problems.append("%d frames at the receiver (expected 1)" % len(on_bus))
+                elif (on_bus[0]["id"].upper().rjust(3, "0") != s["id"] or int(on_bus[0]["dlc"]) != dlc
+                      or list(bytes.fromhex(on_bus[0]["data"].rjust(16, "0"))[:min(dlc, 8)]) != sent_data):
+                    problems.append("receiver got a different frame")
 
         g_feat = ""
         if has_feat:
@@ -129,22 +160,33 @@ def main():
             "forest_should_see": " ".join(map(str, sent_feat)),
             "forest_saw": " ".join(map(str, g_feat)) if g_feat != "" else "",
             "python_forest": s["forest"], "fpga_forest": g_cls,
-            "python_final": s["final"], "fpga_final": g_final,
+            "python_final": s["final"], "fpga_final": g_final, "on_the_bus": bus,
             "events": " ".join(kinds), "result": "OK" if not problems else "; ".join(problems),
         })
 
-    with open(os.path.join(args.dir, "compare.csv"), "w", newline="") as f:
+    with open(os.path.join(args.dir, args.name + ".csv"), "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0]))
         w.writeheader()
         w.writerows(rows)
-    write_html(os.path.join(args.dir, "compare.html"), rows, has_feat, has_class, has_final,
-               n_bad, before, nb)
+    write_html(os.path.join(args.dir, args.name + ".html"), rows, has_feat, has_class, has_final,
+               n_bad, before, nb, has_ips)
 
     checked = ["ID, DLC, data"] + (["forest values"] if has_feat else []) + \
               (["forest class"] if has_class else []) + \
-              (["final class (unknown ID rule)"] if has_final else [])
+              (["final class (unknown ID rule)"] if has_final else []) + \
+              (["IPS on the bus"] if has_ips else [])
     print("%d frames sent, %d events logged. Checked: %s."
           % (len(sent), len(got), ", ".join(checked)))
+    if has_ips:
+        # What survived, by the dataset's label (ground truth).
+        att = [r for r in rows if r["label"] != "Normal"]
+        nor = [r for r in rows if r["label"] == "Normal"]
+        print("IPS: attack frames destroyed %d of %d, normal frames lost %d of %d"
+              % (sum(r["on_the_bus"] == "destroyed" for r in att), len(att),
+                 sum(r["on_the_bus"] != "received" for r in nor), len(nor)))
+        for lab in sorted({r["label"] for r in att}):
+            g = [r for r in att if r["label"] == lab]
+            print("     %-10s destroyed %d of %d" % (lab, sum(r["on_the_bus"] == "destroyed" for r in g), len(g)))
     if not has_feat:
         print("(No FEAT events: build the testbench with -DHAS_FEAT once can_rx has feat_ready.)")
     if before:
@@ -158,10 +200,10 @@ def main():
             print("     sent   %s [%s] %-23s %s" % (r["sent_id"], r["sent_dlc"], r["sent_data"], r["sent_chars"]))
             print("     read   %s [%s] %-23s %s" % (r["got_id"] or "---", r["got_dlc"], r["got_data"], r["got_chars"]))
             print("     events %s" % (r["events"] or "none"))
-    print("Full table: %s" % os.path.join(args.dir, "compare.html"))
+    print("Full table: %s" % os.path.join(args.dir, args.name + ".html"))
 
 
-def write_html(path, rows, has_feat, has_class, has_final, n_bad, before, nb):
+def write_html(path, rows, has_feat, has_class, has_final, n_bad, before, nb, has_ips=False):
     cols = [("n", "#"), ("start_bit", "bus bit"), ("label", "dataset label"),
             ("sent_id", "sent ID"), ("got_id", "read ID"),
             ("sent_dlc", "sent DLC"), ("got_dlc", "read DLC"),
@@ -176,6 +218,8 @@ def write_html(path, rows, has_feat, has_class, has_final, n_bad, before, nb):
     cols.append(("python_final", "Python final (ID rule)"))
     if has_final:
         cols.append(("fpga_final", "FPGA final"))
+    if has_ips:
+        cols.append(("on_the_bus", "IPS: on the bus"))
     cols += [("events", "events"), ("result", "result")]
     out = ["<!doctype html><meta charset='utf-8'><title>FPGA sim compare</title>",
            "<style>body{font-family:Segoe UI,Arial,sans-serif;font-size:13px;margin:16px;background:#fff;color:#1b1f24}"
