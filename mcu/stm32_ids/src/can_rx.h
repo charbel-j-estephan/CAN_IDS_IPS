@@ -72,7 +72,15 @@ void can_rx_sof(void);
                                      are 0. The frame is not checked yet. */
 #define CAN_RX_IDLE           3   /* the bus is idle again (as can_rx_idle()),
                                      returned once, on the bit that made it so */
+/* Data bytes the model reads: 5 (default, rf5-d9-p5), 6 or 8. Set per build in
+ * platformio.ini (-D CAN_RX_FEATURE_BYTES=6); classify.c picks the matching
+ * model. At least 5: the IPS allow list reads data bytes 0-4. */
+#ifndef CAN_RX_FEATURE_BYTES
 #define CAN_RX_FEATURE_BYTES  5
+#endif
+#if CAN_RX_FEATURE_BYTES < 5 || CAN_RX_FEATURE_BYTES > 8
+#error "CAN_RX_FEATURE_BYTES must be 5 to 8"
+#endif
 
 /* One sampled bit. *out is filled for CAN_RX_FRAME and CAN_RX_FEATURES. */
 int can_rx_bit(uint8_t level, can_frame_t *out);

@@ -38,6 +38,8 @@ FILES = {
     "mcu/stm32_ids/src/classify.c": "stm32_ids/src/classify.c",
     "mcu/stm32_ids/src/classify.h": "stm32_ids/src/classify.h",
     "mcu/stm32_ids/src/can_ids_model.h": "stm32_ids/src/can_ids_model.h",
+    "mcu/stm32_ids/src/can_ids_model_p6.h": "stm32_ids/src/can_ids_model_p6.h",
+    "mcu/stm32_ids/src/can_ids_model_p8.h": "stm32_ids/src/can_ids_model_p8.h",
     "mcu/stm32_ids/test/host_test.c": "stm32_ids/test/host_test.c",
 }
 
