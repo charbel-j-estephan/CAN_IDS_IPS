@@ -2,9 +2,10 @@
  * can_ids_predict() (not static), so it is included here only.
  *
  * Build with -D MODEL_IN_RAM to run the model from RAM (.RamFunc) instead of
- * flash. fw 6 did that, to keep the model out of the flash cache the bit
- * interrupt uses; it did not fix the late bit samples (they came with the
- * model switched off as well), so flash is the default again. */
+ * flash, which keeps the model out of the flash cache the bit interrupt runs
+ * from. On by default again since fw 11 (platformio.ini): fw 6 tried it while
+ * the bit interrupt itself was too heavy; once that was fixed, fw 10 with the
+ * model in flash still sampled up to 130 ticks late (fw 9, no model: 88). */
 #include "classify.h"
 
 #ifdef MODEL_IN_RAM
