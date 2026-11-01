@@ -135,6 +135,7 @@ class IpsNode(threading.Thread):
         self.ser = serial.Serial(port, 115200, timeout=0.2)
         self.lines, self.last, self.stop = [], None, False
         self.frames, self.stamps, self.dets, self.keeping = [], [], [], False
+        self.dbg = None                    # last #DBG line (fw 15 flag diagnostics)
         self.lock = threading.Lock()
         atexit.register(self.close)
 
@@ -159,6 +160,8 @@ class IpsNode(threading.Thread):
                     with self.lock:
                         self.lines.append(text)
                         self.last = text
+                elif text.startswith("#DBG"):
+                    self.dbg = text
 
     def command(self, c):
         self.ser.write(c)
@@ -860,6 +863,8 @@ def main():
         ipsline = ips.wait_stat(lambda p: True, fresh=True) or ips.last
         ips.close()                       # switches prevention off again
         print("STM32 IPS says: %s" % (ipsline or "no reply"))
+        if ips.dbg:
+            print("STM32 IPS debug: %s" % ips.dbg)
     stat = rcv.last_stat() or "no #STAT line"
     silent = time.time() - rcv.last_stat_time
     if silent > 3:
@@ -905,6 +910,7 @@ def main():
     if ips:
         nodes["STM32 IPS"] = parse_report(ipsline)
         extra["ips_report"] = ipsline
+        extra["ips_debug"] = ips.dbg
     summary = summarise(rows, res, args, extra)
     out = args.out or os.path.join(ROOT, "runs", "%s_%s" % (time.strftime("%Y%m%d_%H%M%S"),
                                                                args.file.replace(".csv", "")))
