@@ -1,0 +1,175 @@
+#============================================================
+# Build by Terasic System Builder
+#============================================================
+
+set_global_assignment -name FAMILY "MAX 10 FPGA"
+set_global_assignment -name DEVICE 10M50DAF484C7G
+set_global_assignment -name TOP_LEVEL_ENTITY "can_ids_top"
+set_global_assignment -name ORIGINAL_QUARTUS_VERSION "16.0.0"
+set_global_assignment -name LAST_QUARTUS_VERSION "25.1std.0 Lite Edition"
+set_global_assignment -name PROJECT_CREATION_TIME_DATE "00:29:27 NOVEMBER 02,2026"
+set_global_assignment -name DEVICE_FILTER_PACKAGE FBGA
+set_global_assignment -name DEVICE_FILTER_PIN_COUNT 484
+set_global_assignment -name DEVICE_FILTER_SPEED_GRADE 7
+set_global_assignment -name SDC_FILE can_ids_top.SDC
+
+#============================================================
+# CLOCK
+#============================================================
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to ADC_CLK_10
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to MAX10_CLK1_50
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to MAX10_CLK2_50
+set_location_assignment PIN_N5 -to ADC_CLK_10
+set_location_assignment PIN_P11 -to MAX10_CLK1_50
+set_location_assignment PIN_N14 -to MAX10_CLK2_50
+
+#============================================================
+# KEY
+#============================================================
+set_instance_assignment -name IO_STANDARD "3.3 V Schmitt Trigger" -to KEY[0]
+set_instance_assignment -name IO_STANDARD "3.3 V Schmitt Trigger" -to KEY[1]
+set_location_assignment PIN_B8 -to KEY[0]
+set_location_assignment PIN_A7 -to KEY[1]
+
+#============================================================
+# LED
+#============================================================
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to LEDR[0]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to LEDR[1]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to LEDR[2]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to LEDR[3]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to LEDR[4]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to LEDR[5]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to LEDR[6]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to LEDR[7]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to LEDR[8]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to LEDR[9]
+set_location_assignment PIN_A8 -to LEDR[0]
+set_location_assignment PIN_A9 -to LEDR[1]
+set_location_assignment PIN_A10 -to LEDR[2]
+set_location_assignment PIN_B10 -to LEDR[3]
+set_location_assignment PIN_D13 -to LEDR[4]
+set_location_assignment PIN_C13 -to LEDR[5]
+set_location_assignment PIN_E14 -to LEDR[6]
+set_location_assignment PIN_D14 -to LEDR[7]
+set_location_assignment PIN_A11 -to LEDR[8]
+set_location_assignment PIN_B11 -to LEDR[9]
+
+#============================================================
+# SW
+#============================================================
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to SW[0]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to SW[1]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to SW[2]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to SW[3]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to SW[4]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to SW[5]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to SW[6]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to SW[7]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to SW[8]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to SW[9]
+set_location_assignment PIN_C10 -to SW[0]
+set_location_assignment PIN_C11 -to SW[1]
+set_location_assignment PIN_D12 -to SW[2]
+set_location_assignment PIN_C12 -to SW[3]
+set_location_assignment PIN_A12 -to SW[4]
+set_location_assignment PIN_B12 -to SW[5]
+set_location_assignment PIN_A13 -to SW[6]
+set_location_assignment PIN_A14 -to SW[7]
+set_location_assignment PIN_B14 -to SW[8]
+set_location_assignment PIN_F15 -to SW[9]
+
+#============================================================
+# GPIO, GPIO connect to GPIO Default
+#============================================================
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO[0]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO[1]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO[2]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO[3]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO[4]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO[5]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO[6]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO[7]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO[8]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO[9]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO[10]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO[11]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO[12]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO[13]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO[14]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO[15]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO[16]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO[17]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO[18]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO[19]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO[20]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO[21]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO[22]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO[23]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO[24]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO[25]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO[26]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO[27]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO[28]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO[29]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO[30]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO[31]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO[32]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO[33]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO[34]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO[35]
+set_location_assignment PIN_V10 -to GPIO[0]
+set_location_assignment PIN_W10 -to GPIO[1]
+set_location_assignment PIN_V9 -to GPIO[2]
+set_location_assignment PIN_W9 -to GPIO[3]
+set_location_assignment PIN_V8 -to GPIO[4]
+set_location_assignment PIN_W8 -to GPIO[5]
+set_location_assignment PIN_V7 -to GPIO[6]
+set_location_assignment PIN_W7 -to GPIO[7]
+set_location_assignment PIN_W6 -to GPIO[8]
+set_location_assignment PIN_V5 -to GPIO[9]
+set_location_assignment PIN_W5 -to GPIO[10]
+set_location_assignment PIN_AA15 -to GPIO[11]
+set_location_assignment PIN_AA14 -to GPIO[12]
+set_location_assignment PIN_W13 -to GPIO[13]
+set_location_assignment PIN_W12 -to GPIO[14]
+set_location_assignment PIN_AB13 -to GPIO[15]
+set_location_assignment PIN_AB12 -to GPIO[16]
+set_location_assignment PIN_Y11 -to GPIO[17]
+set_location_assignment PIN_AB11 -to GPIO[18]
+set_location_assignment PIN_W11 -to GPIO[19]
+set_location_assignment PIN_AB10 -to GPIO[20]
+set_location_assignment PIN_AA10 -to GPIO[21]
+set_location_assignment PIN_AA9 -to GPIO[22]
+set_location_assignment PIN_Y8 -to GPIO[23]
+set_location_assignment PIN_AA8 -to GPIO[24]
+set_location_assignment PIN_Y7 -to GPIO[25]
+set_location_assignment PIN_AA7 -to GPIO[26]
+set_location_assignment PIN_Y6 -to GPIO[27]
+set_location_assignment PIN_AA6 -to GPIO[28]
+set_location_assignment PIN_Y5 -to GPIO[29]
+set_location_assignment PIN_AA5 -to GPIO[30]
+set_location_assignment PIN_Y4 -to GPIO[31]
+set_location_assignment PIN_AB3 -to GPIO[32]
+set_location_assignment PIN_Y3 -to GPIO[33]
+set_location_assignment PIN_AB2 -to GPIO[34]
+set_location_assignment PIN_AA2 -to GPIO[35]
+
+#============================================================
+# End of pin assignments by Terasic System Builder
+#============================================================
+
+
+#============================================================
+# CAN IDS/IPS sources (6-byte model; for 5 or 8 bytes use
+# ../hdl/generated_p5 or _p8/rf_ids.v and change FEAT_BYTES
+# in can_ids_top.v)
+#============================================================
+set_global_assignment -name VERILOG_FILE can_ids_top.v
+set_global_assignment -name VERILOG_FILE ../hdl/can_rx.v
+set_global_assignment -name VERILOG_FILE ../hdl/generated_p6/rf_ids.v
+set_global_assignment -name VERILOG_FILE ../hdl/known_id.v
+set_global_assignment -name VERILOG_FILE ../hdl/ips_flag.v
+# Pins the design does not use: inputs, not driven
+set_global_assignment -name RESERVE_ALL_UNUSED_PINS_WEAK_PULLUP "AS INPUT TRI-STATED"
+set_global_assignment -name NUM_PARALLEL_PROCESSORS ALL

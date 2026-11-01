@@ -21,3 +21,20 @@ quartus/*.summary
 runs/
 .pio/
 .venv/
+
+# Quartus outputs of the board project
+quartus_board/db/
+quartus_board/incremental_db/
+quartus_board/*.rpt
+quartus_board/*.summary
+quartus_board/*.smsg
+quartus_board/*.sof
+quartus_board/*.pof
+quartus_board/*.done
+quartus_board/*.jdi
+quartus_board/*.pin
+quartus_board/*.sld
+quartus_board/*.qws
+quartus_board/*_assignment_defaults.qdf
+quartus_board/compile.log
+quartus_board/*.jditmp
