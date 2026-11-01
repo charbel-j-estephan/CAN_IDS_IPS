@@ -53,7 +53,7 @@
 #include "can_rx.h"
 #include "classify.h"
 
-#define FW_VERSION  11          // in READY and #STAT: which build is running
+#define FW_VERSION  12          // in READY and #STAT: which build is running
 #define BITRATE     500000
 #define RING        512          // frames waiting for USB, power of two
 #define LED         PA6          // on (low) while frames arrive
@@ -247,15 +247,28 @@ static __attribute__((noinline)) void m3_step(uint16_t due)
     m3_pending = flag_state != 0;
 }
 
-static inline void sample_at(uint16_t at)
+// TIM4 is on APB1: every register read costs the bit interrupt several CPU
+// cycles, so what it can know from RAM it keeps in RAM (fw 12): the sample
+// time it set last and which of its two interrupts is on.
+static uint16_t due_tick;                // the sample time last written to CCR1
+static uint8_t sampling_on, edge_on;     // CC1IE and CC3IE as last set
+
+// Next sample at TIM4 tick `at`; `now` is a recent TIM4->CNT. If that moment
+// has passed, or is closer than SAMPLE_SLACK ticks (the time from reading
+// `now` to here), sample at once instead of waiting for the 16 bit counter to
+// wrap. At once is at most SAMPLE_SLACK ticks early: still after the edge.
+#define SAMPLE_SLACK 24
+static inline void sample_at(uint16_t at, uint16_t now)
 {
     TIM4->CCR1 = at;
-    if ((int16_t)(TIM4->CNT - at) >= 0)
+    due_tick = at;
+    if ((int16_t)(now + SAMPLE_SLACK - at) >= 0)
         TIM4->EGR = TIM_EGR_CC1G;
 }
 
 static inline void sampling(bool on)
 {
+    sampling_on = on;
     if (on) {
         TIM4->SR = ~TIM_SR_CC1IF;
         TIM4->DIER |= TIM_DIER_CC1IE;
@@ -323,6 +336,7 @@ static __attribute__((noinline)) void keep(const can_frame_t &f, uint16_t end_ti
 // the sample interrupt reads it: one interrupt per bit instead of two.
 static inline void edge_irq(bool on)
 {
+    edge_on = on;
     if (on) {
         TIM4->SR = ~(TIM_SR_CC3IF | TIM_SR_CC3OF);   // edges from the frame that ended
         TIM4->DIER |= TIM_DIER_CC3IE;
@@ -348,21 +362,23 @@ extern "C" void TIM4_IRQHandler(void)
 {
     uint32_t start = DWT->CYCCNT;
     uint32_t sr = TIM4->SR;
-    if ((sr & TIM_SR_CC1IF) && (TIM4->DIER & TIM_DIER_CC1IE)) {
+    if ((sr & TIM_SR_CC1IF) && sampling_on) {
         uint8_t level = (GPIOB->IDR >> 8) & 1;
-        uint16_t due = TIM4->CCR1;
-        uint16_t late = (uint16_t)(TIM4->CNT - due);
+        uint16_t due = due_tick;
+        uint16_t now = TIM4->CNT;
+        int16_t late = (int16_t)(now - due);
         TIM4->SR = ~TIM_SR_CC1IF;
-        if (late > lat_max)
+        if (late > (int16_t)lat_max)
             lat_max = late;
         if (late > LATE_TICKS)
             n_late++;
         // A falling edge at the start of this bit moves the next sample point
-        // (resync): half a bit after that edge, plus one bit.
+        // (resync): sample_ticks after that edge, plus one bit. The edge came
+        // before this sample point, so the SR read on entry already shows it.
         uint16_t next = due + bit_ticks;
-        if (TIM4->SR & TIM_SR_CC3IF)
+        if (sr & TIM_SR_CC3IF)
             next = TIM4->CCR3 + sample_ticks + bit_ticks;   // reading CCR3 clears the flag
-        sample_at(next);
+        sample_at(next, now);
         if (m3_pending)                  // M3: an error flag is wanted or on the bus
             m3_step(due);
         can_frame_t f;
@@ -371,12 +387,12 @@ extern "C" void TIM4_IRQHandler(void)
             features_in(f, due);
         else if (got == CAN_RX_FRAME)
             keep(f, due);
-        if (can_rx_idle()) {
+        else if (got == CAN_RX_IDLE) {
             can_rx_quiet = 0;            // our flag (if any) and its error frame are over
             sampling(false);
             edge_irq(true);
         }
-    } else if ((sr & TIM_SR_CC3IF) && (TIM4->DIER & TIM_DIER_CC3IE)) {
+    } else if ((sr & TIM_SR_CC3IF) && edge_on) {
         // Start of frame: hard sync. The edge itself says the bit is dominant,
         // so it is passed as 0 and the first sample is the next bit, one bit
         // plus sample_ticks after the edge. (Sampling it 0.5 bit after the edge lost frames whose
@@ -389,7 +405,7 @@ extern "C" void TIM4_IRQHandler(void)
         can_rx_sof();
         can_rx_bit(0, &f);
         sampling(true);
-        sample_at(at + sample_ticks + bit_ticks);
+        sample_at(at + sample_ticks + bit_ticks, TIM4->CNT);
     }
     uint32_t took = DWT->CYCCNT - start;
     if (took > isr_max)
@@ -459,7 +475,7 @@ static void start_timers()
     // interrupt comes on once it is).
     can_rx_reset();
     sampling(true);
-    sample_at(TIM4->CNT + bit_ticks);
+    sample_at(TIM4->CNT + bit_ticks, TIM4->CNT);
 }
 
 // fw 3 had USB and SysTick at 1 and no model interrupt; fw 5 moved both to 2

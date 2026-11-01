@@ -70,6 +70,8 @@ void can_rx_sof(void);
                                      first CAN_RX_FEATURE_BYTES data bytes (all
                                      the data if there are fewer). Later bytes
                                      are 0. The frame is not checked yet. */
+#define CAN_RX_IDLE           3   /* the bus is idle again (as can_rx_idle()),
+                                     returned once, on the bit that made it so */
 #define CAN_RX_FEATURE_BYTES  5
 
 /* One sampled bit. *out is filled for CAN_RX_FRAME and CAN_RX_FEATURES. */

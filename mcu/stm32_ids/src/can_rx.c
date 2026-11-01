@@ -104,8 +104,10 @@ CAN_RX_FAST int can_rx_bit(uint8_t level, can_frame_t *out)
     switch (state) {
     case WAIT_IDLE:
         rec_run = level ? rec_run + 1 : 0;
-        if (rec_run >= 11)
+        if (rec_run >= 11) {
             state = IDLE;
+            return CAN_RX_IDLE;
+        }
         return 0;
 
     case IN_FRAME:
@@ -125,7 +127,7 @@ CAN_RX_FAST int can_rx_bit(uint8_t level, can_frame_t *out)
         }
         if (nbits == 0 && level) {      /* no dominant start of frame: a glitch */
             state = IDLE;
-            return 0;
+            return CAN_RX_IDLE;
         }
         if (nbits > 0 && level == last) {
             run++;
@@ -165,11 +167,13 @@ CAN_RX_FAST int can_rx_bit(uint8_t level, can_frame_t *out)
             *out = f;
             return CAN_RX_FRAME;
         }
-        if (tail == 10)
+        if (tail == 10) {
             state = IDLE;
+            return CAN_RX_IDLE;
+        }
         return 0;
 
-    default:
-        return 0;
+    default:                            /* IDLE: nothing to sample, stop */
+        return CAN_RX_IDLE;
     }
 }
