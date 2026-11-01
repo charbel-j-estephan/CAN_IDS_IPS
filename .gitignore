@@ -16,3 +16,8 @@ quartus/simulation/
 quartus/*.qws
 quartus/*.rpt
 quartus/*.summary
+.pio/
+.qodo/
+runs/
+.pio/
+.venv/

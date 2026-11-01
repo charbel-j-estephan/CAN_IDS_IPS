@@ -3,3 +3,4 @@ pandas
 scikit-learn>=1.2
 joblib
 emlearn>=0.20
+setuptools  # emlearn imports distutils, gone from Python 3.12

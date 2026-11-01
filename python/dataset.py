@@ -81,9 +81,12 @@ def parse_normal_txt(path, limit=None):
     return X, y
 
 
-def load(data_dir, limit_per_file=None):
-    """Return X (int32, n x 10) and y (int32) for every file found in data_dir."""
-    X, y = [], []
+def load(data_dir, limit_per_file=None, with_source=False):
+    """Return X (int32, n x 10) and y (int32) for every file found in data_dir.
+
+    with_source=True also returns src (int8): which file each frame came from,
+    in file order, so a split can keep each file's later frames for testing."""
+    X, y, src = [], [], []
     found = []
     for name, cls in ATTACK_FILES.items():
         path = os.path.join(data_dir, name)
@@ -91,12 +94,14 @@ def load(data_dir, limit_per_file=None):
             fx, fy = parse_attack_csv(path, cls, limit_per_file)
             X += fx
             y += fy
+            src += [len(found)] * len(fx)
             found.append(name)
     path = os.path.join(data_dir, NORMAL_FILE)
     if os.path.exists(path):
         fx, fy = parse_normal_txt(path, limit_per_file)
         X += fx
         y += fy
+        src += [len(found)] * len(fx)
         found.append(NORMAL_FILE)
     if not X:
         raise FileNotFoundError(
@@ -104,4 +109,7 @@ def load(data_dir, limit_per_file=None):
             % (data_dir, ", ".join(list(ATTACK_FILES) + [NORMAL_FILE]))
         )
     print("Loaded %d frames from %s" % (len(X), ", ".join(found)))
-    return np.asarray(X, dtype=np.int32), np.asarray(y, dtype=np.int32)
+    X, y = np.asarray(X, dtype=np.int32), np.asarray(y, dtype=np.int32)
+    if with_source:
+        return X, y, np.asarray(src, dtype=np.int8)
+    return X, y
