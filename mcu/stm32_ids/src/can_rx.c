@@ -24,11 +24,7 @@ static can_frame_t f;
  * recessive for 11 bits (the error frame and the gap after it). */
 CAN_RX_FAST static void give_up(uint32_t *counter)
 {
-#if IDS_HOT
     if (counter && !can_rx_quiet)
-#else
-    if (counter)
-#endif
         (*counter)++;
     state = WAIT_IDLE;
     rec_run = 0;
@@ -93,7 +89,8 @@ CAN_RX_FAST static void data_bit(uint8_t level)
         if (i == dlc_at + 3) {
             uint16_t n = f.rtr ? 0 : (f.dlc > 8 ? 8 : f.dlc);
             frame_end = dlc_at + 4 + 8 * n + 15;
-            feat_end = dlc_at + 4 + 8 * (n > CAN_RX_FEATURE_BYTES ? CAN_RX_FEATURE_BYTES : n);
+            if (can_rx_features_on)     /* else feat_end stays 0xFFFF: never reported */
+                feat_end = dlc_at + 4 + 8 * (n > CAN_RX_FEATURE_BYTES ? CAN_RX_FEATURE_BYTES : n);
         }
     } else if (frame_end != 0xFFFF && i >= dlc_at + 4 && i < frame_end - 15) {
         uint16_t k = (uint16_t)((i - dlc_at - 4) >> 3);
@@ -143,12 +140,10 @@ CAN_RX_FAST int can_rx_bit(uint8_t level, can_frame_t *out)
             state = TAIL;
             tail = 0;
         }
-#if IDS_HOT
-        if (nbits == feat_end && can_rx_features_on) {   /* ID, DLC and the first data bytes are in */
+        if (nbits == feat_end) {        /* ID, DLC and the first data bytes are in */
             *out = f;
             return CAN_RX_FEATURES;
         }
-#endif
         return 0;
 
     case TAIL:
