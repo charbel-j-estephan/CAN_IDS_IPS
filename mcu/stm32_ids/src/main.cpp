@@ -41,7 +41,7 @@
  *                 buserr=<frames with errors> rec=0 stuff=<n> form=<n> crc=<n>
  *                 other=<extended or remote frames, not sent> isr=<longest bit
  *                 interrupt, CPU cycles at 168 MHz> lat=<latest sample after
- *                 its time, TIM4 ticks> nlate=<samples over 63 ticks late>
+ *                 its time, TIM4 ticks> nlate=<samples over 94 ticks late>
  *                 model=<on|off> cmax=<longest model run, CPU cycles>
  *                 dlate=<frames without a decision by their end> fw=<n>
  *                 id=<model id>\n"
@@ -53,7 +53,7 @@
 #include "can_rx.h"
 #include "classify.h"
 
-#define FW_VERSION  9           // in READY and #STAT: which build is running
+#define FW_VERSION  10          // in READY and #STAT: which build is running
 #define BITRATE     500000
 #define RING        512          // frames waiting for USB, power of two
 #define LED         PA6          // on (low) while frames arrive
@@ -78,7 +78,7 @@ static uint16_t bit_ticks, sample_ticks;                 // TIM4 ticks
 
 // ---- M2: the model runs in its own interrupt ------------------------------------------
 
-static volatile bool model_on = IDS_HOT;   // without IDS_HOT the model never gets a frame
+static volatile bool model_on = true;
 
 // The frame on the bus now (bit interrupt only).
 static uint16_t sof_tick, ready_tick;
@@ -123,7 +123,8 @@ static volatile uint32_t n_dlate = 0;    // frames whose decision had not come b
 #define MARKER_ID       0x7FF            // the replay's start marker, never blocked
 
 static volatile bool ips_on = false;
-static volatile uint32_t reject_seq = 0; // frame (job number) the model wants destroyed
+static volatile uint8_t m3_pending = 0;  // the bit interrupt's only M3 test: a flag is wanted,
+                                         // scheduled or on the bus
 static volatile uint32_t allow_seq = 0;  // frame the model called an attack but the allow list kept
 static uint8_t flag_state = 0;           // 0 none, 1 scheduled or on the bus, 2 end scheduled
 static uint16_t flag_start, flag_end;    // TIM4 ticks
@@ -151,7 +152,7 @@ static void ips_enable(bool on)
     g.Speed = GPIO_SPEED_FREQ_HIGH;
     set_oc4(OC_OFF);                     // released before the pin is handed over
     flag_state = 0;
-    reject_seq = 0;
+    m3_pending = 0;
     if (on) {
         TIM4->CCER |= TIM_CCER_CC4P | TIM_CCER_CC4E;    // active level = low
         g.Mode = GPIO_MODE_AF_OD;
@@ -167,10 +168,9 @@ static void ips_enable(bool on)
 }
 
 // Bit interrupt, at the sample point `due`: start the flag at the next bit
-// boundary (half a bit after the sample point).
-static __attribute__((noinline)) void flag_begin(uint16_t due)
+// boundary (bit_ticks - sample_ticks after the sample point).
+static void flag_begin(uint16_t due)
 {
-    reject_seq = 0;
     if (!can_rx_before_eof())            // too late: the frame stands, an alert only
         return;                          // (keep() counts it in n_ilate when it completes)
     uint16_t at = due + (bit_ticks - sample_ticks);
@@ -187,7 +187,7 @@ static __attribute__((noinline)) void flag_begin(uint16_t due)
 
 // Bit interrupt, every bit while a flag is pending: once it is on the bus,
 // schedule its end; once it has ended, release the pin for good.
-static __attribute__((noinline)) void flag_step(void)
+static void flag_step(void)
 {
     uint16_t now = TIM4->CNT;
     int16_t since = (int16_t)(now - flag_start);
@@ -220,7 +220,10 @@ extern "C" void TIM7_IRQHandler(void)
             allow_seq = seq;
             n_allow++;
         } else {
-            reject_seq = seq;            // the bit interrupt starts the flag
+            __disable_irq();             // the frame on the bus is still this one:
+            if (seq == frame_seq)        // the bit interrupt starts the flag
+                m3_pending = 1;
+            __enable_irq();
         }
     }
     uint32_t took = DWT->CYCCNT - start;
@@ -232,6 +235,18 @@ extern "C" void TIM7_IRQHandler(void)
 
 // Next sample at TIM4 tick `at`. If that moment has already passed (a late
 // interrupt), sample at once instead of waiting for the 16 bit counter to wrap.
+// Bit interrupt, only while m3_pending: start the flag, step it, and clear
+// m3_pending once it is over. Kept out of the bit interrupt (noinline) so the
+// other ~120 bits of a frame pay one byte test for M3, nothing more.
+static __attribute__((noinline)) void m3_step(uint16_t due)
+{
+    if (flag_state)
+        flag_step();
+    else
+        flag_begin(due);
+    m3_pending = flag_state != 0;
+}
+
 static inline void sample_at(uint16_t at)
 {
     TIM4->CCR1 = at;
@@ -317,17 +332,13 @@ static inline void edge_irq(bool on)
 }
 
 // Timing seen by the bit interrupt. One bit is 336 CPU cycles (168 MHz) and
-// 168 TIM4 ticks (84 MHz). The sample point is half a bit after the edge, so a
-// sample more than 84 ticks late reads the next bit; LATE_TICKS counts the
+// 168 TIM4 ticks (84 MHz). The sample point is a quarter bit after the edge, so
+// a sample more than 126 ticks late reads the next bit; LATE_TICKS counts the
 // ones that came close (over 3/4 of that margin).
-#define LATE_TICKS  63
+#define LATE_TICKS  94
 static volatile uint32_t isr_max = 0;    // longest interrupt, CPU cycles
 static volatile uint16_t lat_max = 0;    // latest sample after its time, TIM4 ticks
 static volatile uint32_t n_late = 0;     // samples more than LATE_TICKS late
-static volatile uint64_t isr_sum = 0;    // all bit interrupts together, CPU cycles (for the average)
-static volatile uint32_t isr_n = 0;      // how many bit interrupts
-static volatile uint32_t n_slow = 0;     // bit interrupts over SLOW_CYCLES
-#define SLOW_CYCLES 300                  // one bit is 336 cycles: over 300 leaves almost nothing
 
 // Diagnostic switches (fw 7), set over USB, see loop().
 static volatile bool feat_on = true;     // 'F'/'f': hand the features to the model mid frame
@@ -352,32 +363,23 @@ extern "C" void TIM4_IRQHandler(void)
         if (TIM4->SR & TIM_SR_CC3IF)
             next = TIM4->CCR3 + sample_ticks + bit_ticks;   // reading CCR3 clears the flag
         sample_at(next);
-#if IDS_HOT
-        if (flag_state)                  // M3: our error flag is pending or on the bus
-            flag_step();
-        else if (reject_seq && reject_seq == frame_seq)
-            flag_begin(due);
-#endif
+        if (m3_pending)                  // M3: an error flag is wanted or on the bus
+            m3_step(due);
         can_frame_t f;
         int got = can_rx_bit(level, &f);
-#if IDS_HOT
-        if (got == CAN_RX_FEATURES && feat_on)
+        if (got == CAN_RX_FEATURES)
             features_in(f, due);
-        else
-#endif
-        if (got == CAN_RX_FRAME)
+        else if (got == CAN_RX_FRAME)
             keep(f, due);
         if (can_rx_idle()) {
-#if IDS_HOT
             can_rx_quiet = 0;            // our flag (if any) and its error frame are over
-#endif
             sampling(false);
             edge_irq(true);
         }
     } else if ((sr & TIM_SR_CC3IF) && (TIM4->DIER & TIM_DIER_CC3IE)) {
         // Start of frame: hard sync. The edge itself says the bit is dominant,
-        // so it is passed as 0 and the first sample is the next bit, 1.5 bits
-        // after the edge. (Sampling it 0.5 bit after the edge lost frames whose
+        // so it is passed as 0 and the first sample is the next bit, one bit
+        // plus sample_ticks after the edge. (Sampling it 0.5 bit after the edge lost frames whose
         // ID starts with a 1 when this first interrupt came late.)
         uint16_t at = TIM4->CCR3;          // reading it clears the flag
         edge_irq(false);
@@ -392,12 +394,6 @@ extern "C" void TIM4_IRQHandler(void)
     uint32_t took = DWT->CYCCNT - start;
     if (took > isr_max)
         isr_max = took;
-#if IDS_HOT
-    isr_sum += took;
-    isr_n++;
-    if (took > SLOW_CYCLES)
-        n_slow++;
-#endif
 }
 
 // ---- setup ---------------------------------------------------------------------------
@@ -408,7 +404,10 @@ static void start_timers()
     uint32_t pclk1 = HAL_RCC_GetPCLK1Freq();
     uint32_t tclk = (RCC->CFGR & RCC_CFGR_PPRE1) == RCC_CFGR_PPRE1_DIV1 ? pclk1 : 2 * pclk1;
     bit_ticks = tclk / BITRATE;
-    sample_ticks = bit_ticks / 2;          // half a bit after the edge, room for interrupt latency
+    // Sample a quarter bit after the edge: a late interrupt then has 3/4 of a
+    // bit before it reads the next bit (half a bit left fw 8 with no margin).
+    // Every falling edge resyncs, so the quarter is measured from a real edge.
+    sample_ticks = bit_ticks / 4;
 
     // TIM2: free running microsecond clock for the frame time stamps.
     __HAL_RCC_TIM2_CLK_ENABLE();
@@ -479,7 +478,7 @@ static void set_priorities(bool like_fw3)
 static void zero_counters()
 {
     __disable_irq();
-    isr_max = 0; isr_sum = 0; isr_n = 0; n_slow = 0;
+    isr_max = 0;
     lat_max = 0; n_late = 0;
     cls_max = 0; n_dlate = 0;
     n_rej = 0; n_ilate = 0; n_allow = 0; n_abort = 0;
@@ -581,18 +580,13 @@ void loop()
     if (now - last_stat >= 1000) {
         last_stat = now;
         const can_rx_stats_t &s = can_rx_stats;
-        __disable_irq();
-        uint64_t sum = isr_sum;
-        uint32_t n = isr_n;
-        __enable_irq();
         Serial.printf("#STAT rx=%lu ovf=%lu drop=0 peak=%lu buserr=%lu rec=0 stuff=%lu form=%lu crc=%lu other=%lu"
-                      " isr=%lu lat=%u nlate=%lu avg=%lu slow=%lu model=%s cmax=%lu dlate=%lu"
+                      " isr=%lu lat=%u nlate=%lu model=%s cmax=%lu dlate=%lu"
                       " feat=%s prio=%s ips=%s rej=%lu ilate=%lu allow=%lu abort=%lu fw=%d id=%s\n",
                       (unsigned long)n_sent, (unsigned long)n_ovf, (unsigned long)peak,
                       (unsigned long)(s.stuff + s.form + s.crc), (unsigned long)s.stuff,
                       (unsigned long)s.form, (unsigned long)s.crc, (unsigned long)n_other,
                       (unsigned long)isr_max, (unsigned)lat_max, (unsigned long)n_late,
-                      (unsigned long)(n ? sum / n : 0), (unsigned long)n_slow,
                       model_on ? "on" : "off", (unsigned long)cls_max, (unsigned long)n_dlate,
                       feat_on ? "on" : "off", prio_fw3 ? "fw3" : "fw5",
                       ips_on ? "on" : "off", (unsigned long)n_rej, (unsigned long)n_ilate,
