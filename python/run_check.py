@@ -91,6 +91,10 @@ def main():
     ap.add_argument("--stm32", nargs="?", const="auto", metavar="COM",
                     help="check the frames the STM32 IDS node decodes (its port is found "
                          "automatically, or give it); the ESP32 receiver only ACKs")
+    ap.add_argument("--ips", nargs="?", const="auto", metavar="COM",
+                    help="prevention test: the STM32 destroys the frames its model calls attacks "
+                         "during the replay (its port is found automatically, or give it). The "
+                         "ESP32 receiver stays the record of what survived. Needs the attacker board")
     ap.add_argument("--skip-check", action="store_true", help="skip the 300 frame link check")
     ap.add_argument("--dry-run", action="store_true", help="find the boards and print the plan only")
     args = ap.parse_args()
@@ -99,6 +103,17 @@ def main():
     esp = find_ports()
     sender, receiver, attacker = args.sender, args.receiver, args.attacker
     stm32 = None
+    ips = None
+    if args.ips and args.stm32:
+        sys.exit("--ips and --stm32 do not go together: in an IPS run the ESP32 receiver "
+                 "records what survived, the STM32 only acts")
+    if args.ips:
+        found = find_ports({STM32_VID})
+        ips = args.ips if args.ips != "auto" else (found[0] if len(found) == 1 else None)
+        if not ips:
+            sys.exit("STM32 USB port %s. Is it running mcu/stm32_ids fw 8 or later (BOOT0 jumper "
+                     "back on GND, then RST)? Or give it: --ips COMx"
+                     % ("not found" if not found else "unclear: " + ", ".join(found)))
     if args.stm32:
         found = find_ports({STM32_VID})
         stm32 = args.stm32 if args.stm32 != "auto" else (found[0] if len(found) == 1 else None)
@@ -141,11 +156,18 @@ def main():
     print("\nSender:   %s" % sender)
     print("Receiver: %s%s" % (receiver, " (STM32 IDS node)" if stm32 else ""))
     print("Attacker: %s" % (attacker or "none, the sender plays the attacks too"))
+    if ips:
+        print("IPS:      %s (STM32, prevention on for the replay only)" % ips)
+        if not attacker:
+            sys.exit("\nThe IPS test needs the attacker board: with the sender playing the attacks "
+                     "too, destroying them would push the sender itself to bus off.")
 
     common = ["--sender", sender, "--receiver", receiver]
     full = common + ["--file", args.file, "--n", str(args.n)]
     if attacker:
         full += ["--attacker", attacker]
+    if ips:
+        full += ["--ips", ips]           # the link check runs without prevention
     if args.dry_run:
         print("\nWould run the link check, then: replay_dataset.py " + " ".join(full))
         return

@@ -47,6 +47,14 @@ extern can_rx_stats_t can_rx_stats;
  * the mid frame copy). */
 extern volatile uint8_t can_rx_features_on;
 
+/* 1 while this node's own error flag is on the bus (M3): the stuff and form
+ * errors it causes in this decoder are not counted. */
+extern volatile uint8_t can_rx_quiet;
+
+/* The frame on the bus has not reached its end of frame field yet: an error
+ * flag started now still destroys it for every node. */
+int can_rx_before_eof(void);
+
 /* Wait for 11 recessive bits before taking a start of frame (power up). */
 void can_rx_reset(void);
 /* The bus is idle: stop sampling, the next falling edge is a start of frame. */

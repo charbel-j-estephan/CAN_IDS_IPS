@@ -126,3 +126,41 @@ disturbs the bit timing (#STAT `lat`, `nlate`, `stuff`, `crc`).
 
 PB8 and PB9 only. The board's LEDs (PA6, PA7), buttons (PE3, PE4, PA0),
 USB (PA11, PA12) and SWD header are left alone.
+
+## M3: prevention (IPS), fw 8
+
+Prevention is **off at power up**. Only the IPS test switches it on, for the
+replay, and off again at the end (also if the script stops early).
+
+When the model calls a frame an attack, the STM32 sends an **error flag**:
+PB9 (the module's TX) dominant for 6 bit times, starting at the next bit
+boundary. Every node then throws the frame away; the attacker's controller
+retransmits it and its transmit error counter rises by 8 each time, so a
+persistent attacker goes error passive (127) and then bus off (255). PB9 is
+TIM4 channel 4, the timer that does the bit timing, so the flag starts and
+ends on the exact tick in hardware. A verdict that comes after the end of
+frame field has begun is too late: the frame stands and it counts as `ilate`.
+The replay's start marker (ID 0x7FF, "CANSTART") is on an allow list and is
+never destroyed. PB9 is never held dominant for more than 8 bits (`abort`).
+
+Test, with all three ESP32s and the STM32 on USB:
+
+1. `run_check_stm32.bat` first (prevention stays off): the STM32 must decode
+   100% with `crc`, `stuff` and `dlate` at 0, as in the M1 and M2 tests.
+2. Then `run_check_ips.bat` (or `run_check.bat --ips`). The link check runs
+   without prevention; the replay runs with it. The ESP32 receiver is the
+   record of what survived on the bus.
+
+Read the result:
+
+- attack frames destroyed: the share of attack frames the receiver never saw.
+  Once the attacker is bus off its remaining frames never reach the bus at
+  all, so this counts both destroyed and silenced frames.
+- normal frames lost: must stay 0. Anything else is a false block (or a frame
+  lost on the bus).
+- STM32 `rej` error flags sent, `ilate` attack verdicts that came too late,
+  `allow` (the marker), `abort` (must be 0), `dlate` no decision in time.
+- attacker `state` (busoff expected on DoS) and `tec`.
+
+STM32 commands over its USB port: `I` prevention on, `i` off, `Z` zero the
+counters, `c`/`C` model off/on, `f`/`F` and `p`/`P` timing diagnostics.

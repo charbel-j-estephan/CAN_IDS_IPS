@@ -120,6 +120,94 @@ def parse_report(line):
     return out
 
 
+class IpsNode(threading.Thread):
+    """The STM32 IDS node when it runs prevention (--ips): commands and its #STAT.
+
+    It is not the receiver in an IPS run (the ESP32 logger is, it records what
+    survived on the bus); this only switches prevention on and off and reads the
+    STM32's counters. Prevention is switched off again however the script ends."""
+
+    def __init__(self, port):
+        super().__init__(daemon=True)
+        import atexit
+        import serial
+        self.ser = serial.Serial(port, 115200, timeout=0.2)
+        self.lines, self.last, self.stop = [], None, False
+        self.lock = threading.Lock()
+        atexit.register(self.close)
+
+    def run(self):
+        buf = b""
+        while not self.stop:
+            try:
+                buf += self.ser.read(max(1, self.ser.in_waiting))
+            except Exception:
+                break
+            while b"\n" in buf:
+                line, buf = buf.split(b"\n", 1)
+                text = line.decode("ascii", "replace").strip()
+                if text.startswith("#STAT"):
+                    with self.lock:
+                        self.lines.append(text)
+                        self.last = text
+
+    def command(self, c):
+        self.ser.write(c)
+        time.sleep(0.05)
+
+    def wait_stat(self, ok, fresh=False, timeout=5):
+        """First #STAT line (arriving from now on if fresh) whose fields pass ok()."""
+        with self.lock:
+            start = len(self.lines)
+        t0 = time.time()
+        while time.time() - t0 < timeout:
+            with self.lock:
+                new = self.lines[start:] if fresh else self.lines[-1:]
+            hit = next((l for l in new if ok(parse_report(l))), None)
+            if hit:
+                return hit
+            time.sleep(0.2)
+        return None
+
+    def close(self):
+        if self.ser.is_open:
+            try:
+                self.ser.write(b"i")      # prevention off
+                time.sleep(0.1)
+            except Exception:
+                pass
+            self.stop = True
+            time.sleep(0.3)
+            self.ser.close()
+
+
+def print_ips(summary):
+    """What prevention did, from the logger's record of what survived on the bus."""
+    by = summary.get("by_class", {})
+    att = {k: v for k, v in by.items() if k != "Normal"}
+    a_sent = sum(v["sent"] for v in att.values())
+    a_lost = sum(v["lost"] for v in att.values())
+    n = by.get("Normal", {"sent": 0, "lost": 0})
+    print("\nSTM32 IPS (prevention on):")
+    if a_sent:
+        print("  attack frames destroyed: %d of %d (%.2f%%)" % (a_lost, a_sent, 100.0 * a_lost / a_sent))
+        for k, v in att.items():
+            print("    %-10s %d of %d" % (k, v["lost"], v["sent"]))
+    print("  normal frames lost:      %d of %d%s" % (n["lost"], n["sent"],
+          "  <- wrongly destroyed, or lost on the bus" if n["lost"] else ""))
+    s = summary.get("nodes", {}).get("STM32 IPS", {})
+    if s:
+        print("  STM32: %s error flags sent, %s attack verdicts too late (frame got through), "
+              "%s allowed (start marker), %s flags cut short, %s frames with no decision in time"
+              % (s.get("rej"), s.get("ilate"), s.get("allow"), s.get("abort"), s.get("dlate")))
+    a = summary.get("nodes", {}).get("attacker", {})
+    if a:
+        print("  attacker: state %s, transmit error counter %s, failed sends %s"
+              % (a.get("state"), a.get("tec"), a.get("txfail")))
+    print("  (A destroyed frame is retransmitted by its sender until it gets through or the "
+          "sender goes bus off, so 'error flags sent' can be larger than 'destroyed'.)")
+
+
 def ask_report(ser, timeout=30):
     """Ask a sender for its final #TX line (it answers once everything is sent)."""
     ser.write(b"Q")
@@ -609,6 +697,10 @@ def main():
     ap.add_argument("--receiver", help="COM port of the receiver (usb_receiver), for example COM7")
     ap.add_argument("--attacker", help="COM port of the attacker (attack_sender): the sender sends "
                                       "the normal frames, the attacker the attack frames")
+    ap.add_argument("--ips", metavar="COM",
+                    help="COM port of the STM32 IDS node: switch its prevention on for this run "
+                         "(it destroys the frames its model calls attacks) and read its counters. "
+                         "The receiver stays the ESP32 logger, the record of what survived")
     ap.add_argument("--data", default=os.path.join(ROOT, "data", "car_hacking"))
     ap.add_argument("--file", default="DoS_dataset.csv", choices=sorted(FILE_CLASS))
     ap.add_argument("--n", type=int, default=20000, help="frames to replay, 0 for the whole file")
@@ -623,9 +715,9 @@ def main():
         return
     if not (args.sender and args.receiver):
         ap.error("--sender and --receiver are required, for example --sender COM8 --receiver COM7")
-    ports = [p.upper() for p in (args.sender, args.receiver, args.attacker) if p]
+    ports = [p.upper() for p in (args.sender, args.receiver, args.attacker, args.ips) if p]
     if len(set(ports)) != len(ports):
-        sys.exit("--sender, --receiver and --attacker must be different COM ports")
+        sys.exit("--sender, --receiver, --attacker and --ips must be different COM ports")
     if args.attacker and args.fast:
         sys.exit("--fast cannot be used with --attacker: the attacker needs the original timing")
 
@@ -661,6 +753,19 @@ def main():
         print("Ignored %d old frames the receiver had buffered before this run" % rcv.ignored)
     rcv.arm()
 
+    ips = None
+    if args.ips:
+        ips = IpsNode(args.ips)
+        ips.start()
+        ips.command(b"Z")                 # zero its counters: this run only
+        ips.command(b"I")                 # prevention on
+        line = ips.wait_stat(lambda p: p.get("ips") == "on")
+        if not line:
+            ips.close()
+            sys.exit("The STM32 on %s did not confirm prevention on (no #STAT with ips=on). "
+                     "Is it running stm32_ids fw 8 or later?" % args.ips)
+        print("STM32 IPS on %s: prevention on (fw %s)" % (args.ips, parse_report(line).get("fw")))
+
     offsets = start_offsets(rows, realtime)
     started = time.strftime("%Y-%m-%d %H:%M:%S")
     atk, atkline = None, None
@@ -695,6 +800,11 @@ def main():
         time.sleep(0.2)
     time.sleep(1.2)                       # one more #STAT after the last frame
     rcv.stop = True
+    ipsline = None
+    if ips:
+        ipsline = ips.wait_stat(lambda p: True, fresh=True) or ips.last
+        ips.close()                       # switches prevention off again
+        print("STM32 IPS says: %s" % (ipsline or "no reply"))
     stat = rcv.last_stat() or "no #STAT line"
     silent = time.time() - rcv.last_stat_time
     if silent > 3:
@@ -737,6 +847,9 @@ def main():
              "receiver_frames_this_run": rx_run, "nodes": nodes, "start_frame": start_frame}
     if args.attacker:
         extra["attacker_report"] = atkline
+    if ips:
+        nodes["STM32 IPS"] = parse_report(ipsline)
+        extra["ips_report"] = ipsline
     summary = summarise(rows, res, args, extra)
     out = args.out or os.path.join(ROOT, "runs", "%s_%s" % (time.strftime("%Y%m%d_%H%M%S"),
                                                                args.file.replace(".csv", "")))
@@ -755,6 +868,8 @@ def main():
               "(frames with a clear bus before them)"
               % (summary["attacker_clock_drift_ppm"], summary["attacker_sync_offset_us"]))
     print_ids(summary.get("ids"))
+    if ips:
+        print_ips(summary)
     print("\nEvery frame is saved in:\n  %s" % out)
     print("Open report.html there for the results page.")
 
