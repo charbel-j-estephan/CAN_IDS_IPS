@@ -53,7 +53,7 @@
 #include "can_rx.h"
 #include "classify.h"
 
-#define FW_VERSION  15          // in READY and #STAT: which build is running
+#define FW_VERSION  16          // in READY and #STAT: which build is running
 #define BITRATE     500000
 #define RING        512          // frames waiting for USB, power of two
 #define LED         PA6          // on (low) while frames arrive
@@ -179,10 +179,12 @@ static void ips_enable(bool on)
 
 // Bit interrupt, at the sample point `due`: start the flag at the next bit
 // boundary (bit_ticks - sample_ticks after the sample point), or a later one
-// if this interrupt came late. The boundary is checked against a fresh
-// counter read: a compare value already passed never matches (fw 12/13 could
-// count a flag that never went on the bus).
-#define FLAG_LEAD 16                     // ticks the compare must be ahead when it is set
+// if this interrupt came late. A compare value the counter has already passed
+// never matches, so once the compare is set the counter is read again: if it
+// got there first (and the start did not match), the start moves one more
+// bit. fw 14/15 only checked before the write, with 16 ticks of lead, and the
+// RPM run missed 57 starts that were 21 ticks ahead when checked.
+#define FLAG_LEAD 40                     // ticks ahead wanted before the compare is set
 static void flag_begin(uint16_t due)
 {
     if (!can_rx_before_eof())            // too late: the frame stands, an alert only
@@ -197,13 +199,18 @@ static void flag_begin(uint16_t due)
             return;
         }
     }
-    if (pushed)
-        n_fpush++;
     flag_begun = now;
-    flag_end = at + FLAG_BITS * bit_ticks;
     TIM4->SR = ~TIM_SR_CC4IF;            // a stale match from an old compare value
     TIM4->CCR4 = at;
     set_oc4(OC_ACTIVE);
+    while (!(TIM4->SR & TIM_SR_CC4IF) && (int16_t)(at - TIM4->CNT) <= 0) {
+        at += bit_ticks;                 // missed: the counter passed it before the write
+        TIM4->CCR4 = at;
+        pushed++;
+    }
+    if (pushed)
+        n_fpush++;
+    flag_end = at + FLAG_BITS * bit_ticks;
     flag_state = 1;
     flag_bits = 0;
     can_rx_quiet = 1;
