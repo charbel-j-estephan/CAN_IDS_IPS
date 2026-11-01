@@ -7,6 +7,7 @@ enum { IDLE, IN_FRAME, TAIL, WAIT_IDLE };
 
 can_rx_stats_t can_rx_stats;
 volatile uint8_t can_rx_features_on = 1;
+volatile uint8_t can_rx_quiet = 0;
 
 static uint8_t state = WAIT_IDLE;
 static uint16_t nbits;          /* bits received after destuffing, start of frame is bit 0 */
@@ -23,7 +24,7 @@ static can_frame_t f;
  * recessive for 11 bits (the error frame and the gap after it). */
 CAN_RX_FAST static void give_up(uint32_t *counter)
 {
-    if (counter)
+    if (counter && !can_rx_quiet)
         (*counter)++;
     state = WAIT_IDLE;
     rec_run = 0;
@@ -37,6 +38,14 @@ void can_rx_reset(void)
 CAN_RX_FAST int can_rx_idle(void)
 {
     return state == IDLE;
+}
+
+/* Still in time for an error flag that destroys the frame for every node:
+ * anywhere before the end of frame field (TAIL: 0 CRC delimiter, 1 ACK slot,
+ * 2 ACK delimiter, 3.. end of frame). */
+CAN_RX_FAST int can_rx_before_eof(void)
+{
+    return state == IN_FRAME || (state == TAIL && tail < 3);
 }
 
 CAN_RX_FAST void can_rx_sof(void)

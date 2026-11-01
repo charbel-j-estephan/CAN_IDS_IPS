@@ -53,7 +53,7 @@
 #include "can_rx.h"
 #include "classify.h"
 
-#define FW_VERSION  7            // in READY and #STAT: which build is running
+#define FW_VERSION  8           // in READY and #STAT: which build is running
 #define BITRATE     500000
 #define RING        512          // frames waiting for USB, power of two
 #define LED         PA6          // on (low) while frames arrive
@@ -101,6 +101,111 @@ static volatile uint32_t res_seq = 0;
 static volatile uint32_t cls_max = 0;    // longest model run, CPU cycles
 static volatile uint32_t n_dlate = 0;    // frames whose decision had not come by their end
 
+// ---- M3: prevention (error flag on PB9) -----------------------------------------------
+//
+// Off at power up; 'I' over USB turns it on, 'i' off. When the model calls the
+// frame on the bus an attack, the bit interrupt starts an active error flag at
+// the next bit boundary: PB9 (the module's TX) dominant for 6 bit times. That
+// breaks the stuffing rule, so every node throws the frame away, and the
+// sender's transmit error counter rises by 8; an attacker that keeps sending
+// goes error passive and then bus off.
+//
+// PB9 is TIM4 channel 4, the timer that does the bit timing, so the flag
+// starts and ends on the exact TIM4 tick in hardware (output compare "active
+// on match", then "inactive on match"), not when an interrupt gets round to it.
+// Pin: open drain, inactive = released (the TJA1050 pulls TX up = recessive),
+// active = low = dominant.
+
+#define FLAG_BITS       6
+#define OC_ACTIVE       1                // OC4M: set active on match
+#define OC_INACTIVE     2                // OC4M: set inactive on match
+#define OC_OFF          4                // OC4M: force inactive (released)
+#define MARKER_ID       0x7FF            // the replay's start marker, never blocked
+
+static volatile bool ips_on = false;
+static volatile uint32_t reject_seq = 0; // frame (job number) the model wants destroyed
+static volatile uint32_t allow_seq = 0;  // frame the model called an attack but the allow list kept
+static uint8_t flag_state = 0;           // 0 none, 1 scheduled or on the bus, 2 end scheduled
+static uint16_t flag_start, flag_end;    // TIM4 ticks
+static volatile uint32_t n_rej = 0;      // error flags sent
+static volatile uint32_t n_ilate = 0;    // attack verdicts that came after the end of frame field began
+static volatile uint32_t n_allow = 0;    // attack verdicts on allowed frames
+static volatile uint32_t n_abort = 0;    // flags cut short by the safety limit (should stay 0)
+
+static inline void set_oc4(uint32_t mode)
+{
+    TIM4->CCMR2 = (TIM4->CCMR2 & ~TIM_CCMR2_OC4M) | (mode << TIM_CCMR2_OC4M_Pos);
+}
+
+// The allow list: frames the IPS must never destroy, whatever the model says.
+static bool allowed(uint16_t id, const uint8_t *d)
+{
+    return id == MARKER_ID && d[0] == 'C' && d[1] == 'A' && d[2] == 'N' && d[3] == 'S' && d[4] == 'T';
+}
+
+static void ips_enable(bool on)
+{
+    GPIO_InitTypeDef g = {};
+    g.Pin = GPIO_PIN_9;
+    g.Pull = GPIO_NOPULL;
+    g.Speed = GPIO_SPEED_FREQ_HIGH;
+    set_oc4(OC_OFF);                     // released before the pin is handed over
+    flag_state = 0;
+    reject_seq = 0;
+    if (on) {
+        TIM4->CCER |= TIM_CCER_CC4P | TIM_CCER_CC4E;    // active level = low
+        g.Mode = GPIO_MODE_AF_OD;
+        g.Alternate = GPIO_AF2_TIM4;
+    } else {
+        GPIOB->BSRR = GPIO_PIN_9;        // high first: released, as at power up
+        g.Mode = GPIO_MODE_OUTPUT_OD;
+    }
+    HAL_GPIO_Init(GPIOB, &g);
+    if (!on)
+        TIM4->CCER &= ~TIM_CCER_CC4E;
+    ips_on = on;
+}
+
+// Bit interrupt, at the sample point `due`: start the flag at the next bit
+// boundary (half a bit after the sample point).
+static __attribute__((noinline)) void flag_begin(uint16_t due)
+{
+    reject_seq = 0;
+    if (!can_rx_before_eof())            // too late: the frame stands, an alert only
+        return;                          // (keep() counts it in n_ilate when it completes)
+    uint16_t at = due + (bit_ticks - sample_ticks);
+    if ((int16_t)(at - TIM4->CNT) < 8)   // boundary (nearly) passed: take the next one,
+        at += bit_ticks;                 // a missed compare would fire 780 us later
+    flag_start = at;
+    flag_end = at + FLAG_BITS * bit_ticks;
+    TIM4->CCR4 = at;
+    set_oc4(OC_ACTIVE);
+    flag_state = 1;
+    can_rx_quiet = 1;
+    n_rej++;
+}
+
+// Bit interrupt, every bit while a flag is pending: once it is on the bus,
+// schedule its end; once it has ended, release the pin for good.
+static __attribute__((noinline)) void flag_step(void)
+{
+    uint16_t now = TIM4->CNT;
+    int16_t since = (int16_t)(now - flag_start);
+    if (flag_state == 1 && since >= 0) {
+        TIM4->CCR4 = flag_end;
+        set_oc4(OC_INACTIVE);
+        flag_state = 2;
+    } else if (flag_state == 2 && (int16_t)(now - flag_end) >= 0) {
+        set_oc4(OC_OFF);
+        flag_state = 0;
+    }
+    if (flag_state && since > (int16_t)((FLAG_BITS + 2) * bit_ticks)) {   // never hold the bus
+        set_oc4(OC_OFF);
+        flag_state = 0;
+        n_abort++;
+    }
+}
+
 extern "C" void TIM7_IRQHandler(void)
 {
     uint32_t start = DWT->CYCCNT;
@@ -110,6 +215,14 @@ extern "C" void TIM7_IRQHandler(void)
     res_tick = (uint16_t)TIM4->CNT;
     __DMB();
     res_seq = seq;
+    if (ips_on && cls != 0) {
+        if (allowed(job.id, job.d)) {
+            allow_seq = seq;
+            n_allow++;
+        } else {
+            reject_seq = seq;            // the bit interrupt starts the flag
+        }
+    }
     uint32_t took = DWT->CYCCNT - start;
     if (took > cls_max)
         cls_max = took;
@@ -180,6 +293,8 @@ static __attribute__((noinline)) void keep(const can_frame_t &f, uint16_t end_ti
     } else if (frame_seq && res_seq == frame_seq) {
         e.cls = res_cls;
         e.decided = res_tick - sof_tick;
+        if (ips_on && e.cls != 0 && frame_seq != allow_seq)
+            n_ilate++;                   // an attack verdict, but the frame got through
     } else {
         e.cls = CLS_LATE;
         e.decided = 0;
@@ -237,6 +352,10 @@ extern "C" void TIM4_IRQHandler(void)
         if (TIM4->SR & TIM_SR_CC3IF)
             next = TIM4->CCR3 + sample_ticks + bit_ticks;   // reading CCR3 clears the flag
         sample_at(next);
+        if (flag_state)                  // M3: our error flag is pending or on the bus
+            flag_step();
+        else if (reject_seq && reject_seq == frame_seq)
+            flag_begin(due);
         can_frame_t f;
         int got = can_rx_bit(level, &f);
         if (got == CAN_RX_FEATURES && feat_on)
@@ -244,6 +363,7 @@ extern "C" void TIM4_IRQHandler(void)
         else if (got == CAN_RX_FRAME)
             keep(f, due);
         if (can_rx_idle()) {
+            can_rx_quiet = 0;            // our flag (if any) and its error frame are over
             sampling(false);
             edge_irq(true);
         }
@@ -353,6 +473,7 @@ static void zero_counters()
     isr_max = 0; isr_sum = 0; isr_n = 0; n_slow = 0;
     lat_max = 0; n_late = 0;
     cls_max = 0; n_dlate = 0;
+    n_rej = 0; n_ilate = 0; n_allow = 0; n_abort = 0;
     n_ovf = 0; n_other = 0; peak = 0;
     can_rx_stats.stuff = can_rx_stats.form = can_rx_stats.crc = 0;
     __enable_irq();
@@ -414,6 +535,8 @@ void loop()
             set_priorities(c == 'p');
         else if (c == 'Z')
             zero_counters();
+        else if (c == 'I' || c == 'i')   // M3: prevention on / off
+            ips_enable(c == 'I');
     }
 
     uint32_t waiting = (ring_head - ring_tail) & (RING - 1);
@@ -455,7 +578,7 @@ void loop()
         __enable_irq();
         Serial.printf("#STAT rx=%lu ovf=%lu drop=0 peak=%lu buserr=%lu rec=0 stuff=%lu form=%lu crc=%lu other=%lu"
                       " isr=%lu lat=%u nlate=%lu avg=%lu slow=%lu model=%s cmax=%lu dlate=%lu"
-                      " feat=%s prio=%s fw=%d id=%s\n",
+                      " feat=%s prio=%s ips=%s rej=%lu ilate=%lu allow=%lu abort=%lu fw=%d id=%s\n",
                       (unsigned long)n_sent, (unsigned long)n_ovf, (unsigned long)peak,
                       (unsigned long)(s.stuff + s.form + s.crc), (unsigned long)s.stuff,
                       (unsigned long)s.form, (unsigned long)s.crc, (unsigned long)n_other,
@@ -463,6 +586,8 @@ void loop()
                       (unsigned long)(n ? sum / n : 0), (unsigned long)n_slow,
                       model_on ? "on" : "off", (unsigned long)cls_max, (unsigned long)n_dlate,
                       feat_on ? "on" : "off", prio_fw3 ? "fw3" : "fw5",
+                      ips_on ? "on" : "off", (unsigned long)n_rej, (unsigned long)n_ilate,
+                      (unsigned long)n_allow, (unsigned long)n_abort,
                       FW_VERSION, classify_model_id);
     }
 }
