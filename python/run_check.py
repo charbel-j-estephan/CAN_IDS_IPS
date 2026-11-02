@@ -5,6 +5,7 @@ dataset, open the results page.
     python run_check.py --file gear_dataset.csv --n 100000
     python run_check.py --dry-run                        only show what it would do
     python run_check.py --stm32                          check the frames the STM32 decodes
+    python run_check.py --file mixed                     all four files, blocks in random order
 
 Steps:
   1. Finds the ESP32s and tells the sender (replay_sender), the receiver
@@ -83,8 +84,13 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--file", default="DoS_dataset.csv",
-                    help="DoS_dataset.csv, Fuzzy_dataset.csv, gear_dataset.csv or RPM_dataset.csv")
-    ap.add_argument("--n", type=int, default=20000, help="frames to replay, 0 for the whole file")
+                    help="DoS_dataset.csv, Fuzzy_dataset.csv, gear_dataset.csv, RPM_dataset.csv, or "
+                         "mixed: blocks from all four in random order, from the part of each file "
+                         "the model was not trained on")
+    ap.add_argument("--n", type=int, default=20000,
+                    help="frames to replay, 0 for the whole file (mixed: frames in total)")
+    ap.add_argument("--block", help="mixed: frames per block (default 2500)")
+    ap.add_argument("--seed", help="mixed: replay the same blocks as an earlier run")
     ap.add_argument("--sender", help="skip detection: the sender's COM port")
     ap.add_argument("--receiver", help="skip detection: the receiver's COM port")
     ap.add_argument("--attacker", help="skip detection: the attacker's COM port")
@@ -164,6 +170,9 @@ def main():
 
     common = ["--sender", sender, "--receiver", receiver]
     full = common + ["--file", args.file, "--n", str(args.n)]
+    for opt in ("block", "seed"):
+        if getattr(args, opt):
+            full += ["--" + opt, getattr(args, opt)]
     if attacker:
         full += ["--attacker", attacker]
     if ips:
@@ -177,7 +186,8 @@ def main():
         check_dir = os.path.join(ROOT, "runs", "_link_check")
         shutil.rmtree(check_dir, ignore_errors=True)
         print("\n=== Link check: 300 frames ===")
-        code = run_replay(common + ["--file", args.file, "--n", "300", "--fast",
+        one = "DoS_dataset.csv" if args.file == "mixed" else args.file
+        code = run_replay(common + ["--file", one, "--n", "300", "--fast",
                                     "--out", check_dir])
         try:
             s = json.load(open(os.path.join(check_dir, "summary.json")))
