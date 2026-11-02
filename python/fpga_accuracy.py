@@ -15,7 +15,7 @@ in parallel, one per CPU core. Python's forest answers every frame too, and the
 script stops if the FPGA disagrees with it on even one.
 
 Not simulated here: the CAN bit level (hdl/can_rx.v). That is checked
-separately (run_sim.bat: can_rx_tb.v and dataset frames, all read back
+separately (run_sim_FPGA.bat: can_rx_tb.v and dataset frames, all read back
 exactly); playing all 17 million frames bit by bit would take ~8 hours.
 
 IPS: on the FPGA the verdict comes 4 clocks (80 ns) after the 5th data byte,
