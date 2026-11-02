@@ -20,16 +20,17 @@ python python/sync_bench.py
 | ...do this | Go to |
 |---|---|
 | Test the bench (ESP32s only) | `can_replay\run_check_esp32.bat` |
-| Test the STM32 IDS (detection) | `can_replay\run_check_stm32_IDS.bat` |
-| Test the STM32 IPS (prevention) | `can_replay\run_check_stm32_IPS.bat` (add `--file Fuzzy_dataset.csv` etc.) |
+| Test the STM32 IDS (detection) | `can_replay\run_check_stm32_IDS.bat` (all four files mixed; `--file RPM_dataset.csv` for one) |
+| Test the STM32 IPS (prevention) | `can_replay\run_check_stm32_IPS.bat` (all four files mixed; needs attacker version 2) |
 | See a test's results | `can_replay\runs\<date>_<file>\report.html` |
 | Upload firmware to the STM32 | `can_replay\stm32_ids` (steps in `docs/STM32_WIRING.md`) |
 | Wire the ESP32s | `docs/ESP32_WIRING.md` |
 | Wire the STM32 | `docs/STM32_WIRING.md` |
 | Know what works and what's left | `docs/HANDOVER.md` (status table, one row per version) |
-| Run the FPGA simulation | `run_sim_FPGA.bat` |
+| Run the FPGA simulation | `run_sim_FPGA.bat` (asks 5, 6 or 8 data bytes) |
 | Open the FPGA board project | `quartus_board/can_ids_top.qpf` in Quartus |
 | Retrain the model | `python/train.py`, then `run_pipeline.sh` |
+| Choose how many data bytes the model reads | FPGA sim: `run_sim_FPGA.bat 5/6/8`. Board: `FEAT_BYTES` in `quartus_board/can_ids_top.v` plus the matching `hdl/generated_pN/rf_ids.v` in the `.qsf`. STM32: fixed at 5 for now |
 
 ---
 
@@ -104,7 +105,7 @@ python python/sync_bench.py
 
 ### Root files
 - `run_check*.bat`: the bench tests (the copies in `can_replay` are the ones you run).
-- `run_sim_FPGA.bat`: the whole FPGA simulation.
+- `run_sim_FPGA.bat`: the whole FPGA simulation. Double-click asks how many data bytes (5, 6 or 8); or `run_sim_FPGA.bat 6`.
 - `run_pipeline.sh`: train → export to C and Verilog → check they agree.
 - `requirements.txt`: Python packages.
 
