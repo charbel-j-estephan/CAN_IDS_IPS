@@ -41,3 +41,18 @@ quartus_board/*.jditmp
 
 # The dataset zip (953 MB): over GitHub's 100 MB limit, kept locally only
 docs/refrences/*.zip
+
+# Quartus outputs of the pin test project
+quartus_pintest/db/
+quartus_pintest/incremental_db/
+quartus_pintest/*.rpt
+quartus_pintest/*.summary
+quartus_pintest/*.smsg
+quartus_pintest/*.sof
+quartus_pintest/*.pof
+quartus_pintest/*.done
+quartus_pintest/*.jdi
+quartus_pintest/*.pin
+quartus_pintest/*.sld
+quartus_pintest/*.qws
+quartus_pintest/*_assignment_defaults.qdf
