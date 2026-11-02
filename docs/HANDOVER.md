@@ -130,3 +130,5 @@ start and while the attack pauses, against about +3 us during the attack
   (`hdl/can_rx_tb.v`, `hdl/vectors/`, `python/make_can_vectors.py`).
 
 Renamed 11-02 (rows above use the old names): run_check.bat -> run_check_esp32.bat, run_check_stm32.bat -> run_check_stm32_IDS.bat, run_check_ips.bat -> run_check_stm32_IPS.bat, run_sim.bat -> run_sim_FPGA.bat.
+
+| 11-02: mixed runs | `--file mixed` (default of run_check_stm32_IDS/IPS.bat): blocks from all four files in random order, from the held out part of each file (after train.py's time split cut, 59-65% into each file). **All earlier bench runs replayed the first 20,000 frames of a file, which are training frames**, so their 100% recall / 0 false alarms is on training data; the mixed runs are the honest test. attack_sender version 2 (READY ATTACKER 2): block start packets (0xFE) make it recover from bus off between blocks; #TX adds busoffs/recovered. run_sim_FPGA.bat asks for 5/6/8 bytes when double-clicked. Fake bench passes; **not yet run on hardware** |
