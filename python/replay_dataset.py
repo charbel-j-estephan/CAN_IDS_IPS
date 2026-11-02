@@ -52,25 +52,158 @@ GAP_US = 20000               # first dataset frame starts this long after the ma
 
 # ---- dataset with timestamps ----------------------------------------------------
 
+def parse_row(line, cls):
+    """One dataset line as [timestamp s, can_id, dlc, d0..d7, class], or None."""
+    p = line.strip().split(",")
+    if len(p) < 4:
+        return None
+    try:
+        ts, cid, dlc = float(p[0]), int(p[1], 16), int(p[2])
+        data = [int(b, 16) for b in p[3:3 + dlc]]
+    except ValueError:
+        return None
+    flag = p[3 + dlc].strip() if len(p) > 3 + dlc else "R"
+    return ([ts, cid & 0x7FF, min(dlc, 8)] + data[:8] + [0] * (8 - len(data[:8]))
+            + [cls if flag == "T" else 0])
+
+
 def load_timed(path, n):
     """Rows of (timestamp s, can_id, dlc, d0..d7, class) from one attack CSV."""
     cls = FILE_CLASS[os.path.basename(path)]
     rows = []
     with open(path) as f:
         for line in f:
-            p = line.strip().split(",")
-            if len(p) < 4:
+            r = parse_row(line, cls)
+            if r is None:
                 continue
-            try:
-                ts, cid, dlc = float(p[0]), int(p[1], 16), int(p[2])
-                data = [int(b, 16) for b in p[3:3 + dlc]]
-            except ValueError:
-                continue
-            flag = p[3 + dlc].strip() if len(p) > 3 + dlc else "R"
-            rows.append([ts, cid & 0x7FF, min(dlc, 8)] + data[:8] + [0] * (8 - len(data[:8]))
-                        + [cls if flag == "T" else 0])
+            rows.append(r)
             if n and len(rows) >= n:
                 break
+    return rows
+
+
+# ---- all four files mixed (--file mixed) ----------------------------------------
+#
+# Each file is a whole recording of the car, so its frames cannot be interleaved
+# with another file's without doubling the traffic and breaking the timing.
+# Instead the run is made of blocks: a stretch of consecutive frames from one
+# file, with its own timing, the blocks of all four files in random order, one
+# after the other with a short gap.
+#
+# Blocks come only from the part of each file the model was NOT trained on.
+# train.py --split time (the models in models/*_time.joblib) cuts every attack
+# file where TEST_SHARE of its attack frames are still to come and tests on what
+# follows; the first frames of every file are training frames.
+
+MIXED = "mixed"
+TEST_SHARE = 0.2              # train.py --test-size default
+CHUNK = 1000                  # rows per index entry in the split cache
+MIX_GAP_US = 10000            # bus idle between two blocks
+MIN_ATTACK_SHARE = 0.02       # a block must be at least this much attack
+
+
+def split_index(data_dir, name):
+    """Where the held out part of a file starts, plus an index to read any row
+    without parsing the whole file: the byte offset of every CHUNK-th row and
+    the attack frames in each chunk. Built once (a few seconds per file) and
+    kept in <data>/split_index.json."""
+    cache = os.path.join(data_dir, "split_index.json")
+    try:
+        allc = json.load(open(cache))
+    except (OSError, ValueError):
+        allc = {}
+    path = os.path.join(data_dir, name)
+    size = os.path.getsize(path)
+    if name in allc and allc[name]["size"] == size:
+        return allc[name]
+    print("Indexing %s (once)..." % name)
+    cls = FILE_CLASS[name]
+    offsets, attacks, attack_rows, n, pos = [], [], [], 0, 0
+    with open(path, "rb") as f:
+        for raw in f:
+            r = parse_row(raw.decode("ascii", "replace"), cls)
+            if r is not None:
+                if n % CHUNK == 0:
+                    offsets.append(pos)
+                    attacks.append(0)
+                if r[11]:
+                    attacks[-1] += 1
+                    attack_rows.append(n)
+                n += 1
+            pos += len(raw)
+    cut = attack_rows[int(len(attack_rows) * (1 - TEST_SHARE))] if attack_rows else int(n * (1 - TEST_SHARE))
+    allc[name] = {"size": size, "rows": n, "cut": cut, "offsets": offsets, "attacks": attacks}
+    with open(cache, "w") as f:
+        json.dump(allc, f)
+    return allc[name]
+
+
+def read_rows(data_dir, name, start, count, idx):
+    """Rows start .. start+count-1 of a file, read from the nearest index entry."""
+    cls = FILE_CLASS[name]
+    k = start // CHUNK
+    rows, n = [], k * CHUNK
+    with open(os.path.join(data_dir, name), "rb") as f:
+        f.seek(idx["offsets"][k])
+        for raw in f:
+            r = parse_row(raw.decode("ascii", "replace"), cls)
+            if r is None:
+                continue
+            if n >= start:
+                rows.append(r)
+                if len(rows) == count:
+                    break
+            n += 1
+    return rows
+
+
+def mix_plan(data_dir, n, block, seed):
+    """Pick the blocks: n frames in total, `block` frames each, the same number
+    from every file, each from the held out part, starting on a normal frame
+    and holding at least MIN_ATTACK_SHARE attack frames. Returns the blocks in
+    play order as dicts {file, start, rows}."""
+    import random
+    rng = random.Random(seed)
+    files = sorted(FILE_CLASS)
+    per_file = max(1, n // block // len(files))
+    plan = []
+    for name in files:
+        idx = split_index(data_dir, name)
+        span = -(-block // CHUNK)                  # chunks a block can touch
+        first = -(-idx["cut"] // CHUNK) + 1        # a whole chunk past the cut
+        last = len(idx["offsets"]) - span - 1
+        ok = [k for k in range(first, last + 1)
+              if sum(idx["attacks"][k:k + span]) >= MIN_ATTACK_SHARE * block]
+        rng.shuffle(ok)
+        taken = []
+        for k in ok:
+            if all(abs(k - t) > span for t in taken):
+                taken.append(k)
+            if len(taken) == per_file:
+                break
+        if len(taken) < per_file:
+            sys.exit("%s: only %d blocks of %d frames with attacks in its held out part, %d "
+                     "wanted. Use a smaller --block or --n." % (name, len(taken), block, per_file))
+        plan += [{"file": name, "start": k * CHUNK, "rows": block} for k in taken]
+    rng.shuffle(plan)
+    return plan
+
+
+def load_mixed(data_dir, plan):
+    """The rows of a mix plan, one timeline: each block keeps its own timing and
+    starts MIX_GAP_US after the previous block's last frame."""
+    rows, t = [], 0.0
+    for b in plan:
+        idx = split_index(data_dir, b["file"])
+        part = read_rows(data_dir, b["file"], b["start"], b["rows"], idx)
+        skip = first_normal(part)                  # the attacker split wants a normal first
+        b["start"] += skip
+        part = part[skip:]
+        b["rows"] = len(part)
+        t0 = part[0][0]
+        for r in part:
+            rows.append([t + (r[0] - t0)] + r[1:])
+        t = rows[-1][0] + MIX_GAP_US / 1e6
     return rows
 
 
@@ -718,7 +851,10 @@ def reanalyse(args):
     out = args.reanalyse
     old = json.load(open(os.path.join(out, "summary.json")))
     args.file = old["file"]
-    rows = load_timed(os.path.join(args.data, args.file), old["frames_sent"])
+    if args.file == MIXED:
+        rows = load_mixed(args.data, old["mix_plan"])
+    else:
+        rows = load_timed(os.path.join(args.data, args.file), old["frames_sent"])
     frames, stamps, dets = [], [], []
     with open(os.path.join(out, "received.csv")) as f:
         for r in csv.DictReader(f):
@@ -729,12 +865,13 @@ def reanalyse(args):
             dets.append(tuple(int(v) for v in ids) if all(ids) else None)
     realtime = old.get("mode", "").startswith("original")
     split = bool(old.get("attacker_report"))
-    if split:
+    if split and args.file != MIXED:
         rows = rows_from(load_timed(os.path.join(args.data, args.file),
                                     old.get("start_frame", 0) + old["frames_sent"]), old)
     res = analyse(rows, frames, stamps, realtime, split=split, dets=dets)
     keep = {k: old[k] for k in ("started", "sender_report", "receiver_report", "attacker_report",
-                                "nodes", "receiver_frames_this_run", "start_frame") if k in old}
+                                "nodes", "receiver_frames_this_run", "start_frame",
+                                "mix_seed", "mix_plan") if k in old}
     summary = summarise(rows, res, args, keep)
     save_run(out, rows, res, frames, stamps, summary, dets)
     print("Rebuilt %s: arrived %d of %d" % (out, summary["frames_arrived"], summary["frames_sent"]))
@@ -759,8 +896,15 @@ def main():
                          "(it destroys the frames its model calls attacks) and read its counters. "
                          "The receiver stays the ESP32 logger, the record of what survived")
     ap.add_argument("--data", default=os.path.join(ROOT, "data", "car_hacking"))
-    ap.add_argument("--file", default="DoS_dataset.csv", choices=sorted(FILE_CLASS))
-    ap.add_argument("--n", type=int, default=20000, help="frames to replay, 0 for the whole file")
+    ap.add_argument("--file", default="DoS_dataset.csv", choices=sorted(FILE_CLASS) + [MIXED],
+                    help="one dataset file, or 'mixed': blocks from all four files in random "
+                         "order, taken from the part the model was not trained on")
+    ap.add_argument("--n", type=int, default=20000,
+                    help="frames to replay, 0 for the whole file (mixed: frames in total)")
+    ap.add_argument("--block", type=int, default=2500,
+                    help="mixed: frames per block (the same number of blocks from every file)")
+    ap.add_argument("--seed", type=int, default=None,
+                    help="mixed: which blocks and in what order (default: new each run, printed)")
     ap.add_argument("--fast", action="store_true", help="ignore the original timing")
     ap.add_argument("--baud", type=int, default=921600)
     ap.add_argument("--out", default=None, help="output folder, default runs/<time>_<file>")
@@ -778,14 +922,31 @@ def main():
     if args.attacker and args.fast:
         sys.exit("--fast cannot be used with --attacker: the attacker needs the original timing")
 
-    path = os.path.join(args.data, args.file)
-    if not os.path.exists(path):
-        sys.exit("%s not found. Put the dataset files in %s" % (args.file, args.data))
-    rows = load_timed(path, args.n)
+    mix = None
+    if args.file == MIXED:
+        missing = [f for f in sorted(FILE_CLASS) if not os.path.exists(os.path.join(args.data, f))]
+        if missing:
+            sys.exit("%s not found. Put the dataset files in %s" % (", ".join(missing), args.data))
+        if not args.n:
+            sys.exit("--file mixed needs a frame count (--n): the whole dataset is millions of "
+                     "frames, hours of bus time")
+        if args.seed is None:
+            args.seed = int(time.time()) % 100000
+        plan = mix_plan(args.data, args.n, args.block, args.seed)
+        rows = load_mixed(args.data, plan)
+        mix = {"mix_seed": args.seed, "mix_plan": plan}
+        print("Mixed: %d blocks of about %d frames, seed %d (--seed %d replays the same blocks)"
+              % (len(plan), args.block, args.seed, args.seed))
+        print("  order: " + ", ".join(b["file"].split("_")[0] for b in plan))
+    else:
+        path = os.path.join(args.data, args.file)
+        if not os.path.exists(path):
+            sys.exit("%s not found. Put the dataset files in %s" % (args.file, args.data))
+        rows = load_timed(path, args.n)
     if not rows:
-        sys.exit("No frames read from %s" % path)
+        sys.exit("No frames read for %s" % args.file)
     start_frame = 0
-    if args.attacker:
+    if args.attacker and not mix:
         start_frame = first_normal(rows)
         if start_frame:
             more = load_timed(path, args.n + start_frame if args.n else 0)
@@ -905,6 +1066,8 @@ def main():
     nodes["receiver"] = parse_report(stat.replace("#STAT", "#TX", 1))
     extra = {"started": started, "sender_report": txline, "receiver_report": stat,
              "receiver_frames_this_run": rx_run, "nodes": nodes, "start_frame": start_frame}
+    if mix:
+        extra.update(mix)
     if args.attacker:
         extra["attacker_report"] = atkline
     if ips:
