@@ -27,7 +27,12 @@ def open_board(port, baud, label, ready=(b"READY",)):
                      "baud rate 921600? If it prints 'CAN init failed', check the wiring."
                      % (label, port))
         seen += ser.read(256)
+    t1 = time.time()                     # the rest of the ready line (a version after it)
+    while b"\n" not in seen[seen.find(b"READY"):] and time.time() - t1 < 0.5:
+        seen += ser.read(64)
     ser.reset_input_buffer()
+    i = seen.find(b"READY")
+    ser.ready_line = seen[i:].split(b"\n")[0].decode("ascii", "replace").strip() if i >= 0 else ""
     print("%s ready on %s" % (label, port))
     return ser
 

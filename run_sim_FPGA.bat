@@ -9,7 +9,8 @@ rem   5. ips_flag.v unit test (every prevention rule)
 rem   6. the IPS on a simulated bus: attack frames must be destroyed, normal
 rem      frames must reach a second receiver; that table opens in the browser
 rem
-rem   run_sim_FPGA.bat              the 5-byte model (rf5_d9_p5_time, the original)
+rem   run_sim_FPGA.bat              asks which model (double-click)
+rem   run_sim_FPGA.bat 5            the 5-byte model (rf5_d9_p5_time, the original)
 rem   run_sim_FPGA.bat 6            the 6-byte model (rf5_d9_p6_time)
 rem   run_sim_FPGA.bat 8            the 8-byte model (rf5_d9_p8_time)
 rem Other options go to make_sim_frames.py, e.g.:  run_sim_FPGA.bat 6 --frames 1000
@@ -22,6 +23,10 @@ if not exist build mkdir build
 rem The first option may be the byte count; everything else is passed on.
 set "FB=5"
 set "ARGS="
+if "%~1"=="" (
+    set /p "FB=How many data bytes should the model read: 5, 6 or 8? [5] "
+)
+if not "%FB%"=="6" if not "%FB%"=="8" set "FB=5"
 :args
 if "%~1"=="" goto :argsdone
 if "%~1"=="5" (set "FB=5") else if "%~1"=="6" (set "FB=6") else if "%~1"=="8" (set "FB=8") else set "ARGS=%ARGS% %1"
