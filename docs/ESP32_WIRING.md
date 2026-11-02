@@ -101,6 +101,27 @@ error counters, bus state, lost arbitrations, and how closely the attacker
 follows the sender's clock (offset measured on frames with a clear
 bus before them, so it is not hidden by frames queued behind others).
 
+## All four files in one run (`--file mixed`)
+
+`run_check_stm32_IDS.bat` and `run_check_stm32_IPS.bat` play all four dataset
+files by default. Each file is a whole recording of the car, so frames from two
+files cannot be interleaved (that would double the traffic). The run is made of
+blocks of consecutive frames instead (2,500 by default, `--block`), the same
+number from every file, in random order, each with its own timing and a 10 ms
+gap between blocks. `--n` is the total. The seed is printed and saved;
+`--seed <n>` replays the same blocks.
+
+The blocks come only from the part of each file the model was not trained on
+(train.py `--split time` trains on the start of every file). A single file run
+(`--file DoS_dataset.csv`) replays the first frames of the file, which are
+training frames. The first mixed run indexes the four files once (about a
+minute) into `data/car_hacking/split_index.json`.
+
+In a mixed IPS run the attacker is pushed to bus off in the first attack block.
+Before every later block the PC tells it to recover and come back on the bus,
+so every block is a new attack. That needs `attack_sender` version 2, which
+prints `READY ATTACKER 2`; the script stops and says so with an older one.
+
 ## Wiring check without any script
 
 `esp32/link_sender` and `esp32/link_receiver`: the sender puts a counting frame
