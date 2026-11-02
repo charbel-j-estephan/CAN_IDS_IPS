@@ -15,6 +15,13 @@ python python/sync_bench.py
 
 ---
 
+## Easiest: the GUI
+
+Double-click **`run_GUI.bat`** (project folder). One window shows which boards
+are plugged in, uploads the STM32 firmware step by step (it tells you when to
+move the BOOT0 jumper), simulates, compiles and programs the FPGA (5, 6 or 8
+data bytes), and runs the bench tests with their output in the window.
+
 ## I want to...
 
 | ...do this | Go to |
@@ -105,6 +112,7 @@ python python/sync_bench.py
 
 ### Root files
 - `run_check*.bat`: the bench tests (the copies in `can_replay` are the ones you run).
+- `run_GUI.bat`: the GUI (`python/bench_gui.py`).
 - `run_sim_FPGA.bat`: the whole FPGA simulation. Double-click asks how many data bytes (5, 6 or 8); or `run_sim_FPGA.bat 6`.
 - `run_pipeline.sh`: train → export to C and Verilog → check they agree.
 - `requirements.txt`: Python packages.
