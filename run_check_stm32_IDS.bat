@@ -1,5 +1,5 @@
 @echo off
-rem Double-click: the same test as run_check.bat, but the frames checked are the
+rem Double-click: the same test as run_check_esp32.bat, but the frames checked are the
 rem ones the STM32 IDS node (stm32_ids) decodes. The ESP32 receiver must still be
 rem on the bus to acknowledge frames.
 
