@@ -21,20 +21,32 @@
  * frames land between the normal frames as in the car, and compete with them
  * in real arbitration.
  *
+ * 3. (version 2) A mixed run plays blocks from several dataset files. An IPS
+ *    pushes this board to bus off in the first attack block, and a board that
+ *    stays bus off tests nothing in the later blocks. So the PC sends a block
+ *    start packet before every block after the first; at its time, a board
+ *    that is bus off starts the CAN recovery (128 x 11 recessive bits, a few
+ *    ms on an idle bus) and goes back on the bus, as a new attack. Within a
+ *    block a bus off board stays off. Single file runs send no such packet.
+ *
  * Serial protocol, 921600 baud, 8N1:
- *   board -> PC   "READY ATTACKER\n" once at boot
+ *   board -> PC   "READY ATTACKER 2\n" once at boot (2: knows block start packets)
  *   PC -> board   15 byte packets, in time order:
  *                 attack frame:  id_hi id_lo dlc d0..d7 t0 t1 t2 t3
  *                                t = microseconds after the START of the marker
  *                 reference:     0xFF id_hi id_lo 0 x 8 t0 t1 t2 t3
  *                                a normal frame the sender sends, t = when it ENDS
+ *                 block start:   0xFE 0 x 10 t0 t1 t2 t3
+ *                                at t, recover from bus off (version 2)
  *   board -> PC   one byte 'A' after every ACK_EVERY packets (both kinds)
  *   PC -> board   'Q'  ->  same "#TX ..." line as replay_sender, plus
  *                 synced=<0|1> tracked=<n> missed=<n> skew=<us> drift=<ppb>
+ *                 busoffs=<n> recovered=<n>
  *
  * tracked counts normal frames matched to their reference, missed references
  * whose frame this board never heard, skew the final shift of the schedule
- * against the start and drift how fast it grew (parts per billion).
+ * against the start and drift how fast it grew (parts per billion). busoffs
+ * counts the times this board went bus off, recovered the recoveries done.
  *
  * Wiring: module TX -> GPIO 5, module RX -> GPIO 4. See docs/ESP32_WIRING.md
  */
@@ -46,6 +58,7 @@
 #define ACK_EVERY   64
 #define PACKET_LEN  15
 #define REF_TAG     0xFF        // first byte of a reference packet (an ID byte is < 8)
+#define BLOCK_TAG   0xFE        // first byte of a block start packet
 
 // Start marker: ID 0x7FF with the bytes "CANSTART". On the wire it is 112 bits
 // long, 224 us at 500 kbit/s (python/can_bits.py, stuff bits included). The
@@ -81,6 +94,27 @@ static uint32_t ref_head = 0, ref_n = 0, heard_head = 0, heard_n = 0;
 
 static int64_t t0 = -1;
 static uint32_t processed = 0, tracked = 0, missed = 0;
+static uint32_t busoffs = 0, recovered = 0;
+static bool was_busoff = false, recovering = false;
+
+// Bus off bookkeeping, called often: count each bus off once, and once a
+// recovery has finished (the driver is then stopped) go back on the bus.
+static void watch_state()
+{
+    twai_status_info_t st;
+    if (twai_get_status_info(&st) != ESP_OK)
+        return;
+    bool off = st.state == TWAI_STATE_BUS_OFF;
+    if (off && !was_busoff)
+        busoffs++;
+    was_busoff = off;
+    if (recovering && st.state == TWAI_STATE_STOPPED) {
+        if (twai_start() == ESP_OK) {
+            recovering = false;
+            recovered++;
+        }
+    }
+}
 
 // Schedule shift: skew(t) = anchor_skew + drift * (t - anchor_t), in us.
 static bool have_base = false;
@@ -201,6 +235,7 @@ static void service()
         take_ref(pkt);
     }
     pair();
+    watch_state();
 }
 
 static void report(uint32_t sent, uint32_t late, uint32_t max_late, bool synced)
@@ -211,13 +246,14 @@ static void report(uint32_t sent, uint32_t late, uint32_t max_late, bool synced)
                       : s.state == TWAI_STATE_BUS_OFF ? "busoff"
                       : s.state == TWAI_STATE_RECOVERING ? "recovering" : "stopped";
     Serial.printf("#TX sent=%lu late=%lu maxlate=%lu tec=%lu rec=%lu state=%s arblost=%lu txfail=%lu buserr=%lu synced=%d"
-                  " tracked=%lu missed=%lu skew=%ld drift=%ld\n",
+                  " tracked=%lu missed=%lu skew=%ld drift=%ld busoffs=%lu recovered=%lu\n",
                   (unsigned long)sent, (unsigned long)late, (unsigned long)max_late,
                   (unsigned long)s.tx_error_counter, (unsigned long)s.rx_error_counter, state,
                   (unsigned long)s.arb_lost_count, (unsigned long)s.tx_failed_count,
                   (unsigned long)s.bus_error_count, synced ? 1 : 0,
                   (unsigned long)tracked, (unsigned long)missed,
-                  (long)lroundf(anchor_skew), (long)lroundf(drift * 1e9f));
+                  (long)lroundf(anchor_skew), (long)lroundf(drift * 1e9f),
+                  (unsigned long)busoffs, (unsigned long)recovered);
 }
 
 void setup()
@@ -236,7 +272,7 @@ void setup()
         twai_driver_uninstall();
         delay(500);
     }
-    Serial.println("READY ATTACKER");
+    Serial.println("READY ATTACKER 2");
 }
 
 static bool is_marker(const twai_message_t &m)
@@ -286,6 +322,14 @@ void loop()
         if (due - now > QUIET_US)
             service();
     }
+    if (pkt[0] == BLOCK_TAG) {         // a new block: back on the bus if pushed off
+        watch_state();
+        if (was_busoff && !recovering && twai_initiate_recovery() == ESP_OK)
+            recovering = true;
+        ack_packet();
+        return;
+    }
+
     int64_t over = esp_timer_get_time() - due;
     if (over > 100) {
         late++;

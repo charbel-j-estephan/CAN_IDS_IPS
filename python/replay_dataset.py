@@ -238,6 +238,14 @@ def ref_packet(row, rel_us):
     return bytes([REF_TAG, cid >> 8, cid & 0xFF]) + bytes(8) + int(round(end)).to_bytes(4, "little")
 
 
+BLOCK_TAG = 0xFE             # block start packet: the attacker recovers from bus off
+
+
+def block_packet(rel_us):
+    """15 byte block start packet for the attacker (attack_sender version 2)."""
+    return bytes([BLOCK_TAG]) + bytes(10) + int(round(rel_us)).to_bytes(4, "little")
+
+
 def marker_packet():
     return bytes([MARKER[0] >> 8, MARKER[0] & 0xFF, MARKER[1]] + list(MARKER[2:])) + bytes(4)
 
@@ -349,6 +357,9 @@ def print_ips(summary):
     if a:
         print("  attacker: state %s, transmit error counter %s, failed sends %s"
               % (a.get("state"), a.get("tec"), a.get("txfail")))
+        if "busoffs" in a:
+            print("  attacker pushed off the bus %s times, came back %s times (once per block "
+                  "in a mixed run)" % (a.get("busoffs"), a.get("recovered")))
     print("  (A destroyed frame is retransmitted by its sender until it gets through or the "
           "sender goes bus off, so 'error flags sent' can be larger than 'destroyed'.)")
 
@@ -1004,6 +1015,25 @@ def main():
         # to follow the sender's clock.
         attack = [ref_packet(r, rel + GAP_US) if r[11] == 0 else pack_timed(r, rel + GAP_US)
                   for r, rel in zip(rows, offsets)]
+        if mix and ips:
+            # Before every block but the first, tell the attacker to come back
+            # on the bus if the IPS pushed it off in the block before. Its time
+            # is in the gap between the blocks, as the recovery needs a quiet bus.
+            if getattr(atk, "ready_line", "") != "READY ATTACKER 2":
+                sys.exit("A mixed IPS run needs attack_sender version 2 on the attacker (it prints "
+                         "'READY ATTACKER 2'; this one printed '%s'). Upload esp32/attack_sender "
+                         "again, or run one file with --file." % getattr(atk, "ready_line", "?"))
+            starts, k = set(), 0
+            for b in mix["mix_plan"][:-1]:
+                k += b["rows"]
+                starts.add(k)
+            with_blocks = []
+            for i, (pkt, rel) in enumerate(zip(attack, offsets)):
+                if i in starts:
+                    with_blocks.append(block_packet(rel + GAP_US - MIX_GAP_US + 1000))
+                with_blocks.append(pkt)
+            attack = with_blocks
+            print("Attacker: %d block starts (it comes back on the bus at each one)" % len(starts))
         print("Normal frames: %d to the sender, attack frames: %d to the attacker (plus a timing "
               "reference for each normal frame)" % (len(normal) - 1, len(attack) - len(normal) + 1))
         th = threading.Thread(target=serial_link.stream, args=(atk, attack),
