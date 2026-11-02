@@ -47,12 +47,12 @@ CANH to CANL should read about 60 ohm.
 
 Close every Arduino Serial Monitor first (the script needs the COM ports).
 
-Easiest: double-click `run_check.bat` (in `Desktop\esp32 setup\can_replay`).
+Easiest: double-click `run_check_esp32.bat` (in `Desktop\esp32 setup\can_replay`).
 It finds which board is which, runs a 300 frame link check, replays the
 dataset and opens the results page. Options from a terminal:
 
 ```
-run_check.bat --file gear_dataset.csv --n 100000
+run_check_esp32.bat --file gear_dataset.csv --n 100000
 ```
 
 Or step by step, from `python/`:
@@ -82,7 +82,7 @@ attacker to bus off.
   is how `run_check` finds it. Wire its CAN module like the others, on the same
   CANH/CANL pair. Keep 120 ohm only on the two modules at the physical ends of
   the bus (multimeter: about 60 ohm CANH to CANL).
-- `run_check.bat` uses the attacker automatically when it is plugged in. By
+- `run_check_esp32.bat` uses the attacker automatically when it is plugged in. By
   hand: `python replay_dataset.py --sender COM8 --receiver COM7 --attacker COM9`.
 
 How the two senders stay in step: the sender first sends a start marker (ID

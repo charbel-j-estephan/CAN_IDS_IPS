@@ -81,11 +81,11 @@ Check before the first run:
 
 ## Test M1
 
-1. First, with the STM32 wired in and running: the usual `run_check.bat`.
+1. First, with the STM32 wired in and running: the usual `run_check_esp32.bat`.
    The ESP32 receiver must still get 20,000 of 20,000. That shows the STM32's
    module leaves the bus alone, so any problem in step 2 is the decoding, not
    the wiring.
-2. Then `run_check_stm32.bat` (or `run_check.bat --stm32`): the same test,
+2. Then `run_check_stm32_IDS.bat` (or `run_check_esp32.bat --stm32`): the same test,
    but the frames checked are the ones the STM32 decoded.
 
 In step 2:
@@ -107,7 +107,7 @@ shows errors: unplug the STM32's module first when that happens.
 
 From fw 5 the STM32 also classifies every frame (5 trees, depth 9, ID + DLC +
 first 5 data bytes, plus the unknown ID rule), as soon as the 5th data byte is
-in, while the rest of the frame is still on the bus. `run_check_stm32.bat`
+in, while the rest of the frame is still on the bus. `run_check_stm32_IDS.bat`
 then prints, after the usual results:
 
 - recall per class, attack frames flagged, false alarms
@@ -145,9 +145,9 @@ never destroyed. PB9 is never held dominant for more than 8 bits (`abort`).
 
 Test, with all three ESP32s and the STM32 on USB:
 
-1. `run_check_stm32.bat` first (prevention stays off): the STM32 must decode
+1. `run_check_stm32_IDS.bat` first (prevention stays off): the STM32 must decode
    100% with `crc`, `stuff` and `dlate` at 0, as in the M1 and M2 tests.
-2. Then `run_check_ips.bat` (or `run_check.bat --ips`). The link check runs
+2. Then `run_check_stm32_IPS.bat` (or `run_check_esp32.bat --ips`). The link check runs
    without prevention; the replay runs with it. The ESP32 receiver is the
    record of what survived on the bus.
 

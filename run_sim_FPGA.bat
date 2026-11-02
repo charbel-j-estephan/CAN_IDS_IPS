@@ -9,11 +9,11 @@ rem   5. ips_flag.v unit test (every prevention rule)
 rem   6. the IPS on a simulated bus: attack frames must be destroyed, normal
 rem      frames must reach a second receiver; that table opens in the browser
 rem
-rem   run_sim.bat              the 5-byte model (rf5_d9_p5_time, the original)
-rem   run_sim.bat 6            the 6-byte model (rf5_d9_p6_time)
-rem   run_sim.bat 8            the 8-byte model (rf5_d9_p8_time)
-rem Other options go to make_sim_frames.py, e.g.:  run_sim.bat 6 --frames 1000
-rem                                                run_sim.bat --files DoS_dataset.csv
+rem   run_sim_FPGA.bat              the 5-byte model (rf5_d9_p5_time, the original)
+rem   run_sim_FPGA.bat 6            the 6-byte model (rf5_d9_p6_time)
+rem   run_sim_FPGA.bat 8            the 8-byte model (rf5_d9_p8_time)
+rem Other options go to make_sim_frames.py, e.g.:  run_sim_FPGA.bat 6 --frames 1000
+rem                                                run_sim_FPGA.bat --files DoS_dataset.csv
 setlocal
 cd /d "%~dp0"
 set "IV=C:\iverilog\bin"

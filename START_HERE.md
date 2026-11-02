@@ -19,15 +19,15 @@ python python/sync_bench.py
 
 | ...do this | Go to |
 |---|---|
-| Test the bench (ESP32s only) | `can_replay\run_check.bat` |
-| Test the STM32 IDS (detection) | `can_replay\run_check_stm32.bat` |
-| Test the STM32 IPS (prevention) | `can_replay\run_check_ips.bat` (add `--file Fuzzy_dataset.csv` etc.) |
+| Test the bench (ESP32s only) | `can_replay\run_check_esp32.bat` |
+| Test the STM32 IDS (detection) | `can_replay\run_check_stm32_IDS.bat` |
+| Test the STM32 IPS (prevention) | `can_replay\run_check_stm32_IPS.bat` (add `--file Fuzzy_dataset.csv` etc.) |
 | See a test's results | `can_replay\runs\<date>_<file>\report.html` |
 | Upload firmware to the STM32 | `can_replay\stm32_ids` (steps in `docs/STM32_WIRING.md`) |
 | Wire the ESP32s | `docs/ESP32_WIRING.md` |
 | Wire the STM32 | `docs/STM32_WIRING.md` |
 | Know what works and what's left | `docs/HANDOVER.md` (status table, one row per version) |
-| Run the FPGA simulation | `run_sim.bat` |
+| Run the FPGA simulation | `run_sim_FPGA.bat` |
 | Open the FPGA board project | `quartus_board/can_ids_top.qpf` in Quartus |
 | Retrain the model | `python/train.py`, then `run_pipeline.sh` |
 
@@ -104,7 +104,7 @@ python python/sync_bench.py
 
 ### Root files
 - `run_check*.bat`: the bench tests (the copies in `can_replay` are the ones you run).
-- `run_sim.bat`: the whole FPGA simulation.
+- `run_sim_FPGA.bat`: the whole FPGA simulation.
 - `run_pipeline.sh`: train → export to C and Verilog → check they agree.
 - `requirements.txt`: Python packages.
 
@@ -116,7 +116,7 @@ python python/sync_bench.py
 ## The bench folder (`Desktop\esp32 setup\can_replay`)
 | Item | What it is |
 |---|---|
-| `run_check.bat`, `run_check_stm32.bat`, `run_check_ips.bat` | **Double-click to test** |
+| `run_check_esp32.bat`, `run_check_stm32_IDS.bat`, `run_check_stm32_IPS.bat` | **Double-click to test** |
 | `runs/` | Every test result, newest has the latest date |
 | `data/car_hacking/` | The four dataset files |
 | `stm32_ids/` | STM32 firmware copy: upload from here |

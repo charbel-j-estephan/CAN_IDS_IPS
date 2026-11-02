@@ -99,7 +99,7 @@ From the repo root:
     py -3.13 python/fpga_accuracy.py --model models/rf5_d9_p5_time.joblib --rf hdl/generated_p5/rf_ids.v --c-header mcu/stm32_ids/src/can_ids_model.h
     py -3.13 python/fpga_accuracy.py --model models/rf5_d9_p6_time.joblib --rf hdl/generated_p6/rf_ids.v --c-header mcu/stm32_ids/src/can_ids_model_p6.h
     py -3.13 python/fpga_accuracy.py --model models/rf5_d9_p8_time.joblib --rf hdl/generated_p8/rf_ids.v --c-header mcu/stm32_ids/src/can_ids_model_p8.h
-    run_sim.bat 5        (and 6, 8: the CAN bit level, can_rx + forest on 1000 frames)
+    run_sim_FPGA.bat 5        (and 6, 8: the CAN bit level, can_rx + forest on 1000 frames)
 
 ## Still to measure on the bench (STM32)
 
@@ -107,9 +107,9 @@ For each byte count, from `Desktop\esp32 setup\can_replay\stm32_ids`:
 
 1. BOOT0 to 3V3, RST, then `pio run -e black_f407ve_dfu_p6 -t upload`
    (`black_f407ve_dfu` for 5 bytes, `_p8` for 8), BOOT0 back to GND, RST.
-2. `run_check_stm32.bat`: the STM32 must decode 100 %; `#STAT` shows
+2. `run_check_stm32_IDS.bat`: the STM32 must decode 100 %; `#STAT` shows
    `id=rf5-d9-p6-...`, and `cmax`, `dlate`.
-3. `run_check_ips.bat` (all three ESP32s): attack frames destroyed, normal
+3. `run_check_stm32_IPS.bat` (all three ESP32s): attack frames destroyed, normal
    frames lost, `ilate` (verdicts too late), `cmax`.
 4. `py -3.13 python/check_stm32_model.py --run <run folder> --model models/rf5_d9_p6_time.joblib`
 

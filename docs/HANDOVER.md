@@ -128,3 +128,5 @@ start and while the attack pauses, against about +3 us during the attack
 - Icarus Verilog is in `C:\iverilog\bin`, but the PATH says `C:\iverlog\bin`.
 - Uncommitted, paused: Verilog receiver testbench and vectors
   (`hdl/can_rx_tb.v`, `hdl/vectors/`, `python/make_can_vectors.py`).
+
+Renamed 11-02 (rows above use the old names): run_check.bat -> run_check_esp32.bat, run_check_stm32.bat -> run_check_stm32_IDS.bat, run_check_ips.bat -> run_check_stm32_IPS.bat, run_sim.bat -> run_sim_FPGA.bat.

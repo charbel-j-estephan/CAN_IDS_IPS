@@ -15,7 +15,7 @@ DEFAULT_DEST = os.path.join(os.path.expanduser("~"), "Desktop", "esp32 setup", "
 
 # repo path -> path in the destination
 FILES = {
-    "run_check.bat": "run_check.bat",
+    "run_check_esp32.bat": "run_check_esp32.bat",
     "docs/ESP32_WIRING.md": "README.md",
     "python/replay_dataset.py": "python/replay_dataset.py",
     "python/report_html.py": "python/report_html.py",
@@ -27,8 +27,8 @@ FILES = {
     "esp32/attack_sender/attack_sender.ino": "esp32/attack_sender/attack_sender.ino",
     "esp32/link_sender/link_sender.ino": "esp32/link_sender/link_sender.ino",
     "esp32/link_receiver/link_receiver.ino": "esp32/link_receiver/link_receiver.ino",
-    "run_check_stm32.bat": "run_check_stm32.bat",
-    "run_check_ips.bat": "run_check_ips.bat",
+    "run_check_stm32_IDS.bat": "run_check_stm32_IDS.bat",
+    "run_check_stm32_IPS.bat": "run_check_stm32_IPS.bat",
     "docs/STM32_WIRING.md": "STM32_WIRING.md",
     "mcu/stm32_ids/platformio.ini": "stm32_ids/platformio.ini",
     "mcu/stm32_ids/boards/black_f407ve_usb.json": "stm32_ids/boards/black_f407ve_usb.json",
@@ -53,6 +53,9 @@ OBSOLETE = [
     "upload_stm32.bat",
     "python/stm32_dfu.py",
     "stm32",
+    "run_check.bat",                  # renamed 11-02: run_check_esp32.bat,
+    "run_check_stm32.bat",            # run_check_stm32_IDS.bat and
+    "run_check_ips.bat",              # run_check_stm32_IPS.bat
 ]
 
 
