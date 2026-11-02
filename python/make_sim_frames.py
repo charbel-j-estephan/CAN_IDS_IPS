@@ -79,7 +79,11 @@ def ascii_of(data):
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--data", default=os.path.join(ROOT, "data", "car_hacking"))
+    data = os.path.join(ROOT, "data", "car_hacking")
+    if not os.path.isdir(data):           # the project keeps no copy: use the bench's
+        data = os.path.join(os.path.expanduser("~"), "Desktop", "esp32 setup", "can_replay",
+                            "data", "car_hacking")
+    ap.add_argument("--data", default=data)
     ap.add_argument("--files", nargs="+", default=FILES, help="dataset files to take frames from")
     ap.add_argument("--frames", type=int, default=200, help="frames in total")
     ap.add_argument("--attack-share", type=float, default=0.5,

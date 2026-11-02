@@ -31,6 +31,7 @@ HOME = os.path.expanduser("~")
 BENCH = os.path.join(HOME, "Desktop", "esp32 setup", "can_replay")
 FIRMWARE = os.path.join(REPO, "mcu", "stm32_ids")
 BOARD = os.path.join(REPO, "quartus_board")
+PINTEST = os.path.join(REPO, "quartus_pintest")
 PIO = os.path.join(HOME, ".platformio", "penv", "Scripts", "platformio.exe")
 DFU = os.path.join(HOME, ".platformio", "packages", "tool-dfuutil", "bin", "dfu-util.exe")
 QBIN = r"C:\altera_lite\25.1std\quartus\bin64"
@@ -168,6 +169,7 @@ class App:
         self.btn(f, "Simulate", self.fpga_sim)
         self.btn(f, "Compile board design", self.fpga_compile)
         self.btn(f, "Program the board", self.fpga_program)
+        self.btn(f, "Program pin test (wiring)", self.fpga_pintest)
 
         # Tests
         f = ttk.LabelFrame(root, text="Bench tests", padding=6)
@@ -389,11 +391,32 @@ class App:
             if not cable:
                 self.q.put(("log", "No USB-Blaster found. Plug in the DE10-Lite (USB) and try again."))
                 return
+            src = max(os.path.getmtime(os.path.join(BOARD, f)) for f in ("can_ids_top.v", "can_ids_top.qsf"))
+            if os.path.getmtime(sofs[-1]) < src:
+                self.q.put(("log", "WARNING: the design changed after this .sof was built. Press "
+                            "'Compile board design' first, or this programs the old one."))
             self.q.put(("log", "Programming %s (built with FEAT_BYTES=%s). The board forgets it at power "
                         "off." % (os.path.relpath(sofs[-1], REPO), board_bytes())))
             self.run([os.path.join(QBIN, "quartus_pgm.exe"), "-c", cable, "-m", "JTAG",
                       "-o", "p;%s" % sofs[-1]], BOARD)
         self.start("FPGA program", work)
+
+    def fpga_pintest(self):
+        def work():
+            cable = jtag_cable()
+            if not cable:
+                self.q.put(("log", "No USB-Blaster found. Plug in the DE10-Lite (USB) and try again."))
+                return
+            sof = os.path.join(PINTEST, "pin_test.sof")
+            if not os.path.exists(sof):
+                self.q.put(("step", "Compiling the pin test (under a minute)..."))
+                self.run([os.path.join(QBIN, "quartus_sh.exe"), "--flow", "compile", "pin_test"], PINTEST)
+            self.q.put(("log", "Pin test: LEDR0 on = RX idle (recessive), LEDR1 = RX activity, "
+                        "LEDR2 = 500 kbit/s seen, SW1 up = TX dominant (LEDR3 echo OK / LEDR4 echo FAIL), "
+                        "LEDR9 blinks. Program the real design afterwards."))
+            self.run([os.path.join(QBIN, "quartus_pgm.exe"), "-c", cable, "-m", "JTAG",
+                      "-o", "p;%s" % sof], PINTEST)
+        self.start("FPGA pin test", work)
 
     # -- bench tests --
 

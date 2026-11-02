@@ -1121,6 +1121,11 @@ def main():
         print("Attacker: clock drift %.1f ppm, sends %.1f us from the sender's clock "
               "(frames with a clear bus before them)"
               % (summary["attacker_clock_drift_ppm"], summary["attacker_sync_offset_us"]))
+    if not ips and len(summary["by_class"]) > 1:
+        print("Per class (a lost attack frame = destroyed by an IPS on the bus, or its "
+              "attacker was bus off):")
+        for k, v in summary["by_class"].items():
+            print("  %-10s sent %6d  arrived %6d  lost %6d" % (k, v["sent"], v["arrived"], v["lost"]))
     print_ids(summary.get("ids"))
     if ips:
         print_ips(summary)

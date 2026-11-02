@@ -33,6 +33,8 @@ data bytes), and runs the bench tests with their output in the window.
 | Upload firmware to the STM32 | `can_replay\stm32_ids` (steps in `docs/STM32_WIRING.md`) |
 | Wire the ESP32s | `docs/ESP32_WIRING.md` |
 | Wire the STM32 | `docs/STM32_WIRING.md` |
+| Test the FPGA on the bench (2 h plan) | `docs/FPGA_TEST_DAY.md` |
+| Check the FPGA perfboard wiring | GUI → "Program pin test (wiring)" (`quartus_pintest/`) |
 | Know what works and what's left | `docs/HANDOVER.md` (status table, one row per version) |
 | Run the FPGA simulation | `run_sim_FPGA.bat` (asks 5, 6 or 8 data bytes) |
 | Open the FPGA board project | `quartus_board/can_ids_top.qpf` in Quartus |
