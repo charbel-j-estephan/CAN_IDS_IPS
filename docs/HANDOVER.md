@@ -68,12 +68,17 @@ start and while the attack pauses, against about +3 us during the attack
 
 ## To do next
 
-0. (11-03) Prove the 2 lost RPM frames are the ESP32 receiver's: FPGA with SW0 up,
-   STM32 on the bus as a second receiver with prevention off,
-   `run_check_stm32_IDS.bat --file RPM_dataset.csv --n 5000` (the `--stm32` mode
-   never turns prevention on; only `--ips` does). If the STM32 logged the frames
-   the ESP32 receiver missed, they were on the bus. Then the FPGA's mixed runs
-   (held out frames) need attack_sender version 2.
+0. (11-03) Prove the lost RPM normal frames are the ESP32 receiver's: FPGA with
+   SW0 up, STM32 on the bus too (plugged in, any firmware 8 or later), then
+   `run_check_esp32.bat --listen --file RPM_dataset.csv --n 5000`. `--listen`
+   keeps the STM32's prevention off and records with it next to the ESP32
+   receiver; for every normal frame the receiver lost, it prints how many
+   identical copies were sent, recorded by the receiver and by the STM32
+   ("on the bus: the STM32 heard it, the ESP32 receiver did not", or "not heard
+   by either recorder"). Saved as `lost_normal_check` in summary.json. Repeat a
+   few times: the loss does not happen every run. (`run_check_stm32_IDS.bat`
+   cannot do this: the STM32 replaces the ESP32 receiver there.) Then the FPGA's
+   mixed runs (held out frames) need attack_sender version 2.
 
 1. Bench done for now. (Identical frames from one board are now matched in
    order: the 322 us worst case of run 20261012_231036 rescores to 178 us.)
