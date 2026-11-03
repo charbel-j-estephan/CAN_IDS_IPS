@@ -11,6 +11,7 @@ rem   run_check_stm32_IDS.bat --seed 123              the same blocks as an earl
 rem   run_check_stm32_IDS.bat --file RPM_dataset.csv  one file only (its first frames)
 
 set "PY=%~dp0..\.venv\Scripts\python.exe"
+if not exist "%PY%" set "PY=%USERPROFILE%\Desktop\esp32 setup\.venv\Scripts\python.exe"
 if not exist "%PY%" set "PY=python"
 
 "%PY%" "%~dp0python\run_check.py" --stm32 --file mixed %*
