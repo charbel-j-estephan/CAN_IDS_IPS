@@ -101,6 +101,10 @@ def main():
                     help="prevention test: the STM32 destroys the frames its model calls attacks "
                          "during the replay (its port is found automatically, or give it). The "
                          "ESP32 receiver stays the record of what survived. Needs the attacker board")
+    ap.add_argument("--listen", nargs="?", const="auto", metavar="COM",
+                    help="the STM32 records next to the ESP32 receiver with its prevention off, "
+                         "to show whether frames the receiver lost were on the bus (its port is "
+                         "found automatically, or give it)")
     ap.add_argument("--skip-check", action="store_true", help="skip the 300 frame link check")
     ap.add_argument("--dry-run", action="store_true", help="find the boards and print the plan only")
     args = ap.parse_args()
@@ -110,6 +114,15 @@ def main():
     sender, receiver, attacker = args.sender, args.receiver, args.attacker
     stm32 = None
     ips = None
+    listen = None
+    if args.listen:
+        if args.ips or args.stm32:
+            sys.exit("--listen goes alone: it uses the STM32 as a second recorder, prevention off")
+        found = find_ports({STM32_VID})
+        listen = args.listen if args.listen != "auto" else (found[0] if len(found) == 1 else None)
+        if not listen:
+            sys.exit("STM32 USB port %s. Or give it: --listen COMx"
+                     % ("not found" if not found else "unclear: " + ", ".join(found)))
     if args.ips and args.stm32:
         sys.exit("--ips and --stm32 do not go together: in an IPS run the ESP32 receiver "
                  "records what survived, the STM32 only acts")
@@ -177,6 +190,9 @@ def main():
         full += ["--attacker", attacker]
     if ips:
         full += ["--ips", ips]           # the link check runs without prevention
+    if listen:
+        full += ["--listen", listen]
+        print("Listen:   %s (STM32, second recorder, prevention off)" % listen)
     if args.dry_run:
         print("\nWould run the link check, then: replay_dataset.py " + " ".join(full))
         return
