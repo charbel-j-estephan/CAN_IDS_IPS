@@ -14,12 +14,13 @@
 //   LEDR[2]  error flag sent              LEDR[3]  CRC / stuff / form error
 //   LEDR[9]  prevention is on
 //
-// Transceiver: a 3.3 V one (SN65HVD230), RX to GPIO[0] (header pin 1),
-// TX to GPIO[1] (header pin 2). The DE10-Lite pins are NOT 5 V tolerant.
+// Transceiver: a TJA1050 (5 V). RX to GPIO[0] (header pin 1) through a
+// 5 k / 5 k divider, TX from GPIO[1] (header pin 2) through a TXS0108E
+// (A2 -> B2). The DE10-Lite pins are NOT 5 V tolerant.
 //
-// Model: 6 data bytes (rf5-d9-p6-e7321e76). For another one, change
-// FEAT_BYTES below and add hdl/generated_p5 or _p8/rf_ids.v to the project
-// instead of hdl/generated_p6/rf_ids.v (all three are called rf_ids).
+// Model: 8 data bytes (rf5_d9_p8_time). For another one, change
+// FEAT_BYTES below and add hdl/generated_p5 or _p6/rf_ids.v to the project
+// instead of hdl/generated_p8/rf_ids.v (all three are called rf_ids).
 
 module can_ids_top(
 
@@ -41,7 +42,7 @@ module can_ids_top(
 	inout 		    [35:0]		GPIO
 );
 
-	localparam FEAT_BYTES = 6;                // data bytes the model reads
+	localparam FEAT_BYTES = 8;                // data bytes the model reads
 	localparam [63:0] FEAT_MASK = ~(64'hFFFF_FFFF_FFFF_FFFF >> (8 * FEAT_BYTES));
 	localparam [22:0] STRETCH = 23'd5_000_000; // LED on time per event: 100 ms at 50 MHz
 

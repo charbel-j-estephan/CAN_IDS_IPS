@@ -161,13 +161,13 @@ set_location_assignment PIN_AA2 -to GPIO[35]
 
 
 #============================================================
-# CAN IDS/IPS sources (6-byte model; for 5 or 8 bytes use
-# ../hdl/generated_p5 or _p8/rf_ids.v and change FEAT_BYTES
+# CAN IDS/IPS sources (8-byte model; for 5 or 6 bytes use
+# ../hdl/generated_p5 or _p6/rf_ids.v and change FEAT_BYTES
 # in can_ids_top.v)
 #============================================================
 set_global_assignment -name VERILOG_FILE can_ids_top.v
 set_global_assignment -name VERILOG_FILE ../hdl/can_rx.v
-set_global_assignment -name VERILOG_FILE ../hdl/generated_p6/rf_ids.v
+set_global_assignment -name VERILOG_FILE ../hdl/generated_p8/rf_ids.v
 set_global_assignment -name VERILOG_FILE ../hdl/known_id.v
 set_global_assignment -name VERILOG_FILE ../hdl/ips_flag.v
 # Pins the design does not use: inputs, not driven

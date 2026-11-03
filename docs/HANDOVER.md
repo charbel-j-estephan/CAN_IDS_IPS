@@ -68,6 +68,13 @@ start and while the attack pauses, against about +3 us during the attack
 
 ## To do next
 
+0. (11-03) Prove the 2 lost RPM frames are the ESP32 receiver's: FPGA with SW0 up,
+   STM32 on the bus as a second receiver with prevention off,
+   `run_check_stm32_IDS.bat --file RPM_dataset.csv --n 5000` (the `--stm32` mode
+   never turns prevention on; only `--ips` does). If the STM32 logged the frames
+   the ESP32 receiver missed, they were on the bus. Then the FPGA's mixed runs
+   (held out frames) need attack_sender version 2.
+
 1. Bench done for now. (Identical frames from one board are now matched in
    order: the 322 us worst case of run 20261012_231036 rescores to 178 us.)
 2. STM32 alone IDS (report Fig. 3), wiring in `docs/STM32_WIRING.md`, per the approved plan: M1 bit-level CAN
@@ -89,6 +96,11 @@ start and while the attack pauses, against about +3 us during the attack
 - A badly wired module kills the whole bus: the sender then shows `tec=128`
   (nobody acknowledged) and the receiver hears nothing. Pull modules off the
   rails one at a time to find it.
+- FPGA (DE10-Lite): header pin 1 = GPIO[0] RX, pin 2 = GPIO[1] TX, 11 = 5 V,
+  12 = GND, 29 = 3.3 V. TJA1050 (5 V) with RX through a 5 k / 5 k divider to
+  pin 1, TX through TXS0108E A2 -> B2 (VA and OE on 3.3 V, VB on 5 V). The
+  design is lost at power off: program it again (GUI) after every replug.
+  SW0 = prevention, LEDR9 shows it; KEY0 = reset.
 - Close every Arduino Serial Monitor before running (COM port "Access is denied").
 - STM32 (black F407VET6): upload over USB DFU: BOOT0 jumper (BT0 to 3V3), RST,
   Upload in PlatformIO, remove the jumper, RST. Zadig driver for STM32 BOOTLOADER
@@ -133,3 +145,8 @@ Renamed 11-02 (rows above use the old names): run_check.bat -> run_check_esp32.b
 
 | 11-02: mixed runs | `--file mixed` (default of run_check_stm32_IDS/IPS.bat): blocks from all four files in random order, from the held out part of each file (after train.py's time split cut, 59-65% into each file). **All earlier bench runs replayed the first 20,000 frames of a file, which are training frames**, so their 100% recall / 0 false alarms is on training data; the mixed runs are the honest test. attack_sender version 2 (READY ATTACKER 2): block start packets (0xFE) make it recover from bus off between blocks; #TX adds busoffs/recovered. run_sim_FPGA.bat asks for 5/6/8 bytes when double-clicked. Fake bench passes; **not yet run on hardware** |
 | 11-02: GUI | `run_GUI.bat` -> `python/bench_gui.py` (tkinter, bench venv). Status from USB lists only (STM32 running 0483:5740 / bootloader 0483:df11 via dfu-util -l / ESP32 count / USB-Blaster via quartus_pgm -l), never opens a port while polling. STM32 upload as a guided jumper sequence (mcu/stm32_ids, then reads fw=). FPGA: byte choice edits FEAT_BYTES and the generated_pN qsf line, run_sim_FPGA.bat N, quartus_sh compile, quartus_pgm with the newest .sof. Tests run can_replay/python/run_check.py; Stop on an IPS run sends 'i' to the STM32. Checked with nothing plugged in (status, job runner, byte edit on a copy). **Upload, compile/program and test buttons not yet used on hardware** |
+| 11-03: FPGA wiring | DE10-Lite to a TJA1050 (5 V) through a TXS0108E level shifter. The first perfboard's header did not match the DE10-Lite pins; rebuilt on a breadboard. **TXS0108E B1 -> A1 did not pass RX** (TJA1050 RX toggled at B1, header pin 1 never changed: pin test LEDR1/LEDR2 dark, echo FAIL). Fix: RX bypasses the TXS0108E with a divider, TJA1050 RX -> 5 k -> pin 1 -> 5 k (or 10 k) -> GND (2.5 to 3.3 V). TX still pin 2 -> A2 -> B2 -> TJA1050 TX (echo OK). `quartus_pintest/` (GUI "Program pin test (wiring)") found it; checklist in `docs/FPGA_TEST_DAY.md` |
+| 11-03: FPGA, prevention off (SW0 down) | 8-byte design (`FEAT_BYTES=8`, generated_p8; 89 MHz worst case vs 50 MHz, run_sim_FPGA.bat 8 all PASS). ESP32 bench with the FPGA on the bus: **5,000/5,000 delivered, 0 bus errors on every board** (runs `20261103_140146_DoS`, `140227_DoS`): the FPGA listens without disturbing the bus |
+| 11-03: FPGA IPS, all four attacks (SW0 up) | **DoS 1,861/1,861 destroyed, Fuzzy 709/709, Gear 922/922, RPM 1,085/1,085.** Normal frames lost: 0, 0, 0 and **2 of 3,915** (RPM). Attacker bus off in every run (24-31 bus errors). Runs `20261103_140328_DoS`, `140509_Fuzzy`, `140545_gear`, `140628_RPM` (5,000 frames each, in the project's `runs/`, single file, so training frames; attacker version 1) |
+| 11-03: the 2 lost RPM frames | 0x002 at 4.1 ms and 0x131 at 5.3 ms after the first attack frame, during the error storm (attacker bus off by about 6.5 ms). **Most likely lost by the ESP32 receiver, not destroyed by the FPGA:** (1) the attacker heard them: its `tracked=` is the normal frames it heard before bus off, 1,716 = 1,708 before the attack + all 8 sent in the storm, both lost frames included (Fuzzy 1,567 = 1,567 + 0, DoS 1,483 = 1,476 + 7, Gear 2,157 = 2,140 + 17 fit the same count); (2) a frame the FPGA flagged would be retransmitted by the sender's controller and arrive late, not be lost; (3) each came right after an error frame, the receiver counted 24 bus errors vs the sender's 21, and the ESP32 TWAI has errata on the frame received after a bus error (the driver's workaround resets the controller; not yet checked against Espressif's errata for this chip revision); (4) the STM32 IPS lost 3 normal frames at the same point of the RPM attack with the same receiver. Not proven yet: see To do |
+
