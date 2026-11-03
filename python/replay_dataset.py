@@ -364,6 +364,32 @@ def print_ips(summary):
           "sender goes bus off, so 'error flags sent' can be larger than 'destroyed'.)")
 
 
+def check_lost(rows, arrived, logger_frames, listener_frames):
+    """--listen: for every normal frame the ESP32 logger lost, was it on the bus?
+    Counted by content: how many identical copies were sent, how many the
+    logger recorded and how many the STM32 (a second recorder on the same bus)
+    recorded. If the STM32 has more copies than the logger, the logger missed
+    a frame that was on the bus. No clock alignment needed."""
+    key = lambda f: tuple(f[:2]) + tuple(f[2:2 + f[1]])
+    count = lambda frames: __import__("collections").Counter(key(f) for f in frames if f != MARKER)
+    log, lst = count(logger_frames), count(listener_frames)
+    sent = __import__("collections").Counter((r[1], r[2]) + tuple(r[3:3 + r[2]]) for r in rows)
+    out = []
+    for i, r in enumerate(rows):
+        if r[11] != 0 or arrived[i]:
+            continue
+        k = (r[1], r[2]) + tuple(r[3:3 + r[2]])
+        if lst[k] > log[k]:
+            why = "on the bus: the STM32 heard it, the ESP32 receiver did not"
+        elif lst[k] < sent[k]:
+            why = "not heard by either recorder: probably never on the bus"
+        else:
+            why = "unclear"
+        out.append({"index": i, "can_id": "%03X" % r[1], "sent": sent[k], "esp32_receiver": log[k],
+                    "stm32": lst[k], "why": why})
+    return out
+
+
 def explain_leaks(rows, frames, stamps, ips, window_us=400):
     """For every attack frame that survived on the bus (logger frames, marker
     included), did the STM32 hear it, and what did it decide? The two clocks
@@ -906,6 +932,10 @@ def main():
                     help="COM port of the STM32 IDS node: switch its prevention on for this run "
                          "(it destroys the frames its model calls attacks) and read its counters. "
                          "The receiver stays the ESP32 logger, the record of what survived")
+    ap.add_argument("--listen", metavar="COM",
+                    help="COM port of the STM32 as a second recorder next to the ESP32 receiver, "
+                         "prevention kept off: for every normal frame the receiver lost, did the "
+                         "STM32 hear it (was it on the bus)?")
     ap.add_argument("--data", default=os.path.join(ROOT, "data", "car_hacking"))
     ap.add_argument("--file", default="DoS_dataset.csv", choices=sorted(FILE_CLASS) + [MIXED],
                     help="one dataset file, or 'mixed': blocks from all four files in random "
@@ -996,6 +1026,23 @@ def main():
         print("STM32 IPS on %s: prevention on (fw %s)" % (args.ips, parse_report(line).get("fw")))
         ips.keep()
 
+    lst = None
+    if args.listen:
+        if args.ips:
+            sys.exit("--listen and --ips do not go together: --listen keeps the STM32's prevention off")
+        lst = IpsNode(args.listen)
+        lst.start()
+        lst.command(b"Z")                 # zero its counters: this run only
+        lst.command(b"i")                 # prevention off
+        line = lst.wait_stat(lambda p: p.get("ips") == "off")
+        if not line:
+            lst.close()
+            sys.exit("The STM32 on %s did not confirm prevention off (no #STAT with ips=off)."
+                     % args.listen)
+        print("STM32 on %s: second recorder, prevention off (fw %s)"
+              % (args.listen, parse_report(line).get("fw")))
+        lst.keep()
+
     offsets = start_offsets(rows, realtime)
     started = time.strftime("%Y-%m-%d %H:%M:%S")
     atk, atkline = None, None
@@ -1056,6 +1103,11 @@ def main():
         print("STM32 IPS says: %s" % (ipsline or "no reply"))
         if ips.dbg:
             print("STM32 IPS debug: %s" % ips.dbg)
+    lstline = None
+    if lst:
+        lstline = lst.wait_stat(lambda p: True, fresh=True) or lst.last
+        lst.close()
+        print("STM32 recorder says: %s" % (lstline or "no reply"))
     stat = rcv.last_stat() or "no #STAT line"
     silent = time.time() - rcv.last_stat_time
     if silent > 3:
@@ -1126,6 +1178,19 @@ def main():
               "attacker was bus off):")
         for k, v in summary["by_class"].items():
             print("  %-10s sent %6d  arrived %6d  lost %6d" % (k, v["sent"], v["arrived"], v["lost"]))
+    if lst:
+        lost = check_lost(rows, res["arrived"], rcv.frames, lst.frames)
+        print("\nSTM32 second recorder: %d frames recorded (the ESP32 receiver: %d)"
+              % (len([f for f in lst.frames if f != MARKER]), len([f for f in rcv.frames if f != MARKER])))
+        if not lost:
+            print("  The ESP32 receiver lost no normal frame.")
+        for x in lost:
+            print("  normal frame %d, ID %s: sent %d, ESP32 receiver %d, STM32 %d -> %s"
+                  % (x["index"], x["can_id"], x["sent"], x["esp32_receiver"], x["stm32"], x["why"]))
+        summary["lost_normal_check"] = lost
+        summary["listener_report"] = lstline
+        with open(os.path.join(out, "summary.json"), "w") as fh:
+            json.dump(summary, fh, indent=2)
     print_ids(summary.get("ids"))
     if ips:
         print_ips(summary)
