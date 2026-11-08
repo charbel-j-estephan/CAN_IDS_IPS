@@ -31,10 +31,18 @@ RTL = [os.path.join("rtl", "engine", f) for f in
        ("sdp_ram.v", "tree_level.v", "rf_engine.v", "rf_classifier.v")] + \
       [os.path.join("rtl", "frontend_can", "can_features.v")]
 
+# The extra files for --spi: the whole core and the flash model.
+SPI_RTL = [os.path.join("rtl", "frontend_can", f) for f in ("can_rx.v", "ips_flag.v")] + \
+          [os.path.join("rtl", "update", f) for f in
+           ("crc32.v", "spi_slave.v", "cmd_decoder.v", "blob_walker.v", "blob_reader.v", "update_core.v")] + \
+          [os.path.join("rtl", "nv", f) for f in ("nv_ufm_avmm.v", "boot_rom.v")] + \
+          [os.path.join("rtl", "top", "updatable_core.v"), os.path.join("tb", "ufm_model.v")]
+
 
 def compile_tb(tb, extra, out):
     files = [os.path.join(paths.UPDATABLE, tb)] + [os.path.join(paths.UPDATABLE, f) for f in RTL + extra]
-    subprocess.run([paths.IVERILOG, "-g2005", "-o", out] + files, check=True)
+    subprocess.run([paths.IVERILOG, "-g2005", "-I", os.path.join(paths.UPDATABLE, "tb"), "-o", out] + files,
+                   check=True)
 
 
 def run_chunks(sim, blob_hex, ukeys, work, jobs):
@@ -100,7 +108,9 @@ def check_model(nb, args, sim):
 
     work = os.path.join(paths.BUILD, "accuracy", name)
     os.makedirs(work, exist_ok=True)
-    blob_hex = os.path.relpath(os.path.join(paths.BUILD, "blobs", "p%d" % nb, "model.hex"), work)
+    blob = os.path.join(paths.BUILD, "test_blobs", "ds_p%d.hex" % nb) if args.spi else \
+        os.path.join(paths.BUILD, "blobs", "p%d" % nb, "model.hex")
+    blob_hex = os.path.relpath(blob, work)
     forest, final = run_chunks(sim, blob_hex.replace("\\", "/"), ukeys, work, args.jobs)
     bad_f, bad_a = int((forest != py_forest).sum()), int((final != py_final).sum())
     print("  engine vs Python on %d distinct frames: forest differs on %d, final on %d (%.0f s)"
@@ -119,13 +129,17 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--bytes", type=int, nargs="+", default=[5, 6, 8])
     ap.add_argument("--tb", default=os.path.join("tb", "engine_all_tb.v"))
+    ap.add_argument("--spi", action="store_true",
+                    help="load the blob over the SPI port and COMMIT (tb/spi_all_tb.v)")
     ap.add_argument("--extra", nargs="*", default=[], help="more Verilog files, relative to updatable fpgas")
     ap.add_argument("--limit", type=int, default=0, help="frames per file, 0 = all")
     ap.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2) - 1))
     args = ap.parse_args()
 
     os.makedirs(paths.BUILD, exist_ok=True)
-    sim = os.path.join(paths.BUILD, "accuracy_sim")
+    sim = os.path.join(paths.BUILD, "accuracy_spi_sim" if args.spi else "accuracy_sim")
+    if args.spi:
+        args.tb, args.extra = os.path.join("tb", "spi_all_tb.v"), SPI_RTL
     compile_tb(args.tb, args.extra, sim)
     for nb in args.bytes:
         check_model(nb, args, sim)

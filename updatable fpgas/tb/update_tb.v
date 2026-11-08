@@ -1,0 +1,383 @@
+// The update path end to end: SPI commands, double buffering, COMMIT, flash
+// slots, boot, every rejection, power failures. Uses the behavioural flash
+// (ufm_model.v). Run from the build folder, after make_test_blobs.py.
+//
+//   vvp -n update_sim
+//
+// Prints one PASS or FAIL line per check and a total. Exit message "ALL PASS".
+`timescale 1ns/1ps
+module update_tb;
+    reg clk = 0;
+    always #10 clk = ~clk;
+
+    reg  rst = 1, por = 1, maint = 0, mac_ok = 1, sclk = 0, cs_n = 1, mosi = 0, rxd = 1;
+    reg  power_cut = 0;
+    wire miso, tx_dominant;
+    wire model_valid, active_bank, flag_start, verdict_valid, verdict_bank, frame_valid, feat_ready;
+    wire crc_err, stuff_err, form_err;
+    wire [2:0] verdict;
+    wire [10:0] can_id;
+    wire [3:0] dlc;
+    wire [63:0] data;
+    wire [31:0] status_word, active_model_id, active_version;
+
+    wire        csr_address, csr_read, csr_write, data_read, data_write, data_waitrequest, data_readdatavalid;
+    wire [31:0] csr_writedata, csr_readdata, data_writedata, data_readdata;
+    wire [13:0] data_address;
+    wire [1:0]  data_burstcount;
+
+`ifndef READ_MODEL_EN
+`define READ_MODEL_EN 1
+`endif
+
+    updatable_core #(.DEVICE_ID(32'h1), .READ_MODEL_EN(`READ_MODEL_EN), .NV_SETTLE(5'd6)) dut (
+        .clk(clk), .rst(rst), .por(por), .rxd(rxd), .tx_dominant(tx_dominant), .ips_on(1'b1),
+        .maint(maint), .mac_ok(mac_ok),
+        .spi_sclk(sclk), .spi_cs_n(cs_n), .spi_mosi(mosi), .spi_miso(miso),
+        .csr_address(csr_address), .csr_read(csr_read), .csr_write(csr_write),
+        .csr_writedata(csr_writedata), .csr_readdata(csr_readdata),
+        .data_address(data_address), .data_read(data_read), .data_write(data_write),
+        .data_writedata(data_writedata), .data_readdata(data_readdata),
+        .data_waitrequest(data_waitrequest), .data_readdatavalid(data_readdatavalid),
+        .data_burstcount(data_burstcount),
+        .frame_valid(frame_valid), .feat_ready(feat_ready),
+        .verdict_valid(verdict_valid), .verdict(verdict), .verdict_bank(verdict_bank),
+        .flag_start(flag_start), .crc_err(crc_err), .stuff_err(stuff_err), .form_err(form_err),
+        .can_id(can_id), .dlc(dlc), .data(data), .status_word(status_word),
+        .active_model_id(active_model_id), .active_version(active_version),
+        .model_valid(model_valid), .active_bank(active_bank)
+    );
+
+    ufm_model #(.WRITE_CLKS(6), .ERASE_CLKS(150)) ufm (
+        .clk(clk), .csr_address(csr_address), .csr_read(csr_read), .csr_write(csr_write),
+        .csr_writedata(csr_writedata), .csr_readdata(csr_readdata),
+        .data_address(data_address), .data_read(data_read), .data_write(data_write),
+        .data_writedata(data_writedata), .data_readdata(data_readdata),
+        .data_waitrequest(data_waitrequest), .data_readdatavalid(data_readdatavalid),
+        .data_burstcount(data_burstcount), .power_cut(power_cut)
+    );
+
+    reg [7:0] blob [0:32767];
+    `include "spi_tasks.vh"
+
+    integer fails = 0, checks = 0;
+
+    localparam [31:0] ID_P5 = 32'h2DDDA531, ID_P6 = 32'hE7321E76, ID_P8 = 32'hC0F7E8B5;
+    localparam SRC_A = 2'd1, SRC_B = 2'd2, SRC_ROM = 2'd3;
+
+    localparam E_OK = 0, E_NOT_MAINT = 1, E_LOCKED = 2, E_TRUNCATED = 3, E_HEADER = 4, E_PROTOCOL = 5,
+               E_DEVICE = 6, E_VERSION = 7, E_RANGE = 8, E_LENGTH = 9, E_CRC = 10, E_SELFTEST = 11,
+               E_MAC = 12;
+
+    task check;
+        input [8*40:1] name;
+        input ok;
+        begin
+            checks = checks + 1;
+            if (ok) $display("PASS  %0s", name);
+            else begin $display("FAIL  %0s  (status %h)", name, status_now); fails = fails + 1; end
+        end
+    endtask
+
+    // The blob file and its size and CRC from the manifest.
+    integer blob_n;
+    reg [31:0] blob_crc;
+    reg [8*48:1] mname;
+    task use_blob;
+        input [8*20:1] name;
+        integer m, r;
+        reg [8*20:1] nm;
+        reg found;
+        reg [8*64:1] path;
+        begin
+            found = 0;
+            m = $fopen("test_blobs/manifest.txt", "r");
+            while (!found && !$feof(m)) begin
+                r = $fscanf(m, "%s %d %h\n", nm, blob_n, blob_crc);
+                if (nm == name) found = 1;
+            end
+            $fclose(m);
+            if (!found) begin $display("no blob %0s", name); $finish; end
+            $swrite(path, "test_blobs/%0s.hex", name);
+            $readmemh(path, blob, 0, blob_n - 1);
+        end
+    endtask
+
+    task power_on;
+        begin
+            rst = 1; por = 1;
+            repeat (5) @(posedge clk);
+            @(posedge clk); por = 0;
+            @(posedge clk); rst = 0;
+            #1000;
+            wait_boot;
+        end
+    endtask
+
+    task expect_model;
+        input [8*40:1] name;
+        input [31:0] id;
+        input [31:0] ver;
+        input [1:0]  src;
+        begin
+            spi_version;
+            spi_status;
+            check(name, ver_model == id && ver_version == ver && status_now[13:12] == src);
+            if (!(ver_model == id && ver_version == ver && status_now[13:12] == src))
+                $display("      got model %h version %0d source %0d", ver_model, ver_version, status_now[13:12]);
+        end
+    endtask
+
+    task reject;
+        input [8*20:1] name;
+        input [7:0] code;
+        begin
+            use_blob(name);
+            upload_blob;
+            spi_commit(blob_crc);
+            check(name, status_now[7:0] == code);
+            if (status_now[7:0] != code) $display("      last_error %0d, wanted %0d", status_now[7:0], code);
+        end
+    endtask
+
+    task good_upload;
+        input [8*20:1] name;
+        begin
+            use_blob(name);
+            upload_blob;
+            spi_commit(blob_crc);
+            check(name, status_now[7:0] == E_OK);
+            if (status_now[7:0] != E_OK) $display("      last_error %0d", status_now[7:0]);
+        end
+    endtask
+
+    // The power fails as soon as the flash has started enough operations.
+    reg cut_done = 0;
+    integer cut_delay = 0;
+    always @(posedge ufm.cut_now) begin
+        #(cut_delay);
+        power_cut = 1;
+        rst = 1;
+        #2000;
+        power_cut = 0;
+        ufm.cut_after = -1;
+        cut_done = 1;
+    end
+
+    task send_commit;
+        input [31:0] crc;
+        begin
+            cs_low;
+            spi_byte(8'h03);
+            spi_byte(crc[31:24]); spi_byte(crc[23:16]);
+            spi_byte(crc[15:8]);  spi_byte(crc[7:0]);
+            cs_high;
+        end
+    endtask
+
+    // A byte straight into the command decoder: one real SPI upload takes 600,000
+    // clocks of simulation, so the other tests skip the wire. Status and the
+    // first upload use the real SPI port.
+    reg use_fast_upload = 0;
+    task fast_byte;
+        input [7:0] b;
+        begin
+            @(negedge clk);
+            while (!dut.shadow_ready) @(negedge clk);
+            force dut.rx_byte  = b;
+            force dut.rx_valid = 1'b1;
+            @(negedge clk);
+            force dut.rx_valid = 1'b0;
+            repeat (2) @(negedge clk);
+        end
+    endtask
+
+    task fast_upload;
+        input integer n;
+        integer off, chunk, c;
+        begin
+            off = 0;
+            while (off < n) begin
+                chunk = (n - off > 256) ? 256 : (n - off);
+                cs_low;
+                fast_byte(8'h01);
+                fast_byte(off[15:8]);   fast_byte(off[7:0]);
+                fast_byte(chunk[15:8]); fast_byte(chunk[7:0]);
+                for (c = 0; c < chunk; c = c + 1) fast_byte(blob[off + c]);
+                cs_high;
+                off = off + chunk;
+            end
+            release dut.rx_valid;
+            release dut.rx_byte;
+        end
+    endtask
+
+    task upload_blob;
+        begin
+            if (use_fast_upload) fast_upload(blob_n);
+            else                 spi_upload(blob_n);
+        end
+    endtask
+
+    integer i;
+    initial begin
+        // ---- empty flash: the boot ROM default ----------------------------
+        power_on;
+        expect_model("boot ROM when flash is empty", ID_P5, 32'd1, SRC_ROM);
+        check("model is on", model_valid === 1'b1);
+
+        // ---- outside maintenance mode: only STATUS and GET_VERSION work ----
+        maint = 0;
+        use_blob("v2_p8");
+        spi_upload(32);
+        spi_status;
+        check("WRITE refused outside maintenance", status_now[7:0] == E_NOT_MAINT);
+        spi_commit(blob_crc);
+        check("COMMIT refused outside maintenance", status_now[7:0] == E_NOT_MAINT);
+        expect_model("old model still active", ID_P5, 32'd1, SRC_ROM);
+
+        // ---- a good update, over the real SPI port --------------------------
+        maint = 1;
+        use_fast_upload = 0;
+        good_upload("v2_p8");
+        use_fast_upload = 1;
+        expect_model("v2 p8 active, in slot A", ID_P8, 32'd2, SRC_A);
+
+        // ---- every rejection, old model untouched ------------------------------
+        reject("bad_crc_body",   E_CRC);        expect_model("  still v2", ID_P8, 32'd2, SRC_A);
+        reject("truncated",      E_TRUNCATED);  expect_model("  still v2", ID_P8, 32'd2, SRC_A);
+        reject("bad_feature",    E_RANGE);      expect_model("  still v2", ID_P8, 32'd2, SRC_A);
+        reject("bad_child",      E_RANGE);      expect_model("  still v2", ID_P8, 32'd2, SRC_A);
+        reject("lower_version",  E_VERSION);    expect_model("  still v2", ID_P8, 32'd2, SRC_A);
+        reject("wrong_device",   E_DEVICE);     expect_model("  still v2", ID_P8, 32'd2, SRC_A);
+        reject("wrong_protocol", E_PROTOCOL);   expect_model("  still v2", ID_P8, 32'd2, SRC_A);
+        reject("bad_selftest",   E_SELFTEST);   expect_model("  still v2", ID_P8, 32'd2, SRC_A);
+        reject("wildcard_device", E_DEVICE);    expect_model("  still v2", ID_P8, 32'd2, SRC_A);
+
+        // A good blob with the wrong expected CRC.
+        use_blob("v3_p5");
+        upload_blob;
+        spi_commit(blob_crc ^ 32'h1);
+        check("wrong CRC in COMMIT", status_now[7:0] == E_CRC);
+        expect_model("  still v2", ID_P8, 32'd2, SRC_A);
+
+        // Out of order chunks.
+        use_blob("v3_p5");
+        cs_low; spi_byte(8'h01); spi_byte(8'h01); spi_byte(8'h00); spi_byte(8'h00); spi_byte(8'h04);
+        for (i = 0; i < 4; i = i + 1) spi_byte(8'hAA);
+        cs_high;
+        spi_status;
+        check("out of order WRITE refused", status_now[7:0] == 8'd17);
+
+        // ---- second update: goes to the other slot --------------------------
+        good_upload("v3_p5");
+        expect_model("v3 p5 active, in slot B", ID_P5, 32'd3, SRC_B);
+
+        // ---- power cycle: the new model is still there, no STM32 involved ----
+        maint = 0;
+        power_on;
+        expect_model("boot from slot B", ID_P5, 32'd3, SRC_B);
+
+        maint = 1;
+        spi_read_reg(16'h0028);
+        check("rollback floor kept in flash", reg_word == 32'd3);
+        maint = 0;
+
+        // ---- power cut while writing: v4 must not become active ---------------
+        maint = 1;
+        use_blob("v4_p6");
+        upload_blob;
+        ufm.ops_done = 0;
+        cut_done = 0;
+        cut_delay = 0;
+        ufm.cut_after = 200;           // erases and writes let through
+        send_commit(blob_crc);
+        wait (cut_done);
+        power_on;
+        expect_model("power cut in write: last good model", ID_P5, 32'd3, SRC_B);
+
+        // ---- power cut during the erase --------------------------------------
+        use_blob("v4_p6");
+        upload_blob;
+        ufm.ops_done = 0;
+        cut_done = 0;
+        cut_delay = 1000;              // inside the erase
+        ufm.cut_after = 0;
+        send_commit(blob_crc);
+        wait (cut_done);
+        power_on;
+        expect_model("power cut in erase: last good model", ID_P5, 32'd3, SRC_B);
+
+        // ---- it still updates after all that -----------------------------------
+        good_upload("v5_p8");
+        expect_model("update works after power cuts", ID_P8, 32'd5, SRC_A);
+        power_on;
+        expect_model("boot after power cuts", ID_P8, 32'd5, SRC_A);
+
+        // ---- corrupt the active slot: boot the other one --------------------
+        for (i = 0; i < 100; i = i + 1) ufm.mem[0 + i] = 32'h12345678;    // slot A
+        power_on;
+        expect_model("active slot corrupt: other slot", ID_P5, 32'd3, SRC_B);
+
+        // ---- corrupt both slots: boot the ROM -------------------------------
+        for (i = 0; i < 100; i = i + 1) ufm.mem[8192 + i] = 32'h12345678; // slot B
+        power_on;
+        expect_model("both slots corrupt: boot ROM", ID_P5, 32'd1, SRC_ROM);
+
+        // ---- three signature failures lock the port -----------------------
+        use_blob("v3_p5");   // floor is 5: use a version that passes the floor check
+        maint = 1;
+        mac_ok = 0;
+        use_blob("v5_p8");
+        upload_blob; spi_commit(blob_crc);
+        check("signature failure 1", status_now[7:0] == E_MAC);
+        upload_blob; spi_commit(blob_crc);
+        check("signature failure 2", status_now[7:0] == E_MAC);
+        upload_blob; spi_commit(blob_crc);
+        check("signature failure 3", status_now[7:0] == E_MAC);
+        check("port locked", status_now[9] == 1'b1);
+        mac_ok = 1;
+        spi_upload(32);
+        spi_status;
+        check("locked: WRITE refused", status_now[7:0] == E_LOCKED);
+        spi_commit(blob_crc);
+        check("locked: COMMIT refused", status_now[7:0] == E_LOCKED);
+        spi_counters;
+        check("signature failures counted", cnt_sig == 32'd3);
+        expect_model("locked: model unchanged", ID_P5, 32'd1, SRC_ROM);
+
+        // KEY reset is not a power cycle: still locked.
+        rst = 1; repeat (5) @(posedge clk); rst = 0;
+        #1000; wait_boot;
+        spi_status;
+        check("reset does not clear the lockout", status_now[9] == 1'b1);
+
+        // Power cycle clears it and the port works again.
+        power_on;
+        spi_status;
+        check("power cycle clears the lockout", status_now[9] == 1'b0);
+        good_upload("v5_p8");
+        expect_model("updates again after lockout", ID_P8, 32'd5, SRC_A);
+
+        // ---- reading the model back ----------------------------------------
+        spi_read_reg(16'h0004);
+        check("READ of a status register", reg_word == ID_P8);
+`ifdef EXPECT_READ_BLOCKED
+        spi_read_reg(16'h4000);
+        check("production: node read blocked", reg_word == 32'hDEAD0BAD);
+        spi_read_reg(16'h1000);
+        check("production: header read blocked", reg_word == 32'hDEAD0BAD);
+`else
+        // A development build can read the shadow bank.
+        use_blob("v3_p5");
+        upload_blob;
+        spi_read_reg(16'h4000);        // tree 0, level 0, node 0, low 32 bits
+        check("development: node readable",
+              reg_word == {blob[704+3], blob[704+2], blob[704+1], blob[704]});
+`endif
+
+        $display("%0d checks, %0d failed", checks, fails);
+        if (fails == 0) $display("ALL PASS");
+        $finish;
+    end
+endmodule

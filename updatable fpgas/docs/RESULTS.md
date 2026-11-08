@@ -51,3 +51,72 @@ no update logic; `quartus/engine_only.*`), against the hardcoded forest alone
 | Latency | 4 clocks | 15 clocks |
 
 Whole board design numbers come after Phase B.
+
+## Phase B: SPI, double buffering, CRC, UFM, boot
+
+All from Icarus on the final RTL, using the behavioural flash (`tb/ufm_model.v`).
+
+Dataset through the update port (`accuracy_engine.py --spi`): the blob goes over
+the real SPI model, through COMMIT and into flash, then every distinct frame runs
+through the classifier.
+
+| Model | Distinct frames | Forest differs | Final differs |
+|---|---|---|---|
+| 5 bytes | 675,167 | 0 | 0 |
+| 6 bytes | 761,078 | 0 | 0 |
+| 8 bytes | 977,861 | 0 | 0 |
+
+Update path (`tb/update_tb.v`): **53 checks, 0 failed** (development build) and
+**54 checks, 0 failed** (production build, `READ_MODEL_EN = 0`, model read blocked).
+Rejected with the old model still active: bad CRC in the body, wrong CRC in COMMIT,
+truncated upload, feature index out of range, child pointer past the level, lower
+version, wrong device ID, wildcard device ID over SPI, wrong protocol ID, failed
+self test, out of order write, outside maintenance mode.
+Also: boot ROM on empty flash, two-slot updates, boot from a slot after a power
+cycle, rollback floor kept in flash, power cut during a write, power cut during an
+erase (both boot the last good model), active slot corrupt (boots the other),
+both slots corrupt (boots the ROM default), 3 strike lockout, not cleared by reset,
+cleared by power cycle.
+
+Mid-traffic swap 5 to 8 bytes (`tb/core_frames_tb.v -DSWAP_TEST`, `check_swap.py`,
+bit level through `can_rx`): 120 frames, 120 verdicts, swap at frame 31, 60 of the
+frames are ones where the two models disagree (16 before the swap, 44 after), 0
+wrong verdicts, 0 frames with the wrong number of data bytes.
+
+IPS on a simulated bus, model from the boot ROM (`tb/core_frames_tb.v`,
+`python/compare_sim.py`): 200 frames, attack frames destroyed 100 of 100 (25 of each
+attack), normal frames lost 0 of 100. These are simulated frames, not the bench.
+
+## Hardcoded against updatable: the whole board design
+
+Quartus Prime Lite 25.1, 10M50DAF484C7G, slow 85 C model.
+
+| | Hardcoded (`quartus_board`, 5 bytes) | Updatable (`quartus/updatable_top`) |
+|---|---|---|
+| Logic elements | 1,618 (3 %) | 29,869 (60 %) |
+| Registers | 345 | 7,607 |
+| Block memory bits | 0 | 942,080 (56 %) |
+| M9K blocks | 0 of 182 | 106 of 182 (58 %, 42 % headroom) |
+| UFM | not used | used: 2 slots of 24 KB + 2 journal pages of 8 KB |
+| Fmax (clock needed: 50 MHz) | 89.41 MHz | 56.96 MHz |
+| Latency, feature ready to verdict | 4 clocks (80 ns) | 15 clocks (300 ns) |
+
+## Phase C: STM32 tool and signer
+
+| Check | Result |
+|---|---|
+| `stm32_updater` builds (PlatformIO, black F407VE) | Builds. **Not run on hardware** |
+| fw 16 unchanged | `mcu/` has no changes; rebuilt `firmware.bin` is byte for byte the bench's fw 16 build (43,312 bytes) |
+| `sign_blob.py` | AES-CMAC matches the RFC 4493 vector; a blob signed for one device fails on another; one flipped payload bit is detected |
+
+## Not run: needs the board
+
+| Test | Status |
+|---|---|
+| UFM behaviour on real silicon (erase, write, read back through the IP) | **Not run** |
+| STM32 pushing a model over real wires | **Not run** |
+| Four attacks on the ESP32 bench with the SPI-loaded model | **Not run** |
+| Unplug the STM32, power cycle, check the model stays | **Not run** |
+
+Steps are in `docs/SPI_WIRING.md`. The flash model matches the Quartus IP's ports,
+but only the board can show how the real flash behaves.
