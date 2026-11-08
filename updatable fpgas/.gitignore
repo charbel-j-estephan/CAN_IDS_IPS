@@ -1,0 +1,28 @@
+# Signing keys never go in git
+keys/
+
+# Everything the scripts regenerate
+build/
+__pycache__/
+*.pyc
+
+# Quartus outputs
+quartus/db/
+quartus/incremental_db/
+quartus/output_files/
+quartus/*.rpt
+quartus/*.summary
+quartus/*.smsg
+quartus/*.sof
+quartus/*.pof
+quartus/*.done
+quartus/*.jdi
+quartus/*.pin
+quartus/*.sld
+quartus/*.qws
+quartus/*_assignment_defaults.qdf
+quartus/compile.log
+quartus/*.jditmp
+
+# PlatformIO
+stm32_updater/.pio/

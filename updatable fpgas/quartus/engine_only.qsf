@@ -1,0 +1,58 @@
+# The classifier alone (rf_engine + key table, no CAN, no update logic), to
+# measure the frozen engine, like quartus/can_ids.qsf for the hardcoded forest.
+set_global_assignment -name FAMILY "MAX 10"
+set_global_assignment -name DEVICE 10M50DAF484C7G
+set_global_assignment -name TOP_LEVEL_ENTITY rf_classifier
+set_global_assignment -name VERILOG_FILE ../rtl/engine/sdp_ram.v
+set_global_assignment -name VERILOG_FILE ../rtl/engine/tree_level.v
+set_global_assignment -name VERILOG_FILE ../rtl/engine/rf_engine.v
+set_global_assignment -name VERILOG_FILE ../rtl/engine/rf_classifier.v
+set_global_assignment -name SDC_FILE engine_only.sdc
+set_global_assignment -name PROJECT_OUTPUT_DIRECTORY output_files
+set_global_assignment -name NUM_PARALLEL_PROCESSORS ALL
+set_location_assignment PIN_P11 -to clk
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to clk
+set_instance_assignment -name VIRTUAL_PIN ON -to rst
+set_instance_assignment -name VIRTUAL_PIN ON -to in_valid
+set_instance_assignment -name VIRTUAL_PIN ON -to in_bank
+set_instance_assignment -name VIRTUAL_PIN ON -to in_tag[*]
+set_instance_assignment -name VIRTUAL_PIN ON -to in_fv[*]
+set_instance_assignment -name VIRTUAL_PIN ON -to in_key[*]
+set_instance_assignment -name VIRTUAL_PIN ON -to tree_en_b0[*]
+set_instance_assignment -name VIRTUAL_PIN ON -to tree_en_b1[*]
+set_instance_assignment -name VIRTUAL_PIN ON -to rule_en[*]
+set_instance_assignment -name VIRTUAL_PIN ON -to rule_from_b0[*]
+set_instance_assignment -name VIRTUAL_PIN ON -to rule_from_b1[*]
+set_instance_assignment -name VIRTUAL_PIN ON -to rule_to_b0[*]
+set_instance_assignment -name VIRTUAL_PIN ON -to rule_to_b1[*]
+set_instance_assignment -name VIRTUAL_PIN ON -to wr_en
+set_instance_assignment -name VIRTUAL_PIN ON -to wr_tree[*]
+set_instance_assignment -name VIRTUAL_PIN ON -to wr_level[*]
+set_instance_assignment -name VIRTUAL_PIN ON -to wr_bank
+set_instance_assignment -name VIRTUAL_PIN ON -to wr_idx[*]
+set_instance_assignment -name VIRTUAL_PIN ON -to wr_data[*]
+set_instance_assignment -name VIRTUAL_PIN ON -to rd_req
+set_instance_assignment -name VIRTUAL_PIN ON -to rd_tree[*]
+set_instance_assignment -name VIRTUAL_PIN ON -to rd_level[*]
+set_instance_assignment -name VIRTUAL_PIN ON -to rd_bank
+set_instance_assignment -name VIRTUAL_PIN ON -to rd_idx[*]
+set_instance_assignment -name VIRTUAL_PIN ON -to rd_ack
+set_instance_assignment -name VIRTUAL_PIN ON -to rd_valid
+set_instance_assignment -name VIRTUAL_PIN ON -to rd_data[*]
+set_instance_assignment -name VIRTUAL_PIN ON -to kt_wr_en
+set_instance_assignment -name VIRTUAL_PIN ON -to kt_wr_bank
+set_instance_assignment -name VIRTUAL_PIN ON -to kt_wr_addr[*]
+set_instance_assignment -name VIRTUAL_PIN ON -to kt_wr_data
+set_instance_assignment -name VIRTUAL_PIN ON -to kt_rd_req
+set_instance_assignment -name VIRTUAL_PIN ON -to kt_rd_bank
+set_instance_assignment -name VIRTUAL_PIN ON -to kt_rd_addr[*]
+set_instance_assignment -name VIRTUAL_PIN ON -to kt_rd_ack
+set_instance_assignment -name VIRTUAL_PIN ON -to kt_rd_valid
+set_instance_assignment -name VIRTUAL_PIN ON -to kt_rd_data
+set_instance_assignment -name VIRTUAL_PIN ON -to out_valid
+set_instance_assignment -name VIRTUAL_PIN ON -to out_bank
+set_instance_assignment -name VIRTUAL_PIN ON -to out_tag[*]
+set_instance_assignment -name VIRTUAL_PIN ON -to out_forest[*]
+set_instance_assignment -name VIRTUAL_PIN ON -to out_final[*]
+
+set_global_assignment -name LAST_QUARTUS_VERSION "25.1std.0 Lite Edition"
