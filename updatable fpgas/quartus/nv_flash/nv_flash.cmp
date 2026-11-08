@@ -1,0 +1,20 @@
+	component nv_flash is
+		port (
+			clk_clk            : in  std_logic                     := 'X';             -- clk
+			csr_address        : in  std_logic                     := 'X';             -- address
+			csr_read           : in  std_logic                     := 'X';             -- read
+			csr_writedata      : in  std_logic_vector(31 downto 0) := (others => 'X'); -- writedata
+			csr_write          : in  std_logic                     := 'X';             -- write
+			csr_readdata       : out std_logic_vector(31 downto 0);                    -- readdata
+			data_address       : in  std_logic_vector(13 downto 0) := (others => 'X'); -- address
+			data_read          : in  std_logic                     := 'X';             -- read
+			data_writedata     : in  std_logic_vector(31 downto 0) := (others => 'X'); -- writedata
+			data_write         : in  std_logic                     := 'X';             -- write
+			data_readdata      : out std_logic_vector(31 downto 0);                    -- readdata
+			data_waitrequest   : out std_logic;                                        -- waitrequest
+			data_readdatavalid : out std_logic;                                        -- readdatavalid
+			data_burstcount    : in  std_logic_vector(1 downto 0)  := (others => 'X'); -- burstcount
+			nreset_reset_n     : in  std_logic                     := 'X'              -- reset_n
+		);
+	end component nv_flash;
+

@@ -26,3 +26,4 @@ quartus/*.jditmp
 
 # PlatformIO
 stm32_updater/.pio/
+quartus/*.sopcinfo

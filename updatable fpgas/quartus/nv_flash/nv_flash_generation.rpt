@@ -1,0 +1,16 @@
+Info: Starting: Create HDL design files for synthesis
+Info: qsys-generate "C:\Users\Charbel\Desktop\CAN_IDS_IPS\updatable fpgas\quartus\nv_flash.qsys" --synthesis=VERILOG --output-directory="C:\Users\Charbel\Desktop\CAN_IDS_IPS\updatable fpgas\quartus\nv_flash\synthesis" --family="MAX 10" --part=10M50DAF484C7G
+Progress: Loading quartus/nv_flash.qsys
+Progress: Reading input file
+Progress: Adding f [altera_onchip_flash 25.1]
+Progress: Parameterizing module f
+Progress: Building connections
+Progress: Parameterizing connections
+Progress: Validating
+Progress: Done reading input file
+Info: nv_flash: Generating "nv_flash" for QUARTUS_SYNTH
+Info: f: Generating top-level entity altera_onchip_flash
+Info: f: "nv_flash" instantiated altera_onchip_flash "f"
+Info: nv_flash: Done "nv_flash" with 2 modules, 7 files
+Info: qsys-generate succeeded.
+Info: Finished: Create HDL design files for synthesis
