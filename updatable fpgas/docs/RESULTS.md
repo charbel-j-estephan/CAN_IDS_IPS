@@ -120,3 +120,20 @@ Quartus Prime Lite 25.1, 10M50DAF484C7G, slow 85 C model.
 
 Steps are in `docs/SPI_WIRING.md`. The flash model matches the Quartus IP's ports,
 but only the board can show how the real flash behaves.
+
+## Cross-check against Intel's flash model
+
+`tb/intel_flash_tb.v` runs the flash controller (`rtl/nv/nv_ufm_avmm.v`) against
+Intel's own encrypted simulation model of the On-Chip Flash, in Questa: page erase,
+word write, read back, both UFM sectors, and a page erase that must leave another
+page alone. **All pass.** This checks the controller's register sequence against
+Intel's model. The power-cut and slot tests above still use `tb/ufm_model.v`, which
+has to be mine: Intel's model does not simulate a power failure.
+
+## Reproducing
+
+`run_sim.bat` ran end to end from an empty `build/` folder on the final RTL: all 8
+steps pass. It takes about an hour. `normal_run_data.txt` is extracted from the
+dataset zip automatically.
+
+SPI was tested at 2.625 MHz, the speed the STM32 tool uses. The limit is about 4 MHz.

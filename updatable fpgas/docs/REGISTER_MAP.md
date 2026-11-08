@@ -1,7 +1,9 @@
 # SPI update port: commands and register map
 
-SPI mode 0, MSB first, one command per chip select, STM32 as master. SCLK 2.6 MHz
-(the FPGA samples it with its 50 MHz clock; keep it below about 5 MHz).
+SPI mode 0, MSB first, one command per chip select, STM32 as master. SCLK 2.625 MHz:
+that is the speed tested in simulation and the one the update tool uses. The limit is
+about 4 MHz. The FPGA samples SCLK with its 50 MHz clock, and right after blob offset
+175 it spends 96 clocks checking the node counts, so a byte must take at least 100 clocks.
 Multi byte SPI fields are big endian. Registers are 32 bits.
 
 | Command | Byte | Then | Maintenance needed |
