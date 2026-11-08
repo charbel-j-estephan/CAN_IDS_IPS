@@ -1,7 +1,7 @@
 // SPI slave, mode 0, MSB first, all in the system clock domain: SCLK, CS_n and
 // MOSI are synchronized and SCLK's edges detected, so there is one clock domain
-// (also easier for the ASIC). SCLK must stay well below clk/8; the update tool
-// uses 2.6 MHz.
+// (also easier for the ASIC). The update tool uses 2.625 MHz, the speed tested;
+// the limit is about 4 MHz (see docs/REGISTER_MAP.md).
 //
 //   rx_valid   1 clock after the 8th rising edge of a byte, with rx_byte
 //   tx_byte    the next byte to send: read when CS_n falls and at the falling

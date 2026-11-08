@@ -11,9 +11,11 @@ The script stops if they differ on even one.
 """
 import argparse
 import os
+import shutil
 import subprocess
 import sys
 import time
+import zipfile
 
 import numpy as np
 
@@ -37,6 +39,18 @@ SPI_RTL = [os.path.join("rtl", "frontend_can", f) for f in ("can_rx.v", "ips_fla
            ("crc32.v", "spi_slave.v", "cmd_decoder.v", "blob_walker.v", "blob_reader.v", "update_core.v")] + \
           [os.path.join("rtl", "nv", f) for f in ("nv_ufm_avmm.v", "boot_rom.v")] + \
           [os.path.join("rtl", "top", "updatable_core.v"), os.path.join("tb", "ufm_model.v")]
+
+
+def extract_normal(fname):
+    """normal_run_data.txt is only inside the dataset zip: copy it into build/data once."""
+    path = os.path.join(paths.BUILD, "data", fname)
+    if not os.path.exists(path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        zip_path = paths.find_shared("docs", "refrences", "9) Car-Hacking Dataset.zip")
+        print("  extracting %s from the dataset zip" % fname)
+        with zipfile.ZipFile(zip_path) as z, z.open("normal_run_data/" + fname) as src, open(path, "wb") as dst:
+            shutil.copyfileobj(src, dst)
+    return path
 
 
 def compile_tb(tb, extra, out):
@@ -93,9 +107,7 @@ def check_model(nb, args, sim):
     for fname, cls in list(ATTACK_FILES.items()) + [(NORMAL_FILE, None)]:
         path = os.path.join(data, fname)
         if not os.path.exists(path):           # normal_run_data.txt: extracted from the dataset zip
-            path = os.path.join(paths.BUILD, "data", fname)
-        if not os.path.exists(path):
-            raise SystemExit("Missing %s: without it this is not every dataset frame" % fname)
+            path = extract_normal(fname)
         k = read_attack(path, cls, args.limit, nb)[0] if cls else read_normal(path, args.limit or None, nb)[0]
         keys.append(k)
     ukeys = np.unique(np.concatenate(keys), axis=0)

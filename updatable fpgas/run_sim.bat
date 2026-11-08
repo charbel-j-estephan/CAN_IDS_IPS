@@ -7,6 +7,7 @@ rem   4. update path: rejections, power cuts, boot, lockout (development build)
 rem   5. the same with READ of the model blocked (production build)
 rem   6. the whole design on a simulated bus, IPS on
 rem   7. the model swapped from 5 to 8 bytes in the middle of traffic
+rem   8. the flash controller against Intel's flash model (needs Questa)
 rem
 rem Needs Icarus in C:\iverilog\bin and py -3.13 with scikit-learn. The models
 rem and the dataset are read from models\ and data\ of the repo.
@@ -65,6 +66,23 @@ echo === 7. model swap in the middle of traffic ===
 "%IV%\iverilog" -g2005 -DSWAP_TEST -I tb -I build/sim_swap -o build/core_swap_sim tb/core_frames_tb.v tb/ufm_model.v %RTL% || goto :fail
 pushd build\sim_swap & "%IV%\vvp" -n ..\core_swap_sim +log=got_swap.csv | findstr /r "booted Played IPS: COMMIT" & popd
 py -3.13 python\check_swap.py build\sim_swap || goto :fail
+
+echo.
+echo === 8. flash controller against Intel's flash model (Questa) ===
+set "QS=C:\altera_lite\25.1std\quartus"
+set "VS=C:\altera_lite\25.1std\questa_fse\win64"
+if not exist "%VS%\vsim.exe" (
+    echo Questa not found: skipped
+    goto :done8
+)
+if not exist build\intel_flash mkdir build\intel_flash
+pushd build\intel_flash
+"%QS%\sopc_builder\bin\qsys-generate.exe" ..\..\quartus\nv_flash.qsys --simulation=VERILOG --output-directory=nv_flash_sim >nul
+"%VS%\vlib.exe" work >nul
+"%VS%\vlog.exe" -quiet -work work "%QS%\eda\sim_lib\mentor\fiftyfivenm_atoms_ncrypt.v" "%QS%\eda\sim_lib\fiftyfivenm_atoms.v" "%QS%\eda\sim_lib\altera_primitives.v" "%QS%\eda\sim_lib\altera_mf.v" "%QS%\eda\sim_lib\220model.v" nv_flash_sim\simulation\submodules\altera_onchip_flash.v nv_flash_sim\simulation\submodules\altera_onchip_flash_avmm_csr_controller.v nv_flash_sim\simulation\submodules\altera_onchip_flash_avmm_data_controller.v nv_flash_sim\simulation\submodules\altera_onchip_flash_util.v nv_flash_sim\simulation\nv_flash.v ..\..\rtl\nv\nv_ufm_avmm.v ..\..\tb\intel_flash_tb.v | findstr /r "Error"
+"%VS%\vsim.exe" -c -quiet work.intel_flash_tb -do "run -all; quit -f" | findstr /r "FAIL PASS TIMEOUT"
+popd
+:done8
 
 echo.
 echo All simulations done. Check the lines above for FAIL.
