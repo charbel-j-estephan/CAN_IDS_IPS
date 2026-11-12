@@ -5,12 +5,17 @@
 //   GPIO RX -> can_rx -> can_features --[fv, valid]--> rf_classifier -> ips_flag -> TX
 //                                                           ^
 //   SPI -> spi_slave -> cmd_decoder -> update_core ---------+   (model banks)
+//                                       (seal: cmac_stream, scrambling: ctr_stream)
 module updatable_core #(
     parameter [31:0] DEVICE_ID     = 32'h0000_0001,
     parameter        READ_MODEL_EN = 1,
     parameter        ROM_INIT_HEX  = "default_model.hex",
     parameter [15:0] PROTOCOL_ID   = 16'd1,
-    parameter [4:0]  NV_SETTLE     = 5'd31     // testbenches shorten this
+    parameter [4:0]  NV_SETTLE     = 5'd31,    // testbenches shorten this
+    // This board's keys (python/make_device_key.py). No default a board could
+    // ship with: 0 matches no real stamp, so every slot would fail its check.
+    parameter [127:0] MAC_KEY      = 128'd0,
+    parameter [127:0] ENC_KEY      = 128'd0
 ) (
     input  wire        clk,
     input  wire        rst,
@@ -19,7 +24,6 @@ module updatable_core #(
     output wire        tx_dominant,
     input  wire        ips_on,
     input  wire        maint,
-    input  wire        mac_ok,
     // SPI
     input  wire        spi_sclk,
     input  wire        spi_cs_n,
@@ -161,7 +165,7 @@ module updatable_core #(
     wire [31:0] nv_wdata, nv_rdata;
 
     update_core #(.DEVICE_ID(DEVICE_ID), .PROTOCOL_ID(PROTOCOL_ID), .READ_MODEL_EN(READ_MODEL_EN),
-                  .ROM_INIT_HEX(ROM_INIT_HEX)) core (
+                  .ROM_INIT_HEX(ROM_INIT_HEX), .MAC_KEY(MAC_KEY), .ENC_KEY(ENC_KEY)) core (
         .clk(clk), .rst(rst), .por(por),
         .cmd_start_upload(cmd_start_upload), .cmd_byte_valid(cmd_byte_valid), .cmd_byte(cmd_byte),
         .shadow_offset(shadow_offset), .shadow_ready(shadow_ready),
@@ -173,7 +177,7 @@ module updatable_core #(
         .n_seen_out(n_seen), .n_blocked_out(n_blocked), .n_errors_out(n_errors), .n_sig_out(n_sig),
         .locked(locked), .busy(core_busy),
         .maint(maint), .fe_idle(!in_frame), .fe_valid(feat_ready), .count_blocked(flag_start),
-        .mac_ok(mac_ok), .model_valid(model_valid), .active(active_bank), .feat_bytes(feat_bytes),
+        .model_valid(model_valid), .active(active_bank), .feat_bytes(feat_bytes),
         .tree_en_b0(tree_en_b0), .tree_en_b1(tree_en_b1), .rule_en(rule_en),
         .rule_from_b0(rule_from_b0), .rule_from_b1(rule_from_b1),
         .rule_to_b0(rule_to_b0), .rule_to_b1(rule_to_b1),

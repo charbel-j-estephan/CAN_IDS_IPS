@@ -50,7 +50,7 @@ then read LAST_ERROR (0 = success). A COMMIT takes up to about 1.5 s on the boar
 | Bits | Meaning |
 |---|---|
 | 7:0 | LAST_ERROR |
-| 8 | Busy (boot or COMMIT running) |
+| 8 | Busy (boot or COMMIT running). 0 with source 0 after boot: no usable model anywhere (not even the ROM); classification is off and the port takes a new model |
 | 9 | Locked out |
 | 10 | Maintenance switch on |
 | 11 | Active bank |
@@ -77,7 +77,7 @@ then read LAST_ERROR (0 = success). A COMMIT takes up to about 1.5 s on the boar
 | 9 | LENGTH | Length does not match the counts, or bytes after the end |
 | 10 | CRC | CRC of the blob or of the shadow RAM wrong |
 | 11 | SELFTEST | A self test vote did not match |
-| 12 | MAC | MAC check failed (Phase 2; stub in Phase 1) |
+| 12 | MAC | Stamp (AES-CMAC) wrong or missing. Counts toward the lockout. Also: the stamp never finished (no strike) |
 | 13 | ERASE | Flash erase failed |
 | 14 | WRITE | Flash write failed |
 | 15 | VERIFY | Flash read back differs |
@@ -101,6 +101,11 @@ leave the chip over SPI.
 | `2000` to `20FF` | 8 | key table bytes |
 | `4000` + (tree << 11) + (level << 7) + index | 32 | node bits 31:0 |
 | `8000` + (tree << 11) + (level << 7) + index | 4 | node bits 35:32 |
+
+Any READ whose answer is not ready by the end of the dummy byte, and any node
+address with level 12 to 15 (there is none), also reads `DEAD0BAD`, never an
+older value. The RAMs hold the plain model even for a scrambled blob: a
+development build reads it in the clear.
 
 ## Flash layout (UFM, 32 bit words)
 

@@ -5,6 +5,7 @@
 //
 //   vvp -n spi_all_sim +blob=<test_blob.hex> +in=<frames.hex> +out=<classes.txt>
 `timescale 1ns/1ps
+`include "test_key.vh"
 module spi_all_tb;
     reg clk = 0;
     always #10 clk = ~clk;
@@ -19,8 +20,8 @@ module spi_all_tb;
     wire [31:0] status_word, active_model_id, active_version;
     wire        model_valid, active_bank;
 
-    updatable_core #(.DEVICE_ID(32'h1), .NV_SETTLE(5'd6), .ROM_INIT_HEX("../../default_model.hex")) dut (
-        .clk(clk), .rst(rst), .por(por), .rxd(1'b1), .tx_dominant(), .ips_on(1'b0), .maint(maint), .mac_ok(1'b1),
+    updatable_core #(.DEVICE_ID(`TEST_DEVICE_ID), .MAC_KEY(`TEST_MAC_KEY), .ENC_KEY(`TEST_ENC_KEY), .NV_SETTLE(5'd6), .ROM_INIT_HEX("../../default_model.hex")) dut (
+        .clk(clk), .rst(rst), .por(por), .rxd(1'b1), .tx_dominant(), .ips_on(1'b0), .maint(maint),
         .spi_sclk(sclk), .spi_cs_n(cs_n), .spi_mosi(mosi), .spi_miso(miso),
         .csr_address(csr_address), .csr_read(csr_read), .csr_write(csr_write),
         .csr_writedata(csr_writedata), .csr_readdata(csr_readdata),

@@ -10,6 +10,7 @@
 // the traffic a new model goes in over the update port. Each verdict is logged
 // with its bank, so python/check_swap.py can prove no frame was lost or mixed.
 `timescale 1ns/1ps
+`include "test_key.vh"
 module core_frames_tb;
     `include "frames.vh"
 
@@ -37,9 +38,9 @@ module core_frames_tb;
 `endif
     wire bus = rxd & ~tx_dominant;
 
-    updatable_core #(.DEVICE_ID(32'h1), .NV_SETTLE(5'd6)) dut (
+    updatable_core #(.DEVICE_ID(`TEST_DEVICE_ID), .MAC_KEY(`TEST_MAC_KEY), .ENC_KEY(`TEST_ENC_KEY), .NV_SETTLE(5'd6)) dut (
         .clk(clk), .rst(rst), .por(por), .rxd(bus), .tx_dominant(tx_dominant), .ips_on(ips_on),
-        .maint(maint), .mac_ok(1'b1),
+        .maint(maint),
         .spi_sclk(sclk), .spi_cs_n(cs_n), .spi_mosi(mosi), .spi_miso(miso),
         .csr_address(csr_address), .csr_read(csr_read), .csr_write(csr_write),
         .csr_writedata(csr_writedata), .csr_readdata(csr_readdata),
@@ -85,38 +86,14 @@ module core_frames_tb;
     reg start_swap = 1'b0;
     reg [8*256-1:0] log_name;
 
-    task fast_byte;
-        input [7:0] b;
-        begin
-            @(negedge clk);
-            while (!dut.shadow_ready) @(negedge clk);
-            force dut.rx_byte  = b;
-            force dut.rx_valid = 1'b1;
-            @(negedge clk);
-            force dut.rx_valid = 1'b0;
-            repeat (2) @(negedge clk);
-        end
-    endtask
-
     integer blob_n;
     reg [31:0] blob_crc;
+    // The new model goes in over the real SPI pins at 2.625 MHz, while the bus
+    // traffic goes on (it used to be forced straight into the decoder).
     task swap_model;
-        integer off, chunk, c;
         begin
-            cs_low;
-            off = 0;
-            while (off < blob_n) begin
-                chunk = (blob_n - off > 256) ? 256 : (blob_n - off);
-                fast_byte(8'h01);
-                fast_byte(off[15:8]);   fast_byte(off[7:0]);
-                fast_byte(chunk[15:8]); fast_byte(chunk[7:0]);
-                for (c = 0; c < chunk; c = c + 1) fast_byte(blob[off + c]);
-                cs_high;
-                off = off + chunk;
-                if (off < blob_n) cs_low;
-            end
-            release dut.rx_valid;
-            release dut.rx_byte;
+            $display("Upload started at bit %0d", i);
+            spi_upload(blob_n);
             maint = 1;
             cs_low;
             spi_byte(8'h03);

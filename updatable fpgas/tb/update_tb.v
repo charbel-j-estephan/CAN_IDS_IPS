@@ -6,6 +6,7 @@
 //
 // Prints one PASS or FAIL line per check and a total. Exit message "ALL PASS".
 `timescale 1ns/1ps
+`include "test_key.vh"
 module update_tb;
     reg clk = 0;
     always #10 clk = ~clk;
@@ -30,9 +31,10 @@ module update_tb;
 `define READ_MODEL_EN 1
 `endif
 
-    updatable_core #(.DEVICE_ID(32'h1), .READ_MODEL_EN(`READ_MODEL_EN), .NV_SETTLE(5'd6)) dut (
+    updatable_core #(.DEVICE_ID(`TEST_DEVICE_ID), .MAC_KEY(`TEST_MAC_KEY), .ENC_KEY(`TEST_ENC_KEY),
+                     .READ_MODEL_EN(`READ_MODEL_EN), .NV_SETTLE(5'd6)) dut (
         .clk(clk), .rst(rst), .por(por), .rxd(rxd), .tx_dominant(tx_dominant), .ips_on(1'b1),
-        .maint(maint), .mac_ok(mac_ok),
+        .maint(maint),
         .spi_sclk(sclk), .spi_cs_n(cs_n), .spi_mosi(mosi), .spi_miso(miso),
         .csr_address(csr_address), .csr_read(csr_read), .csr_write(csr_write),
         .csr_writedata(csr_writedata), .csr_readdata(csr_readdata),
@@ -253,6 +255,42 @@ module update_tb;
         reject("wrong_protocol", E_PROTOCOL);   expect_model("  still v2", ID_P8, 32'd2, SRC_A);
         reject("bad_selftest",   E_SELFTEST);   expect_model("  still v2", ID_P8, 32'd2, SRC_A);
         reject("wildcard_device", E_DEVICE);    expect_model("  still v2", ID_P8, 32'd2, SRC_A);
+        reject("few_bytes",      E_HEADER);     expect_model("  still v2", ID_P8, 32'd2, SRC_A);
+
+        // ---- the stamp: each of these passes every check before it -----------
+        // Every E_MAC is a strike, so a power cycle after each two keeps the
+        // port open (and each power cycle boots v2 again, its stamp checked).
+        reject("mac_missing",    E_MAC);        expect_model("  still v2", ID_P8, 32'd2, SRC_A);
+        reject("mac_bitflip",    E_MAC);        expect_model("  still v2", ID_P8, 32'd2, SRC_A);
+        power_on;
+        expect_model("stamped slot boots", ID_P8, 32'd2, SRC_A);
+        reject("attacker_edit",  E_MAC);        expect_model("  still v2", ID_P8, 32'd2, SRC_A);
+        reject("other_key",      E_MAC);        expect_model("  still v2", ID_P8, 32'd2, SRC_A);
+        power_on;
+        use_blob("enc_flag_cleared");
+        upload_blob;
+        spi_commit(blob_crc);
+        check("scrambled, flag cleared: refused before the stamp",
+              status_now[7:0] == E_HEADER || status_now[7:0] == E_RANGE
+              || status_now[7:0] == E_LENGTH || status_now[7:0] == E_SELFTEST);
+        $display("      (refused with error %0d)", status_now[7:0]);
+        expect_model("  still v2", ID_P8, 32'd2, SRC_A);
+
+        // ---- fault injection: one zapped compare or lockout copy ------------
+        // Force the first stamp compare to "yes": the second one still says no.
+        force dut.core.mac_ok1 = 1'b1;
+        reject("mac_bitflip",    E_MAC);
+        release dut.core.mac_ok1;
+        expect_model("  zapped compare: still v2", ID_P8, 32'd2, SRC_A);
+        // Make the two lockout copies disagree: the port must lock.
+        force dut.core.strikes_n = 2'b00;
+        @(posedge clk); #1;
+        release dut.core.strikes_n;
+        spi_status;
+        check("zapped lockout copy: port locked", status_now[9] == 1'b1);
+        power_on;
+        spi_status;
+        check("  power cycle unlocks", status_now[9] == 1'b0);
 
         // A good blob with the wrong expected CRC.
         use_blob("v3_p5");
@@ -325,10 +363,10 @@ module update_tb;
         expect_model("both slots corrupt: boot ROM", ID_P5, 32'd1, SRC_ROM);
 
         // ---- three signature failures lock the port -----------------------
-        use_blob("v3_p5");   // floor is 5: use a version that passes the floor check
+        // A good blob stamped with another master key: it passes every check
+        // before the stamp (version 5, floor 5), so each try is a strike.
         maint = 1;
-        mac_ok = 0;
-        use_blob("v5_p8");
+        use_blob("other_key_v5");
         upload_blob; spi_commit(blob_crc);
         check("signature failure 1", status_now[7:0] == E_MAC);
         upload_blob; spi_commit(blob_crc);
@@ -336,7 +374,6 @@ module update_tb;
         upload_blob; spi_commit(blob_crc);
         check("signature failure 3", status_now[7:0] == E_MAC);
         check("port locked", status_now[9] == 1'b1);
-        mac_ok = 1;
         spi_upload(32);
         spi_status;
         check("locked: WRITE refused", status_now[7:0] == E_LOCKED);
@@ -359,9 +396,97 @@ module update_tb;
         good_upload("v5_p8");
         expect_model("updates again after lockout", ID_P8, 32'd5, SRC_A);
 
+        // ---- the journal page fills up: the next record goes to the other page
+        // Start from an empty flash, put one real update in slot A, then fill
+        // journal page A to its last record (512) with valid records that point
+        // at it. The next COMMIT must erase page B and write there.
+        for (i = 0; i < 16384; i = i + 1) ufm.mem[i] = 32'hFFFFFFFF;
+        power_on;
+        expect_model("journal: empty flash, ROM", ID_P5, 32'd1, SRC_ROM);
+        good_upload("v2_p8");
+        expect_model("journal: v2 in slot A", ID_P8, 32'd2, SRC_A);
+        for (i = 1; i < 512; i = i + 1) begin
+            ufm.mem[6144 + 4*i]     = 32'h4C4E524A;
+            ufm.mem[6144 + 4*i + 1] = {i[23:0] + 24'd1, 7'd0, 1'b0};
+            ufm.mem[6144 + 4*i + 2] = 32'd2;
+            ufm.mem[6144 + 4*i + 3] = ~(32'h4C4E524A ^ {i[23:0] + 24'd1, 7'd0, 1'b0} ^ 32'd2);
+        end
+        power_on;
+        expect_model("journal: page A full, boots slot A", ID_P8, 32'd2, SRC_A);
+        good_upload("v3_p5");
+        expect_model("journal: rolled, v3 in slot B", ID_P5, 32'd3, SRC_B);
+        check("journal: record 0 of page B written", ufm.mem[14336] == 32'h4C4E524A
+              && ufm.mem[14337] == {24'd513, 7'd0, 1'b1});
+        power_on;
+        expect_model("journal: boots slot B from page B", ID_P5, 32'd3, SRC_B);
+        good_upload("v5_p8");
+        check("journal: next record on page B", ufm.mem[14340] == 32'h4C4E524A
+              && ufm.mem[14341] == {24'd514, 7'd0, 1'b0});
+        power_on;
+        expect_model("journal: boots v5 after the roll", ID_P8, 32'd5, SRC_A);
+
+        // ---- no usable model anywhere: the port must still take one -------
+        // Empty flash and a broken ROM (its magic spoiled). The board boots with
+        // no model, not busy, and a normal upload repairs it.
+        for (i = 0; i < 16384; i = i + 1) ufm.mem[i] = 32'hFFFFFFFF;
+        dut.core.rom.rom[0] = 8'h00;
+        rst = 1; por = 1;
+        repeat (5) @(posedge clk);
+        @(posedge clk); por = 0;
+        @(posedge clk); rst = 0;
+        #1000;
+        spi_status;
+        while (status_now[8]) spi_status;
+        check("no model: not busy, source none", status_now[8] == 1'b0 && status_now[13:12] == 2'd0);
+        check("no model: classification off", model_valid === 1'b0);
+        check("no model: error says header", status_now[7:0] == E_HEADER);
+        good_upload("v5_p8");
+        expect_model("no model: repaired over SPI", ID_P8, 32'd5, SRC_A);
+        check("no model: classification on again", model_valid === 1'b1);
+        dut.core.rom.rom[0] = 8'h43;          // 'C' of the magic: the ROM is whole again
+
+        // ---- an unstamped rulebook in flash does not boot --------------------
+        // As after the Stage 5 upgrade: a slot and journal record from before,
+        // without a valid stamp. The board must fall back to the ROM model.
+        for (i = 0; i < 16384; i = i + 1) ufm.mem[i] = 32'hFFFFFFFF;
+        use_blob("unsigned_v5_p8");
+        for (i = 0; i < blob_n; i = i + 4)
+            ufm.mem[i / 4] = {blob[i+3], blob[i+2], blob[i+1], blob[i]};
+        ufm.mem[6144] = 32'h4C4E524A;
+        ufm.mem[6145] = {24'd1, 7'd0, 1'b0};
+        ufm.mem[6146] = 32'd5;
+        ufm.mem[6147] = ~(32'h4C4E524A ^ {24'd1, 7'd0, 1'b0} ^ 32'd5);
+        power_on;
+        expect_model("unstamped slot in flash: ROM boots", ID_P5, 32'd1, SRC_ROM);
+
+        // ---- a scrambled rulebook --------------------------------------------
+        good_upload("enc_v6_p6");
+        expect_model("scrambled v6 active, in slot A", ID_P6, 32'd6, SRC_A);
+        // Flash must hold the scrambled bytes, not the plain ones: compare the
+        // first 1,000 node bytes in slot A with the plain blob of the same model.
+        begin : flash_check
+            integer same, scr_same, w;
+            reg [7:0] plain [0:32767];
+            reg [7:0] fb;
+            $readmemh("test_blobs/plain_v6_p6.hex", plain, 0, blob_n - 1);
+            same = 0; scr_same = 0;
+            for (i = 704; i < 1704; i = i + 1) begin
+                w = ufm.mem[i / 4];
+                fb = w >> (8 * (i % 4));
+                if (fb == plain[i]) same = same + 1;
+                if (fb == blob[i])  scr_same = scr_same + 1;
+            end
+            $display("      of 1000 node bytes in flash: %0d equal the scrambled blob, %0d the plain one",
+                     scr_same, same);
+            check("flash holds the scrambled bytes", scr_same == 1000);
+            check("flash does not hold the plain nodes", same < 20);
+        end
+        power_on;
+        expect_model("scrambled slot boots after a power cycle", ID_P6, 32'd6, SRC_A);
+
         // ---- reading the model back ----------------------------------------
         spi_read_reg(16'h0004);
-        check("READ of a status register", reg_word == ID_P8);
+        check("READ of a status register", reg_word == ID_P6);
 `ifdef EXPECT_READ_BLOCKED
         spi_read_reg(16'h4000);
         check("production: node read blocked", reg_word == 32'hDEAD0BAD);
@@ -373,6 +498,11 @@ module update_tb;
         upload_blob;
         spi_read_reg(16'h4000);        // tree 0, level 0, node 0, low 32 bits
         check("development: node readable",
+              reg_word == {blob[704+3], blob[704+2], blob[704+1], blob[704]});
+        spi_read_reg(16'h4000 | (16'd12 << 7));   // tree 0, level 12: does not exist
+        check("development: level 12 refused", reg_word == 32'hDEAD0BAD);
+        spi_read_reg(16'h4000);
+        check("development: node readable after that",
               reg_word == {blob[704+3], blob[704+2], blob[704+1], blob[704]});
 `endif
 

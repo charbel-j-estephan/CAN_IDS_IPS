@@ -49,6 +49,13 @@ module ufm_model #(
     integer ops_done  = 0;
     reg     cut_now   = 1'b0;
 
+    // Fault switches for tb/nv_timeout_tb.v, set from the testbench by name
+    // (ufm.stuck_busy = 1). Off by default, so the other tests are unchanged.
+    //   stuck_busy  an erase or write that has started never finishes
+    //   stuck_wait  data_waitrequest stays high: no read or write is accepted
+    reg     stuck_busy = 1'b0;
+    reg     stuck_wait = 1'b0;
+
     initial for (i = 0; i < 16384; i = i + 1) mem[i] = 32'hFFFFFFFF;
 
     task erase_page;
@@ -81,8 +88,8 @@ module ufm_model #(
             data_waitrequest <= 1'b1;
 
             if (busy != 2'd0) begin
-                timer <= timer - 1;
-                if (timer == 0) begin
+                if (!stuck_busy) timer <= timer - 1;
+                if (timer == 0 && !stuck_busy) begin
                     if (busy == 2'd2) begin
                         mem[op_addr] = mem[op_addr] & op_data;
                         w_pass <= 1'b1;
@@ -108,7 +115,7 @@ module ufm_model #(
                         end
                     end
                 end
-                if (data_write && data_waitrequest) begin
+                if (data_write && data_waitrequest && !stuck_wait) begin
                     data_waitrequest <= 1'b0;
                     if ((data_address < 8192 && !wp[0]) || (data_address >= 8192 && !wp[1])) begin
                         op_addr = data_address;
@@ -121,7 +128,7 @@ module ufm_model #(
                         w_pass <= 1'b0;
                     end
                 end
-                if (data_read && data_waitrequest && rd_wait < 0) begin
+                if (data_read && data_waitrequest && rd_wait < 0 && !stuck_wait) begin
                     data_waitrequest <= 1'b0;
                     rd_addr <= data_address;
                     rd_wait <= READ_CLKS;

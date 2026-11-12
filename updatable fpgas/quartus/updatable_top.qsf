@@ -180,7 +180,15 @@ set_global_assignment -name VERILOG_FILE ../rtl/update/blob_reader.v
 set_global_assignment -name VERILOG_FILE ../rtl/update/update_core.v
 set_global_assignment -name VERILOG_FILE ../rtl/nv/nv_ufm_avmm.v
 set_global_assignment -name VERILOG_FILE ../rtl/nv/boot_rom.v
+set_global_assignment -name VERILOG_FILE ../rtl/security/aes_sbox.v
+set_global_assignment -name VERILOG_FILE ../rtl/security/aes128_enc.v
+set_global_assignment -name VERILOG_FILE ../rtl/security/cmac_stream.v
+set_global_assignment -name VERILOG_FILE ../rtl/security/ctr_stream.v
 set_global_assignment -name QIP_FILE nv_flash/synthesis/nv_flash.qip
+
+# This board's number and keys: keys/device_key.vh, made by
+# python/make_device_key.py (keys/ is not in git). Without it the build stops.
+set_global_assignment -name SEARCH_PATH ../keys
 set_global_assignment -name MIF_FILE default_model.mif
 
 # The .mif default needs a mode that stores memory contents in flash. UFM1 and

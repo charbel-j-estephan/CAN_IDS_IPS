@@ -53,7 +53,7 @@
 #include "can_rx.h"
 #include "classify.h"
 
-#define FW_VERSION  16          // in READY and #STAT: which build is running
+#define FW_VERSION  17          // in READY and #STAT: which build is running
 #define BITRATE     500000
 #define RING        512          // frames waiting for USB, power of two
 #define LED         PA6          // on (low) while frames arrive
@@ -160,9 +160,15 @@ static void ips_enable(bool on)
     g.Pin = GPIO_PIN_9;
     g.Pull = GPIO_NOPULL;
     g.Speed = GPIO_SPEED_FREQ_HIGH;
+    // fw 17: with interrupts masked. The bit interrupt reads flag_state and
+    // m3_pending and itself changes CCMR2 (set_oc4 is read-modify-write): if it
+    // ran between these writes it could schedule a flag that m3_pending = 0 then
+    // orphaned, holding PB9 dominant with nothing left to end it.
+    __disable_irq();
     set_oc4(OC_OFF);                     // released before the pin is handed over
     flag_state = 0;
     m3_pending = 0;
+    __enable_irq();
     if (on) {
         TIM4->CCER |= TIM_CCER_CC4P | TIM_CCER_CC4E;    // active level = low
         g.Mode = GPIO_MODE_AF_OD;
@@ -354,7 +360,7 @@ static __attribute__((noinline)) void features_in(const can_frame_t &f, uint16_t
     NVIC_SetPendingIRQ(MODEL_IRQ);
 }
 
-static __attribute__((noinline)) void keep(const can_frame_t &f, uint16_t end_tick)
+static inline void keep_frame(const can_frame_t &f, uint16_t end_tick)
 {
     if (f.ide || f.rtr) {
         n_other++;
@@ -384,6 +390,29 @@ static __attribute__((noinline)) void keep(const can_frame_t &f, uint16_t end_ti
         n_dlate++;
     }
     ring_head = next;
+}
+
+// fw 17: the frame is complete, so its job number is done with. A verdict that
+// comes after this (a slow model run) no longer matches frame_seq in the model
+// interrupt, so it cannot ask for a flag. fw 16 kept frame_seq until the next
+// start of frame: a late attack verdict set m3_pending, and the first sample of
+// the next frame, which may be a normal one, started the flag on it.
+static __attribute__((noinline)) void keep(const can_frame_t &f, uint16_t end_tick)
+{
+    keep_frame(f, end_tick);
+    frame_seq = 0;
+}
+
+// fw 17, at the start of frame edge: no job is in the model for this frame
+// yet. A flag request left over from the last frame (its verdict came after
+// that frame went idle, or the frame ended in an error so keep() never ran)
+// is dropped here, unless a flag is really scheduled or on the bus.
+// noinline, so the bit interrupt saves no more registers than fw 16.
+static __attribute__((noinline)) void m3_new_frame()
+{
+    frame_seq = 0;
+    if (!flag_state)
+        m3_pending = 0;
 }
 
 // The edge interrupt is only on while the bus is idle, to catch a start of
@@ -455,7 +484,7 @@ extern "C" void TIM4_IRQHandler(void)
         uint16_t at = TIM4->CCR3;          // reading it clears the flag
         edge_irq(false);
         sof_tick = at;
-        frame_seq = 0;
+        m3_new_frame();
         can_frame_t f;
         can_rx_sof();
         can_rx_bit(0, &f);

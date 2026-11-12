@@ -54,6 +54,7 @@ module nv_ufm_avmm #(
     reg [31:0] timer;
     reg [4:0]  settle;
     reg        pass;
+    reg        abort;              // timed out: finishing through S_PROT, result is a failure
 
     // Control register fields (Intel's altera_onchip_flash_regs.h):
     //   [19:0] page erase address (words), [22:20] sector erase, 7 = none,
@@ -72,6 +73,7 @@ module nv_ufm_avmm #(
         done <= 1'b0;
         if (rst) begin
             state      <= S_IDLE;
+            abort      <= 1'b0;
             csr_read   <= 1'b0;
             csr_write  <= 1'b0;
             data_read  <= 1'b0;
@@ -79,22 +81,33 @@ module nv_ufm_avmm #(
         end else begin
             csr_write <= 1'b0;
             csr_read  <= 1'b0;
-            if (state != S_IDLE) begin
+            if (state != S_IDLE)
                 timer <= timer + 1'b1;
-                if (timer == TIMEOUT) begin
-                    ok         <= 1'b0;
-                    done       <= 1'b1;
-                    state      <= S_IDLE;
-                    data_read  <= 1'b0;
-                    data_write <= 1'b0;
+
+            // The timeout comes first and nothing below can overrule it (it used
+            // to be overwritten by the case statement in the same clock, so a
+            // stuck flash kept the controller busy for good). A read just stops.
+            // A write or erase stops its request, then goes through S_PROT so the
+            // sector is write protected again, and reports a failure.
+            if (state != S_IDLE && !abort && timer >= TIMEOUT) begin
+                data_read  <= 1'b0;
+                data_write <= 1'b0;
+                if (op_r == OP_READ) begin
+                    ok    <= 1'b0;
+                    done  <= 1'b1;
+                    state <= S_IDLE;
+                end else begin
+                    abort <= 1'b1;
+                    pass  <= 1'b0;
+                    state <= S_PROT;
                 end
-            end
-            case (state)
+            end else case (state)
             S_IDLE: if (start) begin
                 op_r    <= op;
                 addr_r  <= addr;
                 wdata_r <= wdata;
                 timer   <= 32'd0;
+                abort   <= 1'b0;
                 state   <= (op == OP_READ) ? S_R_REQ : S_UNPROT;
             end
 
@@ -171,7 +184,7 @@ module nv_ufm_avmm #(
             end
 
             S_FINISH: begin
-                ok    <= pass;
+                ok    <= pass && !abort;
                 done  <= 1'b1;
                 state <= S_IDLE;
             end

@@ -38,6 +38,8 @@ SPI_RTL = [os.path.join("rtl", "frontend_can", f) for f in ("can_rx.v", "ips_fla
           [os.path.join("rtl", "update", f) for f in
            ("crc32.v", "spi_slave.v", "cmd_decoder.v", "blob_walker.v", "blob_reader.v", "update_core.v")] + \
           [os.path.join("rtl", "nv", f) for f in ("nv_ufm_avmm.v", "boot_rom.v")] + \
+          [os.path.join("rtl", "security", f) for f in
+           ("aes_sbox.v", "aes128_enc.v", "cmac_stream.v", "ctr_stream.v")] + \
           [os.path.join("rtl", "top", "updatable_core.v"), os.path.join("tb", "ufm_model.v")]
 
 
@@ -118,9 +120,10 @@ def check_model(nb, args, sim):
     py_forest = hard_vote_predict(bundle["model"], Xu).astype(np.int8)
     py_final = known_id_rule(py_forest, Xu[:, 0].astype(int), bundle["known_ids"]).astype(np.int8)
 
-    work = os.path.join(paths.BUILD, "accuracy", name)
+    work = os.path.join(paths.BUILD, "accuracy", name + ("_enc" if args.enc else ""))
     os.makedirs(work, exist_ok=True)
-    blob = os.path.join(paths.BUILD, "test_blobs", "ds_p%d.hex" % nb) if args.spi else \
+    blob = os.path.join(paths.BUILD, "test_blobs", "ds_p%d%s.hex" % (nb, "_enc" if args.enc else "")) \
+        if args.spi else \
         os.path.join(paths.BUILD, "blobs", "p%d" % nb, "model.hex")
     blob_hex = os.path.relpath(blob, work)
     forest, final = run_chunks(sim, blob_hex.replace("\\", "/"), ukeys, work, args.jobs)
@@ -143,6 +146,9 @@ def main():
     ap.add_argument("--tb", default=os.path.join("tb", "engine_all_tb.v"))
     ap.add_argument("--spi", action="store_true",
                     help="load the blob over the SPI port and COMMIT (tb/spi_all_tb.v)")
+    ap.add_argument("--enc", action="store_true",
+                    help="with --spi: upload the scrambled blob (ds_pN_enc), so the classifier "
+                         "runs on a rulebook the FPGA unscrambled itself")
     ap.add_argument("--extra", nargs="*", default=[], help="more Verilog files, relative to updatable fpgas")
     ap.add_argument("--limit", type=int, default=0, help="frames per file, 0 = all")
     ap.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2) - 1))
@@ -150,6 +156,8 @@ def main():
 
     os.makedirs(paths.BUILD, exist_ok=True)
     sim = os.path.join(paths.BUILD, "accuracy_spi_sim" if args.spi else "accuracy_sim")
+    if args.enc and not args.spi:
+        ap.error("--enc needs --spi")
     if args.spi:
         args.tb, args.extra = os.path.join("tb", "spi_all_tb.v"), SPI_RTL
     compile_tb(args.tb, args.extra, sim)
