@@ -1,47 +1,65 @@
-# Security design (Phase D: design only, nothing here is implemented yet)
+# Security design
 
-## Where things stand today
+Sections 1, 2, 4 and 5 are built and simulated (Stage 5, `rtl/security/`).
+Section 3 is manual steps on the board, written down only. Nothing here has run
+on the board yet.
 
-Phase 1 checks a CRC. **A CRC catches mistakes; it does not stop an attacker**, who
-can compute one for any blob. The self test vectors come from the same blob, so
-they catch hardware faults, not malice. Until the MAC exists, the only thing
-standing between an attacker and the update port is the physical maintenance
-switch. The port is on the board, so anyone with access to the board has access to
-the switch.
+## Where things stand
 
-Already in the hardware today, and enforced: maintenance switch, 3 strike lockout
-(fires only when a MAC check exists to fail; a test hook forces it in simulation),
-anti rollback counter, device ID check, protocol ID check, range checks, self test,
-two-slot flash with journal. Blob fields for MAC, key ID, IV and the encryption flag
-all exist, so the MAC goes in without changing the format or the register map.
+The board now checks a **stamp** (AES-CMAC, the MAC field) on every rulebook it
+takes over SPI and on every rulebook it boots from flash. A CRC only catches
+mistakes, since anyone can compute one; the stamp needs the board's key. The only
+rulebook allowed without a stamp is the boot ROM's own (wildcard device ID,
+not scrambled), and that exception is checked twice.
 
-## 1. AES-CMAC inside the FPGA
+Also enforced: maintenance switch (sampled twice), 3 strike lockout (now real:
+three wrong stamps lock the update port until a power cycle), anti rollback floor
+(checked twice), device ID, protocol ID, range checks, self test, two-slot flash
+with journal, and optional **scrambling** of the self tests, key table and nodes.
 
-Your AES-128 engine is **not in this repository or on the Desktop** (searched for
-`*aes*` Verilog and VHDL files). Point me to it when this phase starts. The design
-below assumes a block engine with key, block in, block out, start and done.
+| Piece | File | Checked against |
+|---|---|---|
+| AES-128, one round per 2 clocks, S-boxes as M9K ROMs | `rtl/security/aes128_enc.v`, `aes_sbox.v` | FIPS-197 C.1 and 1,000 random blocks (`tb/aes_tb.v`) |
+| Seal checker, CMAC over the byte stream | `rtl/security/cmac_stream.v` | RFC 4493 (16, 40, 64 bytes), every real blob length, random lengths (`tb/cmac_tb.v`) |
+| Keystream for scrambling, AES-CTR | `rtl/security/ctr_stream.v` | blocks 0-2 for two keys and IVs (`tb/ctr_tb.v`) |
+| Wiring, compares, gates, lockout | `rtl/update/update_core.v`, `blob_walker.v`, `blob_reader.v` | `tb/update_tb.v` |
+| PC side | `python/blob_crypto.py`, `sign_blob.py`, `make_device_key.py` | `cryptography` library |
 
-- A new module `mac_verify.v` replaces the `mac_ok` stub input of `update_core`. It
-  needs no new ports on anything else.
-- It runs in `S_C_MAC` for COMMIT and in `S_LOAD_CHK` for boot. Reading the blob back
-  through `blob_reader` (RAM) or the flash source gives it exactly the bytes signed.
-- CMAC per RFC 4493: subkeys K1, K2 from AES(K, 0); 16 byte blocks; the last block
-  padded or XORed with the subkey.
-- Cost: about 4,200 to 5,100 bytes, 260 to 320 blocks. At about 11 clocks per AES
-  round-based block that is well under 100 us. Boot and COMMIT time do not change
-  noticeably.
+Not covered: the 0 byte CMAC case of RFC 4493 (a byte stream of length 0 never
+ends a block; a blob is never shorter than 708 bytes), side channel attacks
+(power analysis) on the AES circuit, and anything done with a JTAG cable (section 3).
 
-## 2. Keys
+## 1. AES-CMAC inside the FPGA (built)
 
-- **Signing happens on your PC, never on the STM32.** `python/sign_blob.py` does this
-  now. The STM32 holds no key: dumping it gives nothing that can sign a model.
-- **Per device keys.** Device key = AES-CMAC(master key, device ID), computed on the
-  PC. Each board stores only its own device key, so one extracted key does not unlock
-  other boards. The master key stays on the PC, in `keys/` (ignored by git).
-- Use separate derived keys for the MAC and for payload encryption (different
-  derivation labels); never one key for both.
+- `cmac_stream.v` sits on the walker's input, so one circuit sees the bytes from
+  SPI, flash and ROM alike. It covers every byte before the MAC, the CRC included.
+- It holds a byte back (`ready`) while its AES is busy, instead of assuming it is
+  fast enough: at boot the flash feeds bytes about every 2 clocks.
+- The walker can finish before the last AES block does; `S_LOAD_CHK` and
+  `S_C_CHECK` wait for the tag (at most 255 clocks).
+- Cost: about 21 clocks per 16 bytes. A 5 KB blob adds well under a millisecond.
 
-## 3. Where the device key can live on a MAX 10
+## 2. Keys (built)
+
+- **Signing happens on your PC, never on the STM32.** `python/sign_blob.py`. The
+  STM32 holds no key: dumping it gives nothing that can sign a model.
+- **Per device keys**, from one master key in `keys/` (ignored by git):
+  stamp key = AES-CMAC(master, device ID), scrambling key = AES-CMAC(master,
+  `ENC` + device ID). Two keys, never one for both.
+- `python/make_device_key.py --key keys/master.key --device-id N` writes
+  `keys/device_key.vh` (board number and both keys together). `updatable_top.v`
+  includes it; Quartus stops if it is missing, so no board is built with a test
+  key. The simulations use `tb/test_key.vh`, from a key printed in
+  `blob_crypto.py` on purpose.
+- The key is a constant in the design, so **one program file per board**, and it
+  appears in Quartus' reports: do not share the `quartus/` output folder.
+
+## 3. Where the device key can live on a MAX 10 (manual steps, not done)
+
+**Warning before any of these.** They are done in the Quartus Programmer on the
+board and are hard to undo. JTAG secure mode can stop you reprogramming the board
+over the USB-Blaster. Do them only on a finished board, never on your one
+development board, and keep the `.ekp` key file somewhere safe.
 
 | Place | Readable? | Verdict |
 |---|---|---|
@@ -84,29 +102,28 @@ What it does **not** give you, plainly:
 Build flow for production: generate the encrypted POF with your key (`.ekp`, kept
 confidential), enable JTAG secure and verify protect, set `READ_MODEL_EN = 0`.
 
-## 4. Glitch hardening
+## 4. Glitch hardening (built, except as noted)
 
-The commit path is a target: one flipped bit at the right moment would accept an
-unsigned model.
+The commit and boot decisions are a target: one flipped bit at the right moment
+would accept an unsigned model. What `update_core.v` does:
 
-- **Constant time compare.** OR together the XOR of every MAC byte; never stop at the
-  first difference.
-- **Compare twice**, independently, in two separate registers and at two different
-  times.
-- **Multi bit pass value.** The result register holds a 32 bit magic constant set only
-  when both compares agree, and `S_C_ERASE` is entered only if it equals the magic.
-  Never a single flag bit.
-- **Other risks on the commit path, for the same treatment:**
-  - the state machine: use a one-hot or Hamming distance encoded state register for the
-    commit states, and treat any illegal value as a failure (`default` already does this);
-  - the version compare (a glitch could accept a rollback): compare twice;
-  - the lockout counter: use a redundant encoding, so a glitch cannot reset strikes;
-  - the journal marker write: the record's check word already protects it, keep it last;
-  - clock glitching during the bank swap: the bank tag is one bit in the pipeline, so
-    consider duplicating it;
-  - the maintenance switch input: sample it twice, a few clocks apart.
+| Risk | What is built | Simulated |
+|---|---|---|
+| The stamp compare | Two tag registers (`tag_a`, `tag_b`), compared at two different clocks (`S_C_CHECK` and `S_C_MAC`; at boot `S_LOAD_CHK` and `S_LOAD_MAC2`), each a 128 bit XOR then OR, the same time whatever the data | forcing the first compare to "yes" still gives `E_MAC` |
+| A single "OK" bit | `mac_pass` is set to the 32 bit code `C3A55A3C` only when both compares agree. `S_C_ERASE` and the boot `S_CFG` refuse to run without it, also if a glitch jumps straight into them. Cleared on every new upload, failure and activation | |
+| The ROM exception (the one blob allowed without a stamp) | ROM source, wildcard device ID and flags 0, checked in `S_LOAD_CHK` and again in `S_LOAD_PASS` | the ROM still boots on empty flash |
+| Rollback | the version against the floor in `S_C_CHECK` and again in `S_C_MAC` | |
+| Lockout counter | two copies, the second inverted; any disagreement counts as locked | forcing a disagreement locks the port |
+| Maintenance switch | sampled every clock and every 128 clocks; both must be up (`updatable_top.v`) | board only |
+| Merging by Quartus | `(* preserve *)` on the duplicated registers; check the fitter report | see `docs/RESULTS.md` |
+| State register | the `default` branch sends an illegal state to `S_HALT` (passive). Not one-hot or Hamming coded | |
+| Journal marker write | unchanged: the record's check word already protects it, and it is written last | |
 
-## 5. Optional confidentiality
+Left out on purpose: doubling the one bit bank tag in the engine pipeline (it
+costs a register on every level of every tree, and the self test already catches
+a bank that does not classify).
+
+## 5. Optional confidentiality (built: `sign_blob.py --encrypt`)
 
 Encrypting the payload keeps the trees secret on the wire and in flash, which is what
 really stops someone learning the thresholds from a captured update or a flash dump.
@@ -117,7 +134,13 @@ really stops someone learning the thresholds from a captured update or a flash d
   before decrypting anything.
 - The header stays in the clear (it holds the version, device and lengths the FPGA
   needs before it can decrypt). Encrypted: self test vectors, key table, nodes.
-- The flag is `Flags` bit 0, already rejected today, so an encrypted blob cannot be
-  misread as a plain one by this build.
-- Decrypt in `blob_walker`'s byte path, between the source and the parser. The engine
-  does not change.
+- The flag is `Flags` bit 0. The boot ROM blob may never have it.
+- Unscrambled in `blob_walker`'s byte path, between the source and the parser; the
+  engine does not change. The RAMs hold the plain model, so `blob_reader`'s output is
+  scrambled again on the way to flash: the CRC check of the RAM, the flash write and
+  the flash read back all see the scrambled bytes, and **flash never holds the plain
+  rulebook**. A test compares the flash with the plain blob.
+- `sign_blob.py --encrypt` picks a fresh random IV every time and offers no way to
+  choose one.
+- A development build (`READ_MODEL_EN = 1`) can still read the plain model out of the
+  RAMs over SPI. Production builds must use `READ_MODEL_EN = 0`.

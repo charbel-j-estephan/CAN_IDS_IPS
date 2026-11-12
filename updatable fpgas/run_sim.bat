@@ -8,14 +8,21 @@ rem   5. the same with READ of the model blocked (production build)
 rem   6. the whole design on a simulated bus, IPS on
 rem   7. the model swapped from 5 to 8 bytes in the middle of traffic
 rem   8. the flash controller against Intel's flash model (needs Questa)
+rem   9. the flash controller when the flash stops answering (timeouts)
+rem  10. the IPS rate limit
+rem  11. the security circuits against Python: AES, the seal (CMAC), the
+rem      scrambling keystream (CTR)
+rem  12. every dataset frame again, with a scrambled blob over SPI
 rem
-rem Needs Icarus in C:\iverilog\bin and py -3.13 with scikit-learn. The models
-rem and the dataset are read from models\ and data\ of the repo.
+rem Needs Icarus in C:\iverilog\bin and py -3.13 with scikit-learn and
+rem cryptography. The models and the dataset are read from models\ and data\
+rem of the repo. The simulations use the public test key (tb\test_key.vh).
 setlocal
 cd /d "%~dp0"
 set "IV=C:\iverilog\bin"
 if not exist build mkdir build
-set "RTL=rtl/engine/sdp_ram.v rtl/engine/tree_level.v rtl/engine/rf_engine.v rtl/engine/rf_classifier.v rtl/frontend_can/can_features.v rtl/frontend_can/can_rx.v rtl/frontend_can/ips_flag.v rtl/update/crc32.v rtl/update/spi_slave.v rtl/update/cmd_decoder.v rtl/update/blob_walker.v rtl/update/blob_reader.v rtl/update/update_core.v rtl/nv/nv_ufm_avmm.v rtl/nv/boot_rom.v rtl/top/updatable_core.v"
+set "SEC=rtl/security/aes_sbox.v rtl/security/aes128_enc.v rtl/security/cmac_stream.v rtl/security/ctr_stream.v"
+set "RTL=rtl/engine/sdp_ram.v rtl/engine/tree_level.v rtl/engine/rf_engine.v rtl/engine/rf_classifier.v rtl/frontend_can/can_features.v rtl/frontend_can/can_rx.v rtl/frontend_can/ips_flag.v rtl/update/crc32.v rtl/update/spi_slave.v rtl/update/cmd_decoder.v rtl/update/blob_walker.v rtl/update/blob_reader.v rtl/update/update_core.v rtl/nv/nv_ufm_avmm.v rtl/nv/boot_rom.v rtl/top/updatable_core.v %SEC%"
 
 echo === 1. blobs ===
 for %%b in (5 6 8) do (
@@ -24,6 +31,7 @@ for %%b in (5 6 8) do (
     )
 )
 py -3.13 python/make_test_blobs.py || goto :fail
+py -3.13 python/make_security_vectors.py || goto :fail
 copy /y build\blobs\p5\model.hex build\default_model.hex >nul
 
 echo.
@@ -83,6 +91,31 @@ pushd build\intel_flash
 "%VS%\vsim.exe" -c -quiet work.intel_flash_tb -do "run -all; quit -f" | findstr /r "FAIL PASS TIMEOUT"
 popd
 :done8
+
+echo.
+echo === 9. flash controller when the flash stops answering ===
+"%IV%\iverilog" -g2005 -o build/nv_timeout_sim tb/nv_timeout_tb.v tb/ufm_model.v rtl/nv/nv_ufm_avmm.v || goto :fail
+"%IV%\vvp" -n build/nv_timeout_sim | findstr /r "^FAIL checks ALL"
+
+echo.
+echo === 10. IPS rate limit ===
+"%IV%\iverilog" -g2005 -o build/ips_limit_sim tb/ips_limit_tb.v rtl/frontend_can/ips_flag.v || goto :fail
+"%IV%\vvp" -n build/ips_limit_sim | findstr /r "^FAIL checks ALL"
+
+echo.
+echo === 11. security circuits against Python ===
+"%IV%\iverilog" -g2005 -o build/aes_sim tb/aes_tb.v rtl/security/aes128_enc.v rtl/security/aes_sbox.v || goto :fail
+"%IV%\iverilog" -g2005 -o build/cmac_sim tb/cmac_tb.v %SEC% || goto :fail
+"%IV%\iverilog" -g2005 -o build/ctr_sim tb/ctr_tb.v %SEC% || goto :fail
+pushd build
+"%IV%\vvp" -n aes_sim | findstr /r "^AES FAIL ALL"
+"%IV%\vvp" -n cmac_sim | findstr /r "^CMAC FAIL ALL"
+"%IV%\vvp" -n ctr_sim | findstr /r "^CTR FAIL ALL"
+popd
+
+echo.
+echo === 12. every dataset frame, scrambled blob over SPI ===
+py -3.13 python/accuracy_engine.py --spi --enc --bytes 5 6 8 || goto :fail
 
 echo.
 echo All simulations done. Check the lines above for FAIL.

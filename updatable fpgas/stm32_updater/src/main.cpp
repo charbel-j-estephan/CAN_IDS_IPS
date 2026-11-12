@@ -13,14 +13,21 @@
 
 static uint8_t blob[24576];
 
+// The longest command is "PUSH 24576 ffffffff" (19 characters). A line longer
+// than this is cut: the rest is read and dropped, so a stream of bytes with no
+// newline (a PUSH payload sent at the wrong time) cannot grow the String until
+// the heap runs out.
+#define LINE_MAX 64
+
 static String read_line()
 {
     String s;
+    s.reserve(LINE_MAX);
     for (;;) {
         while (!Serial.available()) { }
         char c = Serial.read();
         if (c == '\n') return s;
-        if (c != '\r') s += c;
+        if (c != '\r' && s.length() < LINE_MAX) s += c;
     }
 }
 

@@ -1,39 +1,36 @@
-"""Sign a model blob for one board. Runs on your PC only; the STM32 only ever
-carries the result.
+"""Sign a model blob for one board, and scramble it if asked. Runs on your PC
+only; the STM32 only ever carries the result.
 
     py -3.13 sign_blob.py build/blobs/p5/model.bin --device-id 1 --version 2 \\
-        --key keys/master.key --out build/signed/p5_dev1_v2.bin
+        --key keys/master.key --encrypt --out build/signed/p5_dev1_v2.bin
 
     py -3.13 sign_blob.py --new-key keys/master.key     makes a random master key
 
-Writes the device ID and version into the blob, recomputes its CRC and fills the
-MAC field. Keys:
-    device key = AES-CMAC(master key, device ID)
-    MAC        = AES-CMAC(device key, every byte of the blob before the MAC)
+Writes the device ID and version into the blob, scrambles the self tests, key
+table and nodes with --encrypt (fresh random IV every time), recomputes the
+CRC and fills the MAC field. Keys (blob_crypto.py):
+    stamp key       = AES-CMAC(master key, device ID)
+    scrambling key  = AES-CMAC(master key, "ENC" + device ID)
+    MAC             = AES-CMAC(stamp key, every byte of the blob before the MAC)
 A blob signed for one board fails on another. Keep keys/ out of git (it is
-ignored) and off the STM32.
-
-The FPGA does not check the MAC yet: that is Phase 2 (docs/SECURITY_DESIGN.md).
-Today's CRC only catches mistakes, it does not stop an attacker.
+ignored) and off the STM32. The FPGA checks the MAC at every COMMIT and boot.
 """
 import argparse
 import os
 import struct
 import sys
-import zlib
-
-from cryptography.hazmat.primitives.cmac import CMAC
-from cryptography.hazmat.primitives.ciphers.algorithms import AES
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import blob_crypto as bc  # noqa: E402
 import blob_format as bf  # noqa: E402
 
+# Kept for scripts that imported them from here.
+cmac = bc.cmac
 
-def cmac(key, msg):
-    c = CMAC(AES(key))
-    c.update(msg)
-    return c.finalize()
+
+def device_key(master, device_id):
+    return bc.mac_key(master, device_id)
 
 
 def read_key(path):
@@ -49,24 +46,21 @@ def read_key(path):
     return raw
 
 
-def device_key(master, device_id):
-    return cmac(master, struct.pack("<I", device_id))
-
-
-def sign(blob, device_id, version, key, key_id=0):
+def sign(blob, device_id, version, key, key_id=0, encrypt=False):
+    h = bf.parse(bytes(blob))               # the input must be a sound blob
+    if h["encrypted"]:
+        raise SystemExit("The input is already scrambled: sign the plain blob from export_blob.py")
     b = bytearray(blob)
-    bf.parse(bytes(b))                      # the input must be a sound blob
     struct.pack_into("<I", b, 16, version)
     struct.pack_into("<I", b, 20, device_id)
     struct.pack_into("<I", b, 36, key_id)
-    n = len(b)
-    struct.pack_into("<I", b, n - bf.TRAILER_SIZE, zlib.crc32(bytes(b[:n - bf.TRAILER_SIZE])))
-    b[n - 16:] = cmac(device_key(key, device_id), bytes(b[:n - 16]))
-    return bytes(b)
+    if encrypt:                             # flag and IV are set before the CRC and the MAC
+        b = bytearray(bc.scramble(bytes(b), key, device_id))
+    return bc.seal(bytes(b), key, device_id)
 
 
 def verify(blob, key, device_id):
-    return cmac(device_key(key, device_id), bytes(blob[:-16])) == bytes(blob[-16:])
+    return bc.verify(blob, key, device_id)
 
 
 def main():
@@ -77,6 +71,8 @@ def main():
     ap.add_argument("--version", type=lambda s: int(s, 0))
     ap.add_argument("--key", help="master key file: 16 raw bytes or 32 hex digits")
     ap.add_argument("--key-id", type=int, default=0)
+    ap.add_argument("--encrypt", action="store_true",
+                    help="scramble self tests, key table and nodes (AES-CTR, random IV)")
     ap.add_argument("--out")
     ap.add_argument("--new-key", help="write a new random master key to this file and stop")
     args = ap.parse_args()
@@ -98,15 +94,20 @@ def main():
     with open(args.blob, "rb") as f:
         blob = f.read()
     key = read_key(args.key)
-    signed = sign(blob, args.device_id, args.version, key, args.key_id)
+    signed = sign(blob, args.device_id, args.version, key, args.key_id, args.encrypt)
     h = bf.parse(signed)
     if not verify(signed, key, args.device_id):
         raise SystemExit("Internal error: the signature does not verify")
+    if args.encrypt:
+        plain = bf.parse(bc.unscramble(signed, key, args.device_id))
+        if plain["model_id"] != h["model_id"] or not plain["trees"]:
+            raise SystemExit("Internal error: the scrambled blob does not unscramble")
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     with open(args.out, "wb") as f:
         f.write(signed)
-    print("Signed for device %d, version %d: model %08x, %d bytes, CRC %08x, MAC %s"
-          % (h["device_id"], h["version"], h["model_id"], len(signed), h["crc"], h["mac"].hex()))
+    print("Signed for device %d, version %d%s: model %08x, %d bytes, CRC %08x, MAC %s"
+          % (h["device_id"], h["version"], ", scrambled" if args.encrypt else "",
+             h["model_id"], len(signed), h["crc"], h["mac"].hex()))
     print("Wrote %s" % args.out)
 
 

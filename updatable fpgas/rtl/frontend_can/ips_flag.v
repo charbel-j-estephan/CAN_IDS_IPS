@@ -21,11 +21,21 @@
 // starts on the next bit boundary: no late interrupts, no missed compares.
 //
 // Test: iverilog -g2005 -o build/ips_flag_sim hdl/ips_flag_tb.v hdl/ips_flag.v
+//
+// Updatable design only (hdl/ips_flag.v, the fixed design's copy, has no limit):
+// an optional rate limit. With LIMIT_FLAGS > 0, at most LIMIT_FLAGS flags start
+// in each window of LIMIT_WINDOW clocks; a further attack verdict in that window
+// sends no flag and is counted in n_limit. It is a guard against a wrong model
+// that calls normal traffic an attack and would push honest senders bus off.
+// Off by default (LIMIT_FLAGS = 0): a limit set too low lets a real attacker
+// through. The bench runs needed 21 to 32 flags to put an attacker bus off.
 module ips_flag #(
-    parameter CLK_HZ    = 50_000_000,
-    parameter BIT_HZ    = 500_000,
-    parameter FLAG_BITS = 6,             // active error flag: 6 dominant bits
-    parameter MAX_BITS  = 8              // safety cut
+    parameter CLK_HZ       = 50_000_000,
+    parameter BIT_HZ       = 500_000,
+    parameter FLAG_BITS    = 6,          // active error flag: 6 dominant bits
+    parameter MAX_BITS     = 8,          // safety cut
+    parameter LIMIT_FLAGS  = 0,          // 0 = no rate limit
+    parameter LIMIT_WINDOW = 50_000_000  // clocks per window (1 s at 50 MHz)
 ) (
     input  wire        clk,
     input  wire        rst,              // synchronous, active high
@@ -41,7 +51,8 @@ module ips_flag #(
     output reg  [31:0] n_rej   = 0,      // flags sent
     output reg  [31:0] n_ilate = 0,      // attack verdicts too late to destroy the frame
     output reg  [31:0] n_allow = 0,      // attack verdicts on allow-listed frames
-    output reg  [31:0] n_abort = 0       // flags cut by the safety limit
+    output reg  [31:0] n_abort = 0,      // flags cut by the safety limit
+    output reg  [31:0] n_limit = 0       // attack verdicts not flagged: rate limit reached
 );
     localparam TQ        = CLK_HZ / BIT_HZ;          // clocks per bit (100)
     localparam FLAG_CLKS = FLAG_BITS * TQ;           // 600
@@ -58,6 +69,23 @@ module ips_flag #(
     reg [$clog2(MAX_CLKS + 1) - 1:0] cnt = 0;        // clocks of this flag
     reg [$clog2(MAX_CLKS + 1) - 1:0] dom = 0;        // clocks TX has been dominant (safety)
 
+    // Rate limit window. Unused (and removed by synthesis) when LIMIT_FLAGS = 0.
+    reg [31:0] win_cnt   = 0;
+    reg [15:0] win_flags = 0;
+    wire       win_end   = (win_cnt == LIMIT_WINDOW - 1);
+    wire       limited   = (LIMIT_FLAGS != 0) && (win_flags >= LIMIT_FLAGS);
+
+    always @(posedge clk) begin
+        if (rst || LIMIT_FLAGS == 0) begin
+            win_cnt   <= 0;
+            win_flags <= 0;
+        end else begin
+            win_cnt   <= win_end ? 32'd0 : win_cnt + 1'b1;
+            if (win_end)         win_flags <= flag_start ? 16'd1 : 16'd0;
+            else if (flag_start) win_flags <= win_flags + 1'b1;
+        end
+    end
+
     always @(posedge clk) begin
         flag_start <= 1'b0;
 
@@ -69,6 +97,8 @@ module ips_flag #(
             IDLE: if (verdict_valid && verdict != 3'd0) begin
                 if (allowed)
                     n_allow <= n_allow + 1;
+                else if (limited)
+                    n_limit <= n_limit + 1;
                 else if (before_eof)
                     state <= ARMED;
                 else

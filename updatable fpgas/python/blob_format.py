@@ -31,6 +31,7 @@ N_CLASS_MAX = 8
 NODES_PER_LEVEL_MAX = 128
 THRESH_MAX = 0xFFFF
 N_SELFTEST_MAX = 8
+MIN_FEAT_BYTES = 5          # CAN front end: the IPS allow list reads data bytes 0-4
 
 HEADER_SIZE = 64
 OFF_FEATURE_MAP = 64
@@ -49,7 +50,7 @@ MAX_SPLITS = (SLOT_BYTES - OVERHEAD) // NODE_SIZE
 DEVICE_ANY = 0xFFFFFFFF     # accepted from the boot ROM only, never over SPI
 PROTOCOL_CAN = 1
 
-FLAG_ENCRYPTED = 0x0001     # reserved for Phase D
+FLAG_ENCRYPTED = 0x0001     # self tests, key table and nodes scrambled (blob_crypto.py)
 
 LEAF = 0x80
 
@@ -76,6 +77,9 @@ def build(trees, n_features, n_classes, feat_bytes, known_keys, selftests,
         raise ValueError("%d trees: at most %d" % (len(trees), N_TREES_MAX))
     if len(selftests) > N_SELFTEST_MAX:
         raise ValueError("at most %d self test vectors" % N_SELFTEST_MAX)
+    if not MIN_FEAT_BYTES <= feat_bytes <= 8:
+        raise ValueError("a model must read %d to 8 data bytes, not %d (the IPS allow list "
+                         "needs bytes 0-4 before the verdict)" % (MIN_FEAT_BYTES, feat_bytes))
 
     counts = bytearray(N_TREES_MAX * DEPTH_MAX)
     nodes = bytearray()
@@ -140,6 +144,13 @@ def parse(blob):
         raise ValueError("bad CRC")
     h["crc"] = crc
     h["mac"] = bytes(blob[-16:])
+    h["encrypted"] = bool(h["flags"] & FLAG_ENCRYPTED)
+    if h["encrypted"]:
+        # Self tests, key table and nodes are scrambled (the counts are not, so
+        # parsing them would "work" and give garbage trees). Only the header is
+        # returned; blob_crypto.unscramble gives the plain blob for a full parse.
+        h["trees"] = h["key_table"] = h["selftests"] = None
+        return h
     counts = blob[OFF_COUNTS:OFF_COUNTS + N_TREES_MAX * DEPTH_MAX]
     off = OFF_NODES
     trees = []

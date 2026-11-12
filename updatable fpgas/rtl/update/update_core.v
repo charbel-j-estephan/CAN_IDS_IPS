@@ -3,11 +3,24 @@
 // Nothing in here knows what protocol the front end speaks.
 //
 // One state machine, used one job at a time:
-//   boot:   scan the journal -> load newest slot -> check -> self test -> activate
-//           (on failure: the other slot, then the boot ROM)
+//   boot:   scan the journal -> load newest slot -> check, stamp (MAC) checked
+//           twice -> self test -> activate
+//           (on failure: the other slot, then the boot ROM, the only source
+//           allowed without a stamp)
 //   COMMIT: length, magic, protocol, device, version, ranges -> settings ->
-//           CRC of what is in RAM -> self test -> MAC -> erase -> write ->
-//           read back -> journal -> swap at a frame boundary
+//           CRC of what is in RAM -> self test -> version again, MAC twice ->
+//           erase -> write -> read back -> journal -> swap at a frame boundary
+//
+// The stamp (AES-CMAC, cmac_stream.v) is worked out as the blob streams into
+// the walker. A scrambled blob (Flags bit 0) is unscrambled on the way in
+// (ctr_stream.v, inside the walker's byte path) and scrambled again on the way
+// out of the RAMs to flash, so flash only ever holds the scrambled bytes.
+//
+// Glitch hardening of the commit and boot decisions (docs/SECURITY_DESIGN.md):
+// two separate tag registers compared at two different clocks, a 32 bit pass
+// code that S_C_ERASE and the boot S_CFG check, the version checked twice, the
+// ROM exception checked twice, and the lockout counter kept in two copies.
+// (* preserve *) keeps Quartus from merging the duplicated registers.
 // The active bank keeps classifying the whole time. Any failure leaves it alone.
 //
 // Flash layout (words of 32 bits, 2048 words per 8 KB page):
@@ -20,7 +33,9 @@ module update_core #(
     parameter [15:0] PROTOCOL_ID   = 16'd1,
     parameter        READ_MODEL_EN = 1,          // 0 in production: no READ of the model
     parameter        ROM_ADDR_W    = 13,
-    parameter        ROM_INIT_HEX  = "default_model.hex"
+    parameter        ROM_INIT_HEX  = "default_model.hex",
+    parameter [127:0] MAC_KEY      = 128'd0,     // this board's stamp key
+    parameter [127:0] ENC_KEY      = 128'd0      // this board's scrambling key
 ) (
     input  wire         clk,
     input  wire         rst,                 // KEY reset: restarts boot
@@ -54,7 +69,6 @@ module update_core #(
     input  wire         fe_idle,             // no frame on the bus: a swap is safe
     input  wire         fe_valid,
     input  wire         count_blocked,
-    input  wire         mac_ok,              // Phase 2 MAC check; tied to 1 in Phase 1
     output wire         model_valid,
     output reg          active,
     output wire [3:0]   feat_bytes,
@@ -130,7 +144,8 @@ module update_core #(
         S_C_ERASE_W = 24, S_C_WR_INIT = 25, S_C_WRITE   = 26, S_C_WRITE_W = 27,
         S_C_VF_INIT = 28, S_C_VERIFY  = 29, S_J_ROLL    = 30, S_J_ROLL_W  = 31,
         S_J_WRITE   = 32, S_J_WAIT    = 33, S_C_SWAP    = 34, S_HALT      = 35,
-        S_LOAD_PRE  = 36;
+        S_LOAD_PRE  = 36, S_LOAD_MAC2 = 37, S_LOAD_PASS = 38, S_LOAD_GATE = 39,
+        S_C_MAC2    = 40, S_C_MAC3    = 41;
 
     reg [5:0] state;
     assign busy = (state != S_IDLE);
@@ -151,6 +166,12 @@ module update_core #(
     wire [7:0]  h_n_trees, h_n_classes, h_feat_bytes, h_rule_from, h_rule_to, h_n_selftest;
     wire        h_rule_en;
     wire [127:0] stored_mac;
+    wire        w_accept, w_ks_take, w_iv_done;
+    wire [95:0] h_iv;
+    wire        cmac_ready, cmac_done, cmac_strobe;
+    wire [127:0] cmac_tag;
+    wire        ks_valid;
+    wire [7:0]  ks_byte;
     wire [6:0]  count_addr;
     wire [7:0]  count_q;
     wire        meta_we;
@@ -169,6 +190,8 @@ module update_core #(
     blob_walker walker (
         .clk(clk), .rst(rst), .start(w_s_start),
         .s_valid(w_s_valid), .s_byte(w_s_byte), .s_ready(w_ready),
+        .ext_ready(cmac_ready), .accept_o(w_accept),
+        .ks_valid(ks_valid), .ks_byte(ks_byte), .ks_take(w_ks_take), .iv_done(w_iv_done), .h_iv(h_iv),
         .offset(w_offset), .done(w_done), .err(w_err), .crc_calc(w_crc),
         .h_total_len(h_total_len), .h_model_id(h_model_id), .h_version(h_version),
         .h_device_id(h_device_id), .h_protocol(h_protocol), .h_n_trees(h_n_trees),
@@ -214,18 +237,64 @@ module update_core #(
     wire [6:0]  rdr_idx;
     wire        rdr_rd_req, rdr_kt_req;
     wire [10:0] rdr_kt_addr;
+    wire [15:0] rdr_offset;
 
     blob_reader reader (
         .clk(clk), .rst(rst), .start(rdr_start), .total_len(h_total_len[15:0]),
         .stored_crc(stored_crc), .stored_mac(stored_mac),
         .count_addr(count_addr), .count_q(count_q),
         .out_valid(rdr_valid), .out_byte(rdr_byte), .out_ready(rdr_ready), .busy(rdr_busy),
+        .cur_offset(rdr_offset),
         .meta_addr(rdr_meta_addr), .meta_q(meta_q),
         .rd_req(rdr_rd_req), .rd_tree(rdr_tree), .rd_level(rdr_level), .rd_idx(rdr_idx),
         .rd_ack(rd_ack), .rd_valid(rd_valid), .rd_data(rd_data),
         .kt_rd_req(rdr_kt_req), .kt_rd_addr(rdr_kt_addr), .kt_rd_ack(kt_rd_ack),
         .kt_rd_valid(kt_rd_valid), .kt_rd_data(kt_rd_data)
     );
+
+    // ---- the stamp and the scrambling ---------------------------------------
+    // The seal checker sees every byte the walker takes, as it came.
+    cmac_stream seal (
+        .clk(clk), .key(MAC_KEY), .rst(rst), .restart(w_s_start),
+        .msg_len(h_total_len[15:0] - 16'd16),
+        .len_valid(w_offset >= 16'd12 && h_total_len[31:16] == 16'd0),
+        .in_valid(w_accept), .in_byte(w_s_byte), .ready(cmac_ready),
+        .tag(cmac_tag), .tag_done(cmac_done), .tag_strobe(cmac_strobe)
+    );
+
+    // One keystream, used by the walker (unscramble on the way in) and by the
+    // reader (scramble again on the way out); they never run at the same time.
+    // It restarts when the walker has the IV, and at each start of the reader.
+    wire [15:0] scr_end     = h_total_len[15:0] - 16'd20;
+    wire        rdr_in_enc  = h_flags[0] && rdr_offset >= 16'd176 && rdr_offset < scr_end;
+    wire        rdr_valid_x = rdr_valid && (!rdr_in_enc || ks_valid);
+    wire [7:0]  rdr_byte_x  = rdr_byte ^ (rdr_in_enc ? ks_byte : 8'h00);
+    wire        rdr_take    = rdr_valid_x && rdr_ready && rdr_in_enc;
+
+    ctr_stream scramble (
+        .clk(clk), .key(ENC_KEY), .rst(rst),
+        .restart(w_iv_done | (rdr_start & h_flags[0])), .iv(h_iv),
+        .take(rdr_busy ? rdr_take : w_ks_take),
+        .ks_valid(ks_valid), .ks_byte(ks_byte)
+    );
+
+    // Tag byte 0 is AES's first byte (bits 127:120); the blob's MAC field is
+    // kept with its byte 0 in bits 7:0 (as stored_mac). Swap to compare.
+    function [127:0] bswap128;
+        input [127:0] v;
+        integer b;
+        for (b = 0; b < 16; b = b + 1) bswap128[8*b +: 8] = v[127 - 8*b -: 8];
+    endfunction
+
+    localparam [31:0] MAC_PASS = 32'hC3A5_5A3C;      // the only value that lets a model through
+    (* preserve *) reg [127:0] tag_a = 128'd0;
+    (* preserve *) reg [127:0] tag_b = 128'd0;
+    (* preserve *) reg         mac_ok1 = 1'b0;
+    (* preserve *) reg         mac_ok2 = 1'b0;
+    (* preserve *) reg [31:0]  mac_pass = 32'd0;
+    reg [7:0]   mac_wait;
+    wire        tag_a_eq = cmac_done && ~|(tag_a ^ stored_mac);
+    wire        tag_b_eq = cmac_done && ~|(tag_b ^ stored_mac);
 
     // Register read path into the model (development builds only).
     reg        spi_rd_req, spi_kt_req;
@@ -279,8 +348,11 @@ module update_core #(
     // ---- counters and status -----------------------------------------------
     reg [31:0] n_seen, n_blocked, n_errors, n_sig;
     reg [7:0]  last_error;
-    reg [1:0]  strikes = 2'd0;              // only power on clears it
-    assign locked = (strikes == 2'd3);
+    // Two copies, the second inverted: any disagreement counts as locked, so a
+    // glitch that flips one of them fails safe. Only power on clears it.
+    (* preserve *) reg [1:0] strikes   = 2'd0;
+    (* preserve *) reg [1:0] strikes_n = 2'b11;
+    assign locked = (strikes == 2'd3) || (strikes != ~strikes_n);
     reg [31:0] floor;
     reg        busy_commit;
 
@@ -343,6 +415,11 @@ module update_core #(
 
     wire [15:0] body_len = h_total_len[15:0] - 16'd20;
 
+    // The only blob that may boot without a stamp: the boot ROM's, with the
+    // wildcard device ID and not scrambled.
+    wire        rom_case = (load_src == SRC_ROM) && (h_device_id == 32'hFFFFFFFF)
+                        && (h_flags == 16'd0);
+
     // ---- self test ----------------------------------------------------------
     reg  [3:0]   st_i;
     reg  [5:0]   st_j;
@@ -366,12 +443,12 @@ module update_core #(
             w_byte  = rom_q;
         end
         S_C_RB: begin
-            rdr_ready = rdr_valid;
-            crc_in    = rdr_byte;
+            rdr_ready = rdr_valid_x;
+            crc_in    = rdr_byte_x;
         end
-        S_C_WRITE: rdr_ready = rdr_valid;
+        S_C_WRITE: rdr_ready = rdr_valid_x;
         S_C_VERIFY: begin
-            rdr_ready = rdr_valid && (fs_left != 3'd0);
+            rdr_ready = rdr_valid_x && (fs_left != 3'd0);
             crc_in    = fs_word[7:0];
         end
         default: ;
@@ -391,7 +468,8 @@ module update_core #(
 
     task win_start;
         begin
-            if (!READ_MODEL_EN || state != S_IDLE || win != W_IDLE) begin
+            if (!READ_MODEL_EN || state != S_IDLE || win != W_IDLE
+                || (reg_addr >= 16'h4000 && reg_addr[10:7] >= 4'd12)) begin   // no level 12-15
                 reg_valid <= 1'b1;
                 reg_data  <= 32'hDEAD0BAD;
             end else if (reg_addr < 16'h2000) begin
@@ -449,7 +527,18 @@ module update_core #(
             last_error   <= code;
             n_errors     <= n_errors + 1'b1;
             busy_commit  <= 1'b0;
+            mac_pass     <= 32'd0;
             state        <= S_IDLE;
+        end
+    endtask
+
+    task strike;          // a stamp failure: count it, and one more toward the lockout
+        begin
+            n_sig <= n_sig + 1'b1;
+            if (strikes != 2'd3) begin
+                strikes   <= strikes + 1'b1;
+                strikes_n <= ~(strikes + 2'd1);
+            end
         end
     endtask
 
@@ -462,7 +551,20 @@ module update_core #(
         reg_valid <= 1'b0;
 
         if (por) begin
-            strikes <= 2'd0;
+            strikes   <= 2'd0;
+            strikes_n <= 2'b11;
+        end
+
+        // A new blob starts: nothing about the old one's stamp carries over.
+        if (w_s_start) begin
+            tag_a    <= 128'd0;
+            tag_b    <= 128'd0;
+            mac_ok1  <= 1'b0;
+            mac_ok2  <= 1'b0;
+            mac_pass <= 32'd0;
+        end else if (cmac_strobe) begin
+            tag_a <= bswap128(cmac_tag);
+            tag_b <= bswap128(cmac_tag);
         end
 
         if (cmd_reject) begin
@@ -560,6 +662,7 @@ module update_core #(
         // ---------------- boot: load one candidate ----------------
         S_LOAD_INIT: begin
             w_start    <= 1'b1;
+            mac_wait   <= 8'd0;
             fs_left    <= 3'd0;
             fs_pending <= 1'b0;
             fs_count   <= 16'd0;
@@ -621,12 +724,34 @@ module update_core #(
             end
         end
 
+        // Boot checks. A slot needs this board's ID and a good stamp; only the
+        // boot ROM may have neither (rom_case), checked here and again in
+        // S_LOAD_PASS. The seal's last AES block may still be running when the
+        // walker finishes (flash feeds bytes fast): wait for it, at most 255 clocks.
         S_LOAD_CHK: begin
-            if (w_done && w_err == 7'd0 && w_crc == stored_crc
-                && h_protocol == PROTOCOL_ID
-                && (h_device_id == DEVICE_ID
-                    || (load_src == SRC_ROM && h_device_id == 32'hFFFFFFFF))
-                && (load_src == SRC_ROM || mac_ok)) begin
+            if (!(w_done && w_err == 7'd0)) begin
+                state <= S_LOAD_FAIL;
+            end else if (!cmac_done && load_src != SRC_ROM && mac_wait != 8'd255) begin
+                mac_wait <= mac_wait + 1'b1;
+            end else if (w_crc == stored_crc && h_protocol == PROTOCOL_ID
+                         && !(load_src == SRC_ROM && h_flags[0])
+                         && (rom_case || (h_device_id == DEVICE_ID && tag_a_eq))) begin
+                mac_ok1 <= tag_a_eq;
+                state   <= S_LOAD_MAC2;
+            end else begin
+                state <= S_LOAD_FAIL;
+            end
+        end
+        S_LOAD_MAC2: begin
+            mac_ok2 <= tag_b_eq;
+            state   <= S_LOAD_PASS;
+        end
+        S_LOAD_PASS: begin
+            mac_pass <= ((mac_ok1 && mac_ok2) || rom_case) ? MAC_PASS : 32'd0;
+            state    <= S_LOAD_GATE;
+        end
+        S_LOAD_GATE: begin
+            if (mac_pass == MAC_PASS) begin
                 shadow_src <= load_src;
                 state      <= S_CFG;
             end else begin
@@ -636,8 +761,13 @@ module update_core #(
 
         S_LOAD_FAIL: begin
             if (attempt == 2'd2) begin
+                // No usable model anywhere, not even the ROM. Classification
+                // stays off (model_on = 0, the IPS never sees a verdict), but the
+                // update port must still take a new model: S_HALT used to keep
+                // busy set, so the board could never be repaired over SPI.
                 last_error <= E_HEADER;
-                state      <= S_HALT;          // no model at all: stay out of the way
+                boot_mode  <= 1'b0;
+                state      <= S_IDLE;
             end else begin
                 attempt <= attempt + 1'b1;
                 state   <= S_LOAD_INIT;
@@ -645,7 +775,9 @@ module update_core #(
         end
 
         // ---------------- settings, then self test (boot and COMMIT) ------
-        S_CFG: begin
+        S_CFG: if (boot_mode && mac_pass != MAC_PASS) begin
+            state <= S_LOAD_FAIL;                   // reached without passing the gate
+        end else begin
             cfg_valid[~active]   <= 1'b1;
             cfg_model[~active]   <= h_model_id;
             cfg_version[~active] <= h_version;
@@ -698,6 +830,7 @@ module update_core #(
         S_ACTIVATE: begin
             swap_pending <= 1'b1;
             boot_mode    <= 1'b0;
+            mac_pass     <= 32'd0;
             state        <= S_IDLE;
         end
 
@@ -707,6 +840,7 @@ module update_core #(
                 expect_crc  <= cmd_commit_crc;
                 busy_commit <= 1'b1;
                 last_error  <= E_OK;
+                mac_wait    <= 8'd0;
                 state       <= S_C_CHECK;
             end else if (cmd_commit) begin
                 last_error <= E_BUSY;
@@ -714,7 +848,7 @@ module update_core #(
             end
         end
 
-        S_HALT: ;                               // boot found no model: stay passive
+        S_HALT: ;                               // only reached from an illegal state
 
         // ---------------- COMMIT ------------------------------------------------
         S_C_CHECK: begin
@@ -726,8 +860,12 @@ module update_core #(
             else if (w_err[4:1] != 4'd0)                      fail(E_RANGE);
             else if (w_err[6:5] != 2'd0)                      fail(E_LENGTH);
             else if (w_crc != expect_crc || stored_crc != expect_crc) fail(E_CRC);
-            else begin
-                state <= S_CFG;
+            else if (!cmac_done) begin
+                if (mac_wait == 8'd255) fail(E_MAC);    // the seal never finished
+                else                    mac_wait <= mac_wait + 1'b1;
+            end else begin
+                mac_ok1 <= tag_a_eq;                    // first compare, from tag_a
+                state   <= S_CFG;
             end
         end
 
@@ -739,7 +877,7 @@ module update_core #(
             state     <= S_C_RB;
         end
         S_C_RB: begin
-            if (rdr_valid && rdr_ready) begin
+            if (rdr_valid_x && rdr_ready) begin
                 p_cnt <= p_cnt + 1'b1;
                 if (p_cnt < body_len) run_crc <= run_next;
             end else if (!rdr_busy && !rdr_valid && p_cnt != 16'd0) begin
@@ -748,19 +886,38 @@ module update_core #(
             end
         end
 
+        // Version again, then the second compare (tag_b, a different register
+        // and a later clock), then the pass code, then the gate.
         S_C_MAC: begin
-            if (mac_ok) begin
+            if (h_version < floor) fail(E_VERSION);
+            else begin
+                mac_ok2 <= tag_b_eq;
+                state   <= S_C_MAC2;
+            end
+        end
+        S_C_MAC2: begin
+            if (mac_ok1 && mac_ok2) begin
+                mac_pass <= MAC_PASS;
+                state    <= S_C_MAC3;
+            end else begin
+                strike;
+                fail(E_MAC);
+            end
+        end
+        S_C_MAC3: begin
+            if (mac_pass == MAC_PASS) begin
                 c_page      <= 2'd0;
                 target_slot <= (active_src == SRC_A) ? 1'b1 : 1'b0;
                 state       <= S_C_ERASE;
             end else begin
-                n_sig <= n_sig + 1'b1;
-                if (strikes != 2'd3) strikes <= strikes + 1'b1;
+                strike;
                 fail(E_MAC);
             end
         end
 
-        S_C_ERASE: begin
+        S_C_ERASE: if (mac_pass != MAC_PASS) begin
+            fail(E_MAC);                            // reached without passing the gate
+        end else begin
             nv_op    <= 2'd3;
             nv_addr  <= (target_slot ? SLOT_B : SLOT_A) + {1'b0, c_page, 11'd0};
             nv_start <= 1'b1;
@@ -783,20 +940,20 @@ module update_core #(
             fw_addr   <= target_slot ? SLOT_B : SLOT_A;
             state     <= S_C_WRITE;
         end
-        S_C_WRITE: if (rdr_valid && rdr_ready) begin
+        S_C_WRITE: if (rdr_valid_x && rdr_ready) begin
             p_cnt   <= p_cnt + 1'b1;
             fw_lane <= fw_lane + 1'b1;
             if (fw_lane == 2'd3 || p_cnt + 1'b1 == h_total_len[15:0]) begin
                 nv_op    <= 2'd2;
                 nv_addr  <= fw_addr;
-                nv_wdata <= (fw_word & ~(32'hFF << (fw_lane * 8))) | ({24'd0, rdr_byte} << (fw_lane * 8));
+                nv_wdata <= (fw_word & ~(32'hFF << (fw_lane * 8))) | ({24'd0, rdr_byte_x} << (fw_lane * 8));
                 nv_start <= 1'b1;
                 fw_word  <= 32'hFFFFFFFF;
                 fw_addr  <= fw_addr + 1'b1;
                 fw_lane  <= 2'd0;
                 state    <= S_C_WRITE_W;
             end else begin
-                fw_word[fw_lane * 8 +: 8] <= rdr_byte;
+                fw_word[fw_lane * 8 +: 8] <= rdr_byte_x;
             end
         end
         S_C_WRITE_W: if (nv_done) begin
@@ -838,8 +995,8 @@ module update_core #(
                         fail(E_VERIFY);
                     end
                 end
-            end else if (rdr_valid && rdr_ready) begin
-                if (rdr_byte != fs_word[7:0]) begin
+            end else if (rdr_valid_x && rdr_ready) begin
+                if (rdr_byte_x != fs_word[7:0]) begin
                     fail(E_VERIFY);
                 end else begin
                     fs_word <= {8'hFF, fs_word[31:8]};

@@ -1,6 +1,9 @@
 // Reads the shadow bank back out as the same byte stream the blob_walker took
 // in. Used to check the CRC of what is really in RAM and to save it to flash.
 // Live frames always win the RAMs' read ports; this just waits for gaps.
+// The RAMs hold the plain model: for a scrambled blob the caller scrambles the
+// output again by its offset (cur_offset), so the CRC check, the flash write
+// and the flash read back all see the bytes exactly as they arrived.
 module blob_reader #(
     parameter N_TREES_MAX         = 8,
     parameter DEPTH_MAX           = 12,
@@ -8,7 +11,7 @@ module blob_reader #(
 ) (
     clk, rst, start, total_len, stored_crc, stored_mac,
     count_addr, count_q,
-    out_valid, out_byte, out_ready, busy,
+    out_valid, out_byte, out_ready, busy, cur_offset,
     meta_addr, meta_q,
     rd_req, rd_tree, rd_level, rd_idx, rd_ack, rd_valid, rd_data,
     kt_rd_req, kt_rd_addr, kt_rd_ack, kt_rd_valid, kt_rd_data
@@ -27,6 +30,7 @@ module blob_reader #(
     output reg  [7:0]         out_byte;
     input  wire               out_ready;
     output wire               busy;
+    output wire [15:0]        cur_offset;     // blob offset of out_byte
     output reg  [8:0]         meta_addr;
     input  wire [7:0]         meta_q;
     output reg                rd_req;
@@ -56,6 +60,7 @@ module blob_reader #(
     reg [4:0]  trailer_i;
 
     assign busy       = (state != S_IDLE);
+    assign cur_offset = offset;
     assign count_addr = tree * DEPTH_MAX + level;
     assign rd_tree    = tree[TREE_W-1:0];
     assign rd_level   = level[LEVEL_W-1:0];

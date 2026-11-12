@@ -5,6 +5,12 @@
 //
 // err bits: 0 header  1 node counts  2 feature index  3 child pointer
 //           4 leaf vote  5 length  6 bytes after the end
+//
+// Scrambled blobs (Flags bit 0): bytes 176 up to the CRC arrive xored with the
+// AES-CTR keystream (rtl/security/ctr_stream.v, ks_byte). The CRC and the seal
+// (cmac_stream.v, outside, on accept_o and s_byte) see the bytes as they came;
+// everything parsed or stored here uses p_byte, the unscrambled byte.
+// ext_ready lets the seal checker hold a byte back while its AES is busy.
 module blob_walker #(
     parameter N_TREES_MAX         = 8,
     parameter DEPTH_MAX           = 12,
@@ -13,9 +19,14 @@ module blob_walker #(
     parameter NODES_PER_LEVEL_MAX = 128,
     parameter SLOT_BYTES          = 24576,
     // what each feature slot means on this front end, one byte per slot
-    parameter [127:0] FE_FEATURE_MAP = 128'hFFFFFFFFFFFF09080706050403020100
+    parameter [127:0] FE_FEATURE_MAP = 128'hFFFFFFFFFFFF09080706050403020100,
+    // fewest data bytes a model may read on this front end. CAN: 5, because the
+    // IPS allow list (ips_flag.v, ID 0x7FF "CANST") compares data bytes 0-4 at
+    // the verdict, which comes after only the bytes the model reads are in.
+    parameter [7:0]   FE_MIN_BYTES   = 8'd5
 ) (
-    clk, rst, start, s_valid, s_byte, s_ready,
+    clk, rst, start, s_valid, s_byte, s_ready, ext_ready, accept_o,
+    ks_valid, ks_byte, ks_take, iv_done, h_iv,
     offset, done, err, crc_calc,
     h_total_len, h_model_id, h_version, h_device_id, h_protocol, h_n_trees, h_n_classes,
     h_feat_bytes, h_rule_en, h_rule_from, h_rule_to, h_n_selftest, h_flags,
@@ -40,6 +51,13 @@ module blob_walker #(
     input  wire                 s_valid;
     input  wire [7:0]           s_byte;
     output wire                 s_ready;
+    input  wire                 ext_ready;   // the seal checker can take a byte
+    output wire                 accept_o;    // 1 clock: s_byte is taken
+    input  wire                 ks_valid;    // keystream byte for this offset is ready
+    input  wire [7:0]           ks_byte;
+    output wire                 ks_take;     // 1 clock: that keystream byte was used
+    output reg                  iv_done;     // 1 clock: the IV (header bytes 40-51) is in
+    output reg  [95:0]          h_iv;        // IV byte 0 (blob offset 40) in bits 95:88
     output reg  [15:0]          offset;
     output reg                  done;
     output reg  [6:0]           err;
@@ -91,18 +109,25 @@ module blob_walker #(
     reg [7:0]  idx;
     reg [4:0]  trailer_i;
 
-    assign s_ready  = (state == ST_ACCEPT);
+    // Scrambled region: blob offset 176 up to (not including) the CRC.
+    wire        in_enc  = h_flags[0] && !done && offset >= OFF_SELF
+                       && h_total_len[31:16] == 16'd0 && offset < h_total_len[15:0] - 16'd20;
+    wire [7:0]  p_byte  = s_byte ^ (in_enc ? ks_byte : 8'h00);   // the plain byte
+
+    assign s_ready  = (state == ST_ACCEPT) && ext_ready && (!in_enc || ks_valid);
     assign crc_calc = ~crc;
 
     wire [31:0] crc_next;
     crc32_byte crc_unit (.crc(crc), .d(s_byte), .next(crc_next));
 
     wire        accept    = s_valid && s_ready;
+    assign accept_o = accept;
+    assign ks_take  = accept && in_enc;
     wire [7:0]  here      = counts[tree * DEPTH_MAX + level];
     wire [7:0]  below     = (level + 1 < DEPTH_MAX) ? counts[tree * DEPTH_MAX + level + 1] : 8'd0;
 
     // the node just completed (the 5th byte is s_byte)
-    wire [3:0]  n_feat  = s_byte[FEAT_W-1:0];
+    wire [3:0]  n_feat  = p_byte[FEAT_W-1:0];
     wire [7:0]  n_left  = node_sh[15:8];
     wire [7:0]  n_right = node_sh[7:0];
     wire        bad_feat  = (n_feat >= h_n_features);
@@ -118,6 +143,7 @@ module blob_walker #(
         wr_en      <= 1'b0;
         kt_wr_en   <= 1'b0;
         meta_wr_en <= 1'b0;
+        iv_done    <= 1'b0;
 
         if (rst || start) begin
             state   <= ST_ACCEPT;
@@ -145,51 +171,54 @@ module blob_walker #(
                 SEC_META: begin
                     meta_wr_en   <= 1'b1;
                     meta_wr_addr <= offset[8:0];
-                    meta_wr_data <= s_byte;
+                    meta_wr_data <= p_byte;
                     case (offset)
-                        16'd0:  h_magic[7:0]    <= s_byte;
-                        16'd1:  h_magic[15:8]   <= s_byte;
-                        16'd2:  h_magic[23:16]  <= s_byte;
-                        16'd3:  h_magic[31:24]  <= s_byte;
-                        16'd4:  h_format[7:0]   <= s_byte;
-                        16'd5:  h_format[15:8]  <= s_byte;
-                        16'd6:  h_flags[7:0]    <= s_byte;
-                        16'd7:  h_flags[15:8]   <= s_byte;
-                        16'd8:  h_total_len[7:0]   <= s_byte;
-                        16'd9:  h_total_len[15:8]  <= s_byte;
-                        16'd10: h_total_len[23:16] <= s_byte;
-                        16'd11: h_total_len[31:24] <= s_byte;
-                        16'd12: h_model_id[7:0]    <= s_byte;
-                        16'd13: h_model_id[15:8]   <= s_byte;
-                        16'd14: h_model_id[23:16]  <= s_byte;
-                        16'd15: h_model_id[31:24]  <= s_byte;
-                        16'd16: h_version[7:0]     <= s_byte;
-                        16'd17: h_version[15:8]    <= s_byte;
-                        16'd18: h_version[23:16]   <= s_byte;
-                        16'd19: h_version[31:24]   <= s_byte;
-                        16'd20: h_device_id[7:0]   <= s_byte;
-                        16'd21: h_device_id[15:8]  <= s_byte;
-                        16'd22: h_device_id[23:16] <= s_byte;
-                        16'd23: h_device_id[31:24] <= s_byte;
-                        16'd24: h_protocol[7:0]    <= s_byte;
-                        16'd25: h_protocol[15:8]   <= s_byte;
-                        16'd26: h_n_trees    <= s_byte;
-                        16'd27: h_depth      <= s_byte;
-                        16'd28: h_n_features <= s_byte;
-                        16'd29: h_n_classes  <= s_byte;
-                        16'd30: h_feat_bytes <= s_byte;
-                        16'd31: h_rule_en    <= s_byte[0];
-                        16'd32: h_rule_from  <= s_byte;
-                        16'd33: h_rule_to    <= s_byte;
-                        16'd34: h_n_selftest <= s_byte;
+                        16'd0:  h_magic[7:0]    <= p_byte;
+                        16'd1:  h_magic[15:8]   <= p_byte;
+                        16'd2:  h_magic[23:16]  <= p_byte;
+                        16'd3:  h_magic[31:24]  <= p_byte;
+                        16'd4:  h_format[7:0]   <= p_byte;
+                        16'd5:  h_format[15:8]  <= p_byte;
+                        16'd6:  h_flags[7:0]    <= p_byte;
+                        16'd7:  h_flags[15:8]   <= p_byte;
+                        16'd8:  h_total_len[7:0]   <= p_byte;
+                        16'd9:  h_total_len[15:8]  <= p_byte;
+                        16'd10: h_total_len[23:16] <= p_byte;
+                        16'd11: h_total_len[31:24] <= p_byte;
+                        16'd12: h_model_id[7:0]    <= p_byte;
+                        16'd13: h_model_id[15:8]   <= p_byte;
+                        16'd14: h_model_id[23:16]  <= p_byte;
+                        16'd15: h_model_id[31:24]  <= p_byte;
+                        16'd16: h_version[7:0]     <= p_byte;
+                        16'd17: h_version[15:8]    <= p_byte;
+                        16'd18: h_version[23:16]   <= p_byte;
+                        16'd19: h_version[31:24]   <= p_byte;
+                        16'd20: h_device_id[7:0]   <= p_byte;
+                        16'd21: h_device_id[15:8]  <= p_byte;
+                        16'd22: h_device_id[23:16] <= p_byte;
+                        16'd23: h_device_id[31:24] <= p_byte;
+                        16'd24: h_protocol[7:0]    <= p_byte;
+                        16'd25: h_protocol[15:8]   <= p_byte;
+                        16'd26: h_n_trees    <= p_byte;
+                        16'd27: h_depth      <= p_byte;
+                        16'd28: h_n_features <= p_byte;
+                        16'd29: h_n_classes  <= p_byte;
+                        16'd30: h_feat_bytes <= p_byte;
+                        16'd31: h_rule_en    <= p_byte[0];
+                        16'd32: h_rule_from  <= p_byte;
+                        16'd33: h_rule_to    <= p_byte;
+                        16'd34: h_n_selftest <= p_byte;
                         default: ;
                     endcase
+                    if (offset >= 16'd40 && offset < 16'd52)
+                        h_iv[95 - 8 * (offset - 16'd40) -: 8] <= p_byte;
+                    if (offset == 16'd51) iv_done <= 1'b1;
                     if (offset >= OFF_MAP && offset < OFF_COUNTS
-                        && s_byte != 8'hFF && s_byte != map_expect)
+                        && p_byte != 8'hFF && p_byte != map_expect)
                         err[0] <= 1'b1;
                     if (offset >= OFF_COUNTS && offset < OFF_SELF) begin
-                        counts[offset - OFF_COUNTS] <= s_byte;
-                        splits <= splits + s_byte;
+                        counts[offset - OFF_COUNTS] <= p_byte;
+                        splits <= splits + p_byte;
                     end
                     if (offset == OFF_MAP - 1)  state <= ST_CHK_HDR;
                     if (offset == OFF_SELF - 1) begin
@@ -201,14 +230,14 @@ module blob_walker #(
                 end
 
                 SEC_KEYS: begin
-                    kt_byte <= s_byte;
+                    kt_byte <= p_byte;
                     kt_bit  <= 4'd0;
                     kt_base <= {offset[7:0], 3'b000};   // offset - 448 mod 256 = offset[7:0] - 192
                     state   <= ST_KT;
                 end
 
                 SEC_NODES: begin
-                    node_sh <= {s_byte, node_sh[31:8]};
+                    node_sh <= {p_byte, node_sh[31:8]};
                     node_b  <= node_b + 1'b1;
                     if (node_b == 3'd4) begin
                         node_b <= 3'd0;
@@ -220,7 +249,7 @@ module blob_walker #(
                         wr_tree  <= tree[TREE_W-1:0];
                         wr_level <= level[LEVEL_W-1:0];
                         wr_idx   <= idx[IDX_W-1:0];
-                        wr_data  <= {s_byte[FEAT_W-1:0], node_sh};
+                        wr_data  <= {p_byte[FEAT_W-1:0], node_sh};
                         state    <= ST_ADV;
                     end
                 end
@@ -241,13 +270,13 @@ module blob_walker #(
         end
 
         ST_CHK_HDR: begin
-            if (h_magic != MAGIC || h_format != 16'd1 || h_flags != 16'd0
+            if (h_magic != MAGIC || h_format != 16'd1 || h_flags[15:1] != 15'd0
                 || h_total_len < OVERHEAD || h_total_len > SLOT_BYTES
                 || h_n_trees == 0 || h_n_trees > N_TREES_MAX
                 || h_depth == 0 || h_depth > DEPTH_MAX
                 || h_n_features == 0 || h_n_features > N_FEAT_MAX
                 || h_n_classes == 0 || h_n_classes > N_CLASS_MAX
-                || h_feat_bytes > 8
+                || h_feat_bytes > 8 || h_feat_bytes < FE_MIN_BYTES
                 || h_n_selftest == 0 || h_n_selftest > 8
                 || h_rule_from >= h_n_classes || h_rule_to >= h_n_classes)
                 err[0] <= 1'b1;

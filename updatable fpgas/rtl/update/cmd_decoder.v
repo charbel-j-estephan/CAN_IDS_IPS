@@ -60,6 +60,7 @@ module cmd_decoder (
     reg [15:0]  data_left;
     reg [127:0] resp;
     reg [4:0]   resp_left;
+    reg         reg_got = 1'b0; // the answer to the last READ came (reg_valid)
 
     wire [31:0] args_n = {args[23:0], rx_byte};
 
@@ -69,6 +70,7 @@ module cmd_decoder (
         cmd_commit       <= 1'b0;
         cmd_reject       <= 1'b0;
         reg_req          <= 1'b0;
+        if (reg_valid) reg_got <= 1'b1;
 
         if (rst || frame_end) begin
             phase   <= P_CMD;
@@ -110,6 +112,7 @@ module cmd_decoder (
                 if (cmd == C_READ && arg_i == 3'd1) begin
                     reg_addr <= args_n[15:0];
                     reg_req  <= 1'b1;
+                    reg_got  <= 1'b0;
                     phase    <= P_DUMMY;
                 end else if (cmd == C_COMMIT && arg_i == 3'd3) begin
                     if (core_busy) begin
@@ -152,14 +155,17 @@ module cmd_decoder (
                 end
             end
 
-            // The dummy byte gives the register read time to finish.
+            // The dummy byte gives the register read time to finish. A READ
+            // whose answer has not come by then is sent as DEAD0BAD, never as
+            // whatever reg_data held from an older read.
             P_DUMMY: begin
                 phase <= P_RESP;
                 case (cmd)
                     C_STATUS:   begin resp <= {status_word, 96'd0};                        resp_left <= 5'd3;  tx_byte <= status_word[31:24]; end
                     C_VERSION:  begin resp <= {active_model_id, active_version, version_info, 32'd0}; resp_left <= 5'd11; tx_byte <= active_model_id[31:24]; end
                     C_COUNTERS: begin resp <= {n_seen, n_blocked, n_errors, n_sig};        resp_left <= 5'd15; tx_byte <= n_seen[31:24]; end
-                    default:    begin resp <= {reg_data, 96'd0};                           resp_left <= 5'd3;  tx_byte <= reg_data[31:24]; end
+                    default:    begin resp <= {reg_got ? reg_data : 32'hDEAD0BAD, 96'd0};  resp_left <= 5'd3;
+                                      tx_byte <= reg_got ? reg_data[31:24] : 8'hDE; end
                 endcase
             end
 

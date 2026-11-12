@@ -16,8 +16,14 @@
 //
 // Program the .pof to keep the design across power cycles, CFM only: programming
 // the UFM as well erases the stored models.
+//
+// The board number and its keys come from keys/device_key.vh, made by
+// python/make_device_key.py from your master key (keys/ is not in git). The
+// build stops if that file is missing: there is no fallback key. The key ends
+// up in the program file and in Quartus' reports: do not share quartus/ outputs.
+`include "device_key.vh"
+
 module updatable_top #(
-    parameter [31:0] DEVICE_ID     = 32'h0000_0001,
     parameter        READ_MODEL_EN = 1            // 0 for a production build: no READ of the model
 ) (
     input               ADC_CLK_10,
@@ -45,7 +51,17 @@ module updatable_top #(
     end
     wire rst    = por | ~key_s[1];
     wire ips_on = ips_s[1];
-    wire maint  = maint_s[1];
+
+    // Maintenance switch, sampled twice: once every clock and once every 128
+    // clocks (2.56 us). Both must say "up", so one glitch on the pin cannot
+    // open the update port.
+    reg [6:0] maint_t = 7'd0;
+    reg       maint_b = 1'b0;
+    always @(posedge clk) begin
+        maint_t <= maint_t + 1'b1;
+        if (maint_t == 7'd0) maint_b <= maint_s[1];
+    end
+    wire maint  = maint_s[1] & maint_b;
 
     wire        csr_address, csr_read, csr_write, data_read, data_write, data_waitrequest, data_readdatavalid;
     wire [31:0] csr_writedata, csr_readdata, data_writedata, data_readdata;
@@ -60,9 +76,10 @@ module updatable_top #(
     wire [63:0] data;
     wire [31:0] status_word, active_model_id, active_version;
 
-    updatable_core #(.DEVICE_ID(DEVICE_ID), .READ_MODEL_EN(READ_MODEL_EN)) core (
+    updatable_core #(.DEVICE_ID(`BOARD_DEVICE_ID), .MAC_KEY(`BOARD_MAC_KEY), .ENC_KEY(`BOARD_ENC_KEY),
+                     .READ_MODEL_EN(READ_MODEL_EN)) core (
         .clk(clk), .rst(rst), .por(por), .rxd(GPIO[0]), .tx_dominant(tx_dominant),
-        .ips_on(ips_on), .maint(maint), .mac_ok(1'b1),        // Phase 1: no MAC check yet
+        .ips_on(ips_on), .maint(maint),
         .spi_sclk(GPIO[4]), .spi_cs_n(GPIO[7]), .spi_mosi(GPIO[5]), .spi_miso(spi_miso),
         .csr_address(csr_address), .csr_read(csr_read), .csr_write(csr_write),
         .csr_writedata(csr_writedata), .csr_readdata(csr_readdata),
