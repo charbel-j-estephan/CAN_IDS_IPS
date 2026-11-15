@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CAN IDS/IPS: before the talk</title>
+<style>
+  :root {
+    --bg: #f6f5f1; --card: #ffffff; --ink: #1d2433; --muted: #5d6677;
+    --line: #dfe2e8; --accent: #0f6e5a; --accent-soft: #e3f2ee;
+    --warn: #a14a00; --warn-soft: #fdf0e3; --done: #8a93a3;
+    --mono: Consolas, "Cascadia Mono", "Courier New", monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.5 "Segoe UI", Calibri, Arial, sans-serif;
+  }
+  header {
+    position: sticky; top: 0; z-index: 5; background: var(--ink); color: #fff;
+    padding: 14px 24px 12px;
+  }
+  .head-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; max-width: 980px; margin: 0 auto; }
+  header h1 { font-size: 26px; margin: 0; font-weight: 600; flex: 1 1 auto; }
+  header .count { font-variant-numeric: tabular-nums; font-size: 15px; opacity: .9; }
+  .bar { max-width: 980px; margin: 10px auto 0; height: 8px; background: rgba(255,255,255,.18); border-radius: 4px; overflow: hidden; }
+  .bar > div { height: 100%; width: 100%; background: #4fd1a8; transform: scaleX(0); transform-origin: left; transition: transform .25s; }
+  header button {
+    background: transparent; color: #fff; border: 1px solid rgba(255,255,255,.45);
+    border-radius: 6px; padding: 5px 12px; font: inherit; font-size: 14px; cursor: pointer;
+  }
+  header button:hover { background: rgba(255,255,255,.12); }
+  main { max-width: 980px; margin: 0 auto; padding: 20px 24px 60px; }
+  .intro { color: var(--muted); margin: 0 0 18px; }
+  section {
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    margin: 0 0 18px; overflow: hidden;
+  }
+  section > h2 {
+    margin: 0; padding: 12px 18px; font-size: 20px; display: flex; align-items: baseline; gap: 10px;
+    border-bottom: 1px solid var(--line); background: #fafbfc;
+  }
+  section > h2 .num {
+    display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%;
+    background: var(--accent); color: #fff; font-size: 14px; flex: none;
+  }
+  section > h2 .when { margin-left: auto; color: var(--muted); font-size: 14px; font-weight: 400; }
+  section.complete > h2 .num { background: var(--done); }
+  section.complete > h2::after { content: "done"; color: var(--accent); font-size: 14px; font-weight: 600; }
+  ul.items { list-style: none; margin: 0; padding: 4px 0; }
+  ul.items li { border-bottom: 1px solid #f0f1f4; }
+  ul.items li:last-child { border-bottom: 0; }
+  ul.items label {
+    display: grid; grid-template-columns: 24px 1fr; gap: 12px; padding: 10px 18px; cursor: pointer;
+  }
+  ul.items label:hover { background: #fafbfc; }
+  ul.items input { width: 20px; height: 20px; margin: 2px 0 0; accent-color: var(--accent); cursor: pointer; }
+  ul.items .t { display: block; }
+  ul.items .d { display: block; color: var(--muted); font-size: 14px; margin-top: 2px; }
+  ul.items li.checked .t { color: var(--done); text-decoration: line-through; }
+  ul.items li.checked .d { color: #a9b0bc; }
+  .warn {
+    margin: 10px 18px 12px; padding: 9px 12px; border-radius: 6px;
+    background: var(--warn-soft); color: var(--warn); font-size: 14px;
+  }
+  code, .cmd { font-family: var(--mono); font-size: 14px; }
+  code { background: #eef0f3; padding: 1px 5px; border-radius: 4px; }
+  .cmd {
+    display: inline-flex; align-items: center; gap: 8px; margin-top: 6px;
+    background: #1d2433; color: #e8edf5; padding: 5px 6px 5px 10px; border-radius: 6px;
+  }
+  .cmd button {
+    font: 12px "Segoe UI", Arial, sans-serif; border: 0; border-radius: 4px; padding: 3px 8px;
+    background: #3b4559; color: #fff; cursor: pointer;
+  }
+  .cmd button:hover { background: #4d5973; }
+  .key { display: inline-block; font-weight: 600; padding: 0 6px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #eef0f3; vertical-align: top; }
+  th { font-size: 13px; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); background: #fafbfc; }
+  td.n { font-variant-numeric: tabular-nums; white-space: nowrap; font-weight: 600; }
+  td.n + td { white-space: nowrap; }
+  tr.part td { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .ref { padding: 0 0 4px; }
+  .ref p { margin: 10px 18px; color: var(--muted); font-size: 14px; }
+  a { color: var(--accent); }
+  footer { color: var(--muted); font-size: 13px; text-align: center; margin-top: 24px; }
+  @media print {
+    header { position: static; background: #fff; color: #000; border-bottom: 2px solid #000; }
+    header button, .cmd button, .bar { display: none; }
+    body { background: #fff; }
+    section { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="head-row">
+    <h1>CAN IDS/IPS: checklist before the talk</h1>
+    <span class="count" id="count">0 of 0</span>
+    <button id="print" type="button">Print</button>
+    <button id="reset" type="button">Uncheck all</button>
+  </div>
+  <div class="bar"><div id="bar"></div></div>
+</header>
+
+<main>
+<p class="intro">Start about 30 minutes before the talk. Your ticks are saved in this
+browser, so you can close the page and come back. Everything runs from the project
+folder <code>Desktop\CAN_IDS_IPS</code>. Details: <code>docs\DEMO.md</code>.</p>
+
+<section>
+  <h2><span class="num">1</span>Bench and wiring <span class="when">power off</span></h2>
+  <ul class="items">
+    <li><label><input type="checkbox" data-id="w-esp"><span><span class="t">Three ESP32s on the CAN bus: sender, attacker, receiver</span><span class="d">Wiring: <code>docs\ESP32_WIRING.md</code></span></span></label></li>
+    <li><label><input type="checkbox" data-id="w-fpga"><span><span class="t">DE10-Lite shield on, pin 1 lined up with pin 1</span><span class="d">CAN on header pins 1 and 2, SPI JST on pins 5 to 8 and 12. No jumper from pin 1 to pin 29.</span></span></label></li>
+    <li><label><input type="checkbox" data-id="w-stm"><span><span class="t">STM32 shield on, the TJA1050 module the right way round in its socket</span><span class="d">VCC on VCC, GND on GND: turned around it puts 5 V on GND.</span></span></label></li>
+    <li><label><input type="checkbox" data-id="w-canl"><span><span class="t">STM32 shield: <strong>both</strong> CANH and CANL reach the bus rails</span><span class="d">Meter on beep: the STM32 module's CANH to the sender module's CANH, then CANL to CANL. Both must beep. (A missing CANL makes the STM32 hear nothing.)</span></span></label></li>
+    <li><label><input type="checkbox" data-id="w-spi"><span><span class="t">SPI cable between the two shields, both JST plugs pushed fully in</span><span class="d">Pin 1 GND, 2 SCLK, 3 MOSI, 4 MISO, 5 CS.</span></span></label></li>
+    <li><label><input type="checkbox" data-id="w-term"><span><span class="t">Bus terminators: CANH to CANL reads about 60 Ω</span><span class="d">Power off. 40 Ω = three terminators fitted, remove one. 120 Ω = one missing.</span></span></label></li>
+  </ul>
+</section>
+
+<section>
+  <h2><span class="num">2</span>Power and laptop</h2>
+  <ul class="items">
+    <li><label><input type="checkbox" data-id="p-bt0"><span><span class="t">STM32 BT0 jumper on GND</span></span></label></li>
+    <li><label><input type="checkbox" data-id="p-usb"><span><span class="t">USB in this order: the three ESP32s, then the DE10-Lite, then the STM32</span><span class="d">The DE10-Lite always before the STM32.</span></span></label></li>
+    <li><label><input type="checkbox" data-id="p-warm"><span><span class="t">Nothing gets warm</span><span class="d">Touch the two shields and the TJA1050 for a second.</span></span></label></li>
+    <li><label><input type="checkbox" data-id="p-mon"><span><span class="t">Every Arduino Serial Monitor closed</span><span class="d">An open monitor blocks a COM port.</span></span></label></li>
+    <li><label><input type="checkbox" data-id="p-key"><span><span class="t"><code>Desktop\master.key</code> is there</span><span class="d">The demo signs the new model with it. Never show its contents.</span></span></label></li>
+  </ul>
+</section>
+
+<section>
+  <h2><span class="num">3</span>The FPGA design</h2>
+  <div class="warn">Only if the DE10-Lite runs something else (Terasic's factory demo, another lab's design). If LEDR4 or LEDR5 is on, it already runs the project: skip the first two lines.</div>
+  <ul class="items">
+    <li><label><input type="checkbox" data-id="f-prog"><span><span class="t">Run <code>program_fpga.bat</code>, answer <span class="key">Y</span>, wait about 30 s for "Programmed"</span><span class="cmd">program_fpga.bat <button type="button" data-copy="program_fpga.bat">Copy</button></span></span></label></li>
+    <li><label><input type="checkbox" data-id="f-replug"><span><span class="t">Unplug the DE10-Lite USB and plug it back: <strong>LEDR4 and LEDR5 both on</strong></span><span class="d">The built-in model. After an update in part 3 only one of them stays on.</span></span></label></li>
+    <li><label><input type="checkbox" data-id="f-sw"><span><span class="t">DE10-Lite: <strong>SW0 down, SW1 down</strong></span><span class="d">SW0 = the FPGA protects the bus. SW1 = maintenance mode, the update port. The demo asks for every switch.</span></span></label></li>
+  </ul>
+</section>
+
+<section>
+  <h2><span class="num">4</span>Prepare the demo</h2>
+  <ul class="items">
+    <li><label><input type="checkbox" data-id="r-prep"><span><span class="t">Run <code>run_demo.bat prepare</code>: it ends with "Ready: the STM32 runs the IDS firmware"</span><span class="cmd">run_demo.bat prepare <button type="button" data-copy="run_demo.bat prepare">Copy</button></span><span class="d">If it asks: take the STM32 shield off, BT0 to 3V3, press RST, Enter. After "Programmed": BT0 back to GND, shield back on, RST, Enter.</span></span></label></li>
+    <li><label><input type="checkbox" data-id="r-ports"><span><span class="t">If anything was replugged since: the boards still show up</span><span class="d">Device Manager, Ports: three USB-Enhanced-SERIAL (ESP32s) and one USB Serial Device (STM32).</span></span></label></li>
+  </ul>
+</section>
+
+<section>
+  <h2><span class="num">5</span>Screen and slides</h2>
+  <ul class="items">
+    <li><label><input type="checkbox" data-id="s-ppt"><span><span class="t">Presentation open: <code>docs\presentation\CAN_IDS_IPS_presentation.pptx</code></span></span></label></li>
+    <li><label><input type="checkbox" data-id="s-web"><span><span class="t">Browser tabs ready, internet working</span><span class="d"><a href="https://charbel-j-estephan.com/CAN-IDS-IPS" target="_blank" rel="noopener">charbel-j-estephan.com/CAN-IDS-IPS</a> (step 5, Update) and <a href="https://charbel-j-estephan.com/CAN-COMPARE" target="_blank" rel="noopener">charbel-j-estephan.com/CAN-COMPARE</a></span></span></label></li>
+    <li><label><input type="checkbox" data-id="s-term"><span><span class="t">A terminal in the project folder, large font, readable from the back of the room</span></span></label></li>
+    <li><label><input type="checkbox" data-id="s-power"><span><span class="t">Laptop on its charger, sleep and notifications off</span></span></label></li>
+  </ul>
+</section>
+
+<section>
+  <h2><span class="num">6</span>Go</h2>
+  <ul class="items">
+    <li><label><input type="checkbox" data-id="g-run"><span><span class="t">On stage: <code>run_demo.bat</code></span><span class="cmd">run_demo.bat <button type="button" data-copy="run_demo.bat">Copy</button></span><span class="d">About 15 minutes. It says which switch to set before every step and waits for Enter.</span></span></label></li>
+  </ul>
+</section>
+
+<section class="ref">
+  <h2>On stage: what each step shows</h2>
+  <table>
+    <thead><tr><th>Step</th><th>Switch</th><th>Expected</th></tr></thead>
+    <tbody>
+      <tr class="part"><td colspan="3">Part 1: the FPGA alone (the STM32 only listens)</td></tr>
+      <tr><td class="n">1</td><td>SW0 down</td><td>DoS: every attack frame reaches the car, 1,861 of 1,861</td></tr>
+      <tr><td class="n">2</td><td>SW0 <strong>up</strong></td><td>DoS: 1,861 of 1,861 destroyed, 0 normal lost, attacker bus off</td></tr>
+      <tr><td class="n">3</td><td>SW0 up</td><td>RPM spoofing: 1,085 of 1,085 destroyed, 0 normal lost</td></tr>
+      <tr class="part"><td colspan="3">Part 2: the STM32 alone</td></tr>
+      <tr><td class="n">4</td><td>SW0 <strong>down</strong></td><td>DoS: 1,861 of 1,861 destroyed by the STM32, in software; then the race website</td></tr>
+      <tr class="part"><td colspan="3">Part 3: updating the FPGA's model (the STM32 becomes the update tool: shield off, BT0 to 3V3, RST; then BT0 to GND, shield on, RST)</td></tr>
+      <tr><td class="n">5</td><td>SW1 down</td><td>the model, its version, the flash slot</td></tr>
+      <tr><td class="n">6</td><td>-</td><td>the update file: header, the trees before and after scrambling, CRC, stamp</td></tr>
+      <tr><td class="n">7</td><td>SW1 down</td><td>refused: maintenance mode is off</td></tr>
+      <tr><td class="n">8</td><td>SW1 <strong>up</strong></td><td>accepted, new version, LEDR4 / LEDR5 switch slot; the nine steps the FPGA did</td></tr>
+      <tr><td class="n">9</td><td>SW1 up</td><td>refused: older version (rollback)</td></tr>
+      <tr><td class="n">10</td><td>SW1 up</td><td>refused: stamp does not match; 1 bad stamp counted</td></tr>
+      <tr><td class="n">11</td><td>SW1 <strong>down</strong></td><td>port closed; the model stays through a power cut</td></tr>
+    </tbody>
+  </table>
+  <p>On every result, point at two lines: attack frames that reached the car (0 when protected) and normal frames lost (must be 0).</p>
+</section>
+
+<section class="ref">
+  <h2>If something goes wrong</h2>
+  <table>
+    <thead><tr><th>Sign</th><th>Fix</th></tr></thead>
+    <tbody>
+      <tr><td>"No USB-Blaster found" (program_fpga.bat)</td><td>the DE10-Lite USB cable; then run it again</td></tr>
+      <tr><td>"The FPGA does not answer (all FF)"</td><td>push both SPI plugs fully in; unplug both USB cables, plug the DE10-Lite first, the STM32 second</td></tr>
+      <tr><td>"did not appear in 60 s" after a jumper step</td><td>BT0 jumper position, then press RST</td></tr>
+      <tr><td>The STM32 drops off USB, Windows shows "STM32 BOOTLOADER"</td><td>it restarted with BOOT0 high: BT0 to GND, shield on, RST, run the demo again (the FPGA was not changed)</td></tr>
+      <tr><td>"SW1 is UP / DOWN on the DE10-Lite"</td><td>put it where it says; the demo waits</td></tr>
+      <tr><td>Step 8 refused with "port locked"</td><td>three bad stamps since power on: unplug the DE10-Lite USB and plug it back</td></tr>
+      <tr><td>"Could not find exactly one sender and one receiver"</td><td>a USB cable or an open Serial Monitor; replug the ESP32s</td></tr>
+      <tr><td>Link check FAILED</td><td>a bus wire or terminator: CANH, CANL, the 60 Ω</td></tr>
+      <tr><td>Step 2 or 3: attack frames arrive</td><td>SW0 is down, or the DE10-Lite shield is not seated</td></tr>
+      <tr><td>Step 4: 0 destroyed, the STM32 says <code>rx=0</code></td><td>the STM32 hears nothing: its CANH or CANL is not on the rail</td></tr>
+      <tr><td>A normal frame lost</td><td>the line under the result says whether it was on the wire (then the logging ESP32 missed it); say so and move on</td></tr>
+      <tr><td>Results page did not open</td><td><code>runs\&lt;date&gt;_&lt;file&gt;\report.html</code> in the project folder</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<footer>EEN 527 Embedded System Design · CAN IDS/IPS · details in docs\DEMO.md</footer>
+</main>
+
+<script>
+(function () {
+  var KEY = "can-ids-ips-talk-checklist";
+  var saved = {};
+  try { saved = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { saved = {}; }
+  var boxes = Array.prototype.slice.call(document.querySelectorAll('ul.items input[type="checkbox"]'));
+
+  function update() {
+    var done = 0;
+    boxes.forEach(function (b) {
+      b.closest("li").classList.toggle("checked", b.checked);
+      if (b.checked) done++;
+    });
+    document.querySelectorAll("section").forEach(function (s) {
+      var bs = s.querySelectorAll('ul.items input[type="checkbox"]');
+      if (!bs.length) return;
+      var all = Array.prototype.every.call(bs, function (b) { return b.checked; });
+      s.classList.toggle("complete", all);
+    });
+    document.getElementById("count").textContent = done + " of " + boxes.length + " done";
+    document.getElementById("bar").style.transform = "scaleX(" + (boxes.length ? done / boxes.length : 0) + ")";
+  }
+
+  boxes.forEach(function (b) {
+    b.checked = !!saved[b.dataset.id];
+    b.addEventListener("change", function () {
+      saved[b.dataset.id] = b.checked;
+      try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch (e) {}
+      update();
+    });
+  });
+
+  document.getElementById("reset").addEventListener("click", function () {
+    if (!confirm("Uncheck every item?")) return;
+    saved = {};
+    try { localStorage.removeItem(KEY); } catch (e) {}
+    boxes.forEach(function (b) { b.checked = false; });
+    update();
+  });
+  document.getElementById("print").addEventListener("click", function () { window.print(); });
+
+  document.querySelectorAll("button[data-copy]").forEach(function (btn) {
+    btn.addEventListener("click", function (ev) {
+      ev.preventDefault(); ev.stopPropagation();
+      var text = btn.getAttribute("data-copy");
+      var done = function () { btn.textContent = "Copied"; setTimeout(function () { btn.textContent = "Copy"; }, 1200); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, function () { fallback(text); done(); });
+      } else { fallback(text); done(); }
+    });
+  });
+  function fallback(text) {
+    var t = document.createElement("textarea");
+    t.value = text; document.body.appendChild(t); t.select();
+    try { document.execCommand("copy"); } catch (e) {}
+    document.body.removeChild(t);
+  }
+
+  update();
+})();
+</script>
+</body>
+</html>

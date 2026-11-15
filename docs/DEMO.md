@@ -22,6 +22,23 @@ race `https://charbel-j-estephan.com/CAN-COMPARE` after part 2, the walkthrough
 `https://charbel-j-estephan.com/CAN-IDS-IPS` (step 5, Update) at the start of
 part 3.
 
+## The web presentation
+
+`docs/presentation/index.html` (double-click, then F for full screen, arrow keys
+to move) follows the talk: what CAN is and why it is open, where an IDS/IPS is
+needed, the FPGA live, the basic IDS, 5/6/8 bytes, the modular forest and the
+twelve update precautions. Its live slides give the command to type:
+
+| Command | What it runs |
+|---|---|
+| `run_demo.bat run <who> <attack>` | one replay; who = `none`, `fpga`, `basic` or `stm32`, attack = `DoS`, `Fuzzy`, `Gear` or `RPM` |
+| `program_fpga.bat basic` | the basic IDS (forest compiled into logic, `quartus_board`) |
+| `program_fpga.bat` | back to the updatable design |
+| `run_demo.bat update` | the secure update, step by step |
+
+Each replay adds its result to `runs\live_results.js`; "Refresh live results" on
+the graph slide shows it next to the recorded bench results.
+
 ## Setup (before the talk)
 
 | Check | |
