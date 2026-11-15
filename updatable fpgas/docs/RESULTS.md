@@ -226,8 +226,12 @@ jumper wires (SPI and GND), no CAN bus. Steps from `docs/HOME_TEST_GUIDE.md`.
   any edges (not done).
 - A loose wire shows as every read FF (`spi_test` bad=1000 on every line), not
   as a few losses.
-- The CAN input (pin 1 held recessive by a jumper to 3.3 V) counted a few
-  `errors` when the jumper was touched. That is a loose contact, not the design.
+- `errors` in COUNTERS is UPDATE_ERRORS: refused commands and failed COMMITs
+  since reset, not CAN errors. Every garbled SPI frame counts (after 1,000
+  fast-edge test reads with 274 bad, it read 274), and so does COUNTERS asked
+  for with SW1 down.
+- After the home test the 5-byte model went in as version 4 (slot B,
+  `2DDDA531`), ready for bench test 5.
 
 ## Not run: needs the board
 
@@ -235,13 +239,30 @@ jumper wires (SPI and GND), no CAN bus. Steps from `docs/HOME_TEST_GUIDE.md`.
 |---|---|
 | UFM behaviour on real silicon (erase, write, read back through the IP) | **Done** in the home test: two slots written, rollback floor kept, boots from flash |
 | STM32 pushing a model over real wires | **Done** in the home test |
-| Four attacks on the ESP32 bench with the SPI-loaded model | **Not run** |
+| Four attacks on the ESP32 bench with the SPI-loaded model | **Done** 11-15 (below) |
 | Unplug the STM32, power cycle, check the model stays | **Done** in the home test (3.11, 3.12) |
 | The stamp on the board: a wrong key three times, lockout, power cycle (SPI_WIRING test 7) | **Done** in the home test (3.9 to 3.11) |
-| STM32 fw 17 on the four attacks (compare lat, abort, dlate with fw 16) | **Not run** |
+| STM32 fw 17 on the four attacks (compare lat, abort, dlate with fw 16) | **Done** 11-15: same results as fw 16, but bit samples late far more often; see `docs/HANDOVER.md` |
 
 Steps are in `docs/SPI_WIRING.md`. The flash model matches the Quartus IP's
 ports; the home test showed the real flash behaving the same way.
+
+### Bench test 5 (2026-11-15)
+
+The 5-byte model as version 4, pushed over SPI, kept in flash slot B, the
+STM32 update tool unplugged. ESP32 bench, 5,000 frames per run, the same
+arguments as the hardcoded design on 11-03.
+
+| Run | Attack frames destroyed | Normal frames lost | Attacker |
+|---|---|---|---|
+| Prevention off (SW0 down), DoS | 0 of 1,861 (all delivered) | 0 of 3,139 | 0 bus errors on every board |
+| DoS | **1,861 / 1,861** | **0** of 3,139 | bus off |
+| Fuzzy | **709 / 709** | **0** of 4,291 | bus off |
+| Gear | **922 / 922** | **0** of 4,078 | bus off |
+| RPM | **1,085 / 1,085** | **0** of 3,915 | bus off |
+
+Frame for frame the 11-03 result of the hardcoded design. Runs in
+`esp32 setup\can_replay\runs\20261115_0931*` to `0934*`.
 
 ## Cross-check against Intel's flash model
 

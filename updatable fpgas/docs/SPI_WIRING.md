@@ -96,6 +96,19 @@ for your Python (`py -3.13 -m pip install pyserial`, or use the bench's venv).
 Not run by me: this needs the hardware.
 
 1. Program and push the 5-byte model as above. Check `VERSION model=2DDDA531 version=2`.
+   The board refuses any version below the highest it has accepted (`err=7`).
+   After the home test it holds version 3, so sign the 5-byte model as version 4
+   and push that instead (SW[1] up for the push, down afterwards):
+
+   ```bash
+   py -3.13 python/sign_blob.py build/blobs/p5/model.bin --device-id 1 --version 4 --key C:\Users\Charbel\Desktop\master.key --encrypt --out build/signed/p5_v4.bin
+   ```
+
+   ```bash
+   py -3.13 python/push_model.py COM11 build/signed/p5_v4.bin
+   ```
+
+   Check `VERSION model=2DDDA531 version=4`.
 2. SW[0] up (prevention on), SW[1] down, STM32 unplugged or left idle.
 3. From `Desktop\esp32 setup\can_replay` run the same four tests as for the
    hardcoded design (`run_check_esp32.bat`, one per attack file, with the same
@@ -108,8 +121,9 @@ Not run by me: this needs the hardware.
 
 Not run by me: this needs the hardware.
 
-1. Push a new model with a higher version number (for example the 8-byte model,
-   `--version 3`). LEDR[5:4] shows slot 1 or 2.
+1. Push a new model with a higher version number than the board holds (for
+   example the 8-byte model, `--version 3` on a fresh board, `--version 5` after
+   the home test and test 5). LEDR[5:4] shows slot 1 or 2.
 2. Unplug the STM32 completely (all five wires).
 3. Power cycle the DE10-Lite (USB out, wait, USB in).
 4. Plug the STM32 back in with SW[1] down and run `push_model.py COM5`: GET_VERSION

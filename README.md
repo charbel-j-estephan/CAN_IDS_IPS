@@ -156,8 +156,13 @@ reference: [IDS ML](https://github.com/Western-OC2-Lab/Intrusion-Detection-Syste
 | Testbench with one wrong expected value | reports FAIL, so the check is real |
 | Yosys synthesis, 100 trees, depth 10 | about 2,900 LUTs and 413 flip flops (the 10M50 has 49,760 LEs) |
 
-Still to measure on hardware: Quartus Fmax and resource use on the real
-dataset, STM32 worst case cycles, and the combined build.
+On the bench (2026-11-15, real CAN bus, real car traffic, separate attacker):
+the FPGA and the STM32 each destroyed every attack frame of all four attacks
+(DoS, Fuzzy, Gear, RPM spoofing) and forced the attacker off the bus; the FPGA
+lost 0 normal frames. The FPGA did it with a model loaded over a signed and
+encrypted update channel, kept in its own flash through power cycles. All
+numbers, their sources and the limits: [docs/PAPER_RESULTS.md](docs/PAPER_RESULTS.md).
+Live demo: [docs/DEMO.md](docs/DEMO.md).
 
 ---
 
@@ -183,6 +188,9 @@ part of this repo:
   machine learning and hardware detectors, and the gap this project fills
 - [Build guide](docs/BUILD_GUIDE.md): every step from a fresh PC to timing numbers
 - [References](REFERENCES.md): the 18 papers in the review plus the tools and datasets
+- [Results for the paper](docs/PAPER_RESULTS.md): every number with its source, and the limits
+- [Live demo](docs/DEMO.md): bench checklist and the one-click `run_demo.bat`
+- [Handover](docs/HANDOVER.md): status of every firmware and design version
 
 ## Team
 
