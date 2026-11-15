@@ -9,6 +9,7 @@
 
 static SPIClass fpga_spi(PB15, PB14, PB13);
 static const SPISettings FPGA_SPI(2625000, MSBFIRST, SPI_MODE0);
+#define NORMAL_EDGE 0   // slow edges: see set_edges()
 
 enum { C_WRITE = 0x01, C_READ = 0x02, C_COMMIT = 0x03, C_STATUS = 0x04, C_VERSION = 0x05, C_COUNTERS = 0x06 };
 
@@ -29,6 +30,40 @@ void fpga_begin()
     digitalWrite(FPGA_CS, HIGH);
     fpga_spi.begin();
     fpga_spi.beginTransaction(FPGA_SPI);
+    set_edges(NORMAL_EDGE);
+}
+
+// Edge speed of PB12 CS, PB13 SCLK and PB15 MOSI: 0 low, 1 medium (25 MHz),
+// 2 high, 3 very high (the core's default for SPI pins). Fast edges ring on
+// jumper wires and the FPGA counts the ringing as extra clocks. Measured on the
+// first home test, 1000 STATUS reads each at 2.625 MHz: edge 3 lost 440,
+// edge 2 403, edge 1 268, edge 0 none; at 656 kHz edge 1 still lost 172, so
+// the clock rate is not the cause. spi_init sets the pins again, so this runs
+// after every beginTransaction that changes the settings.
+void set_edges(uint8_t speed)
+{
+    uint32_t s = speed & 3u;
+    GPIOB->OSPEEDR = (GPIOB->OSPEEDR & ~((3u << 24) | (3u << 26) | (3u << 30)))
+                   | (s << 24) | (s << 26) | (s << 30);
+}
+
+uint32_t fpga_spi_test(uint32_t n, uint32_t hz, uint8_t speed, uint32_t *all_ff)
+{
+    fpga_spi.beginTransaction(SPISettings(hz, MSBFIRST, SPI_MODE0));
+    set_edges(speed);
+    uint32_t bad = 0, ff = 0;
+    for (uint32_t i = 0; i < n; i++) {
+        uint32_t s = fpga_status();
+        if ((s >> 24) != 0xC1) {
+            bad++;
+            if (s == 0xFFFFFFFFUL) ff++;
+        }
+        delayMicroseconds(20);
+    }
+    fpga_spi.beginTransaction(FPGA_SPI);
+    set_edges(NORMAL_EDGE);
+    *all_ff = ff;
+    return bad;
 }
 
 uint32_t fpga_status()

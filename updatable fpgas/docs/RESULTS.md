@@ -105,7 +105,7 @@ Quartus Prime Lite 25.1, 10M50DAF484C7G, slow 85 C model.
 
 | Check | Result |
 |---|---|
-| `stm32_updater` builds (PlatformIO, black F407VE) | Builds. **Not run on hardware** |
+| `stm32_updater` builds (PlatformIO, black F407VE) | Builds. Run on the board in the home test (below) |
 | fw 16 unchanged | `mcu/` has no changes; rebuilt `firmware.bin` is byte for byte the bench's fw 16 build (43,312 bytes) |
 | `sign_blob.py` | AES-CMAC matches the RFC 4493 vector; a blob signed for one device fails on another; one flipped payload bit is detected |
 
@@ -124,7 +124,7 @@ section has run on the board.
 | Update path before Stage 5 (`tb/update_tb.v`) | 74 checks, 0 failed (development), 73 (production). New: 5 data byte minimum, level 12 READ refused, journal page full and rolled over, no model at all repaired over SPI |
 | Mid-traffic swap, the new model now over the real SPI pins (was forced into the decoder) | 120 frames, 120 verdicts, swap at frame 72, 36 disagreeing frames before it and 24 after, 0 wrong |
 | STM32 fw 17 (two IPS races) | Builds, 43,352 bytes. Bit interrupt saves the same registers as fw 16 (r4-r8, lr) and is 4 bytes smaller. **Not run on hardware** |
-| `stm32_updater` with the 64 character line limit | Builds. **Not run on hardware** |
+| `stm32_updater` with the 64 character line limit | Builds. Run on the board in the home test (below) |
 
 ### Stage 5: stamp, scrambling, glitch hardening
 
@@ -168,19 +168,80 @@ afterwards):
 - **The keys appear in the synthesis report**, in binary, in the parameter tables of
   `updatable_top.map.rpt`. Treat `quartus/` outputs as secret.
 
+## Review fixes (2026-11-13), in simulation
+
+From a second review of the finished Stage 5. The stamp is now checked before
+anything that looks at unscrambled bytes (node ranges, self test), and
+PARSE_ERRORS hides the node bits of a scrambled blob. A bank swap needs a 32 bit
+swap code. The spare bank's settings go off when an upload starts. An upload
+while a swap waits for a gap is refused (`E_BUSY`). A flash that does not answer
+during the boot scan boots the ROM at once and refuses COMMIT (`E_FLASH`).
+Production (no READ of the model) is now the default. `run_sim.bat` stops at
+the first test without ALL PASS.
+
+| Check | Result |
+|---|---|
+| Update path (`tb/update_tb.v`) | **112 checks, 0 failed** (development), **111, 0 failed** (production), about 72 ms of simulated time, an hour each |
+| ... the stamp's result arriving after the upload ends | good blob accepted |
+| ... a glitched swap request (no swap code) | dropped, bank unchanged |
+| ... an upload while the boot swap waits for a gap | `E_BUSY` |
+| ... flash dead at power on | ROM model boots, COMMIT refused with `E_FLASH` |
+| ... a scrambled blob with a bad node, with and without this board's stamp | `E_RANGE` with it; without it only `E_MAC`, and 0030 shows no node bits |
+
+The first runs of this test never ended. The late-stamp test waited for one
+exact clock of the stamp wait, which had already passed by the time the SPI
+task returned. The test now waits for "that clock or later", and a 150 ms
+timeout makes any future hang print FAIL instead of running forever.
+
+**Not rerun after these fixes:** the IPS on a simulated bus, the mid-traffic
+swap and every dataset frame over SPI (steps 3, 4, 5 and 12 of `run_sim.bat`;
+the numbers above are from 2026-11-12). The AES, CMAC and CTR circuits did not
+change.
+
+## Home test on the board (2026-11-14/15)
+
+DE10-Lite (10M50DAF484) and the black STM32F407VE with `stm32_updater`, five
+jumper wires (SPI and GND), no CAN bus. Steps from `docs/HOME_TEST_GUIDE.md`.
+
+| Step | Result |
+|---|---|
+| 3.3 first contact | STATUS starts `C1`. COUNTERS outside maintenance answers all FF, as designed (refused, `err=1`) |
+| SPI link, `python/spi_test.py` | **0 bad of 20,000 reads** at 2.625 MHz with slow edges (see below) |
+| 3.4 upload with SW1 down | refused, `err=1` |
+| 3.5 5 byte model, stamped and scrambled | accepted, slot A, version 2 |
+| 3.6 8 byte model | accepted, slot B, `C0F7E8B5` version 3 |
+| 3.7 version 2 again | refused, `err=7` (rollback) |
+| 3.8 KEY0 | boots version 3 from flash |
+| 3.9 three wrong keys | each `err=12`; then locked, the good blob gets `err=2`; `sig_fails=3` |
+| 3.10 KEY0 | still locked |
+| 3.11 power cycle | unlocked, version 3 kept |
+| 3.12 `.pof` in CFM0 (UFM left alone), power on without a `.sof` | boots version 3 from slot A by itself |
+| 3.13 | SW1 down, STM32 unplugged; IDS fw 17 put back on it (`#STAT fw=17 model=on`) |
+
+- **SPI edges.** With the STM32 core's default pin speed (very high), 44 % of
+  reads came back wrong on jumper wires: the edges ring and the FPGA counts the
+  ringing as extra clocks. A slower clock did not help (656 kHz with medium
+  edges still lost 17 %). The slowest pin speed lost none. `stm32_updater` now sets it for CS, SCLK and
+  MOSI. A glitch filter on SCLK and CS in the FPGA would make the link safe with
+  any edges (not done).
+- A loose wire shows as every read FF (`spi_test` bad=1000 on every line), not
+  as a few losses.
+- The CAN input (pin 1 held recessive by a jumper to 3.3 V) counted a few
+  `errors` when the jumper was touched. That is a loose contact, not the design.
+
 ## Not run: needs the board
 
 | Test | Status |
 |---|---|
-| UFM behaviour on real silicon (erase, write, read back through the IP) | **Not run** |
-| STM32 pushing a model over real wires | **Not run** |
+| UFM behaviour on real silicon (erase, write, read back through the IP) | **Done** in the home test: two slots written, rollback floor kept, boots from flash |
+| STM32 pushing a model over real wires | **Done** in the home test |
 | Four attacks on the ESP32 bench with the SPI-loaded model | **Not run** |
-| Unplug the STM32, power cycle, check the model stays | **Not run** |
-| The stamp on the board: a wrong key three times, lockout, power cycle (SPI_WIRING test 7) | **Not run** |
+| Unplug the STM32, power cycle, check the model stays | **Done** in the home test (3.11, 3.12) |
+| The stamp on the board: a wrong key three times, lockout, power cycle (SPI_WIRING test 7) | **Done** in the home test (3.9 to 3.11) |
 | STM32 fw 17 on the four attacks (compare lat, abort, dlate with fw 16) | **Not run** |
 
-Steps are in `docs/SPI_WIRING.md`. The flash model matches the Quartus IP's ports,
-but only the board can show how the real flash behaves.
+Steps are in `docs/SPI_WIRING.md`. The flash model matches the Quartus IP's
+ports; the home test showed the real flash behaving the same way.
 
 ## Cross-check against Intel's flash model
 

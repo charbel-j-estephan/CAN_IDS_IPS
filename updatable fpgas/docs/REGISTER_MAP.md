@@ -27,6 +27,15 @@ uses 256. Address is the blob offset.
 COMMIT is asynchronous: send it, then poll STATUS until bits 8 and 15 are clear,
 then read LAST_ERROR (0 = success). A COMMIT takes up to about 1.5 s on the board.
 
+COMMIT checks in this order: header, protocol, device, version, length, CRC, the
+stamp (MAC), then node ranges, the CRC of the RAM and the self test. Node ranges
+and self test are the only checks that look at unscrambled bytes, so a blob
+without this board's stamp never gets an answer about them (`MAC` instead).
+
+WRITE_SHADOW and COMMIT are refused with `BUSY` while the board is busy, which
+includes the moment after a boot or COMMIT when the bank swap waits for a gap in
+the CAN traffic (STATUS bit 15). That is normally under a millisecond.
+
 ## Registers (READ address)
 
 | Address | Name | Meaning |
@@ -44,6 +53,10 @@ then read LAST_ERROR (0 = success). A COMMIT takes up to about 1.5 s on the boar
 | `0028` | ROLLBACK_FLOOR | highest version accepted, from flash |
 | `002C` | DEVICE_ID | this board's ID (build time) |
 | `0030` | PARSE_ERRORS | blob_walker sticky bits, below |
+| `0034` | IPS_LATE | attack verdicts that came too late to destroy the frame |
+| `0038` | IPS_ALLOWED | attack verdicts on the allow list (ID 7FF "CANST") |
+| `003C` | IPS_ABORTED | error flags cut by the safety limit (should stay 0) |
+| `0040` | IPS_LIMITED | attack verdicts not flagged because of the rate limit (0 while it is off) |
 
 ### STATUS
 
@@ -83,17 +96,23 @@ then read LAST_ERROR (0 = success). A COMMIT takes up to about 1.5 s on the boar
 | 15 | VERIFY | Flash read back differs |
 | 16 | BUSY | Another operation is running |
 | 17 | SEQUENCE | WRITE_SHADOW out of order, or data arrived too fast |
+| 18 | FLASH | The flash did not answer at power on: the ROM model runs and COMMIT is refused until the next reset (the rollback floor could not be read) |
 
 ### PARSE_ERRORS bits
 
 0 header, 1 node counts, 2 feature index, 3 child pointer, 4 leaf vote, 5 length,
-6 bytes after the end.
+6 bytes after the end. For a scrambled blob bits 2-4 always read 0: they come
+from unscrambled bytes, and the stamp has not been checked yet when you read them.
 
 ## Reading the model (development builds only)
 
-Build with `READ_MODEL_EN = 1` to read the **shadow** bank. A production build
-(`READ_MODEL_EN = 0`) answers all of these with `DEAD0BAD`, so thresholds never
-leave the chip over SPI.
+`READ_MODEL_EN = 1` reads the **shadow** bank. The board build defaults to
+`READ_MODEL_EN = 0`, which answers all of these with `DEAD0BAD`, so thresholds never
+leave the chip over SPI. For a development build put
+`set_parameter -name READ_MODEL_EN 1` in `quartus/updatable_top.qsf`, and take it
+out again before a board leaves your desk: with it, anyone with the SPI wires
+can upload a captured scrambled rulebook (no COMMIT needed) and read it back in
+the clear.
 
 | Address | Width | Meaning |
 |---|---|---|

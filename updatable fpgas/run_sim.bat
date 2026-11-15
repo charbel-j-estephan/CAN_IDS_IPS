@@ -1,5 +1,7 @@
 @echo off
-rem Every simulation of the updatable model. Takes about an hour.
+rem Every simulation of the updatable model. Takes about four hours: the AES
+rem circuits make steps 3 and 12 about 45 minutes each and steps 4 and 5 about
+rem an hour each. A test that prints FAIL, or no ALL PASS, stops the run.
 rem   1. exports the 5, 6 and 8 byte blobs and the test blobs
 rem   2. engine latency and throughput
 rem   3. every distinct dataset frame vs Python, blob loaded through SPI and COMMIT
@@ -46,12 +48,16 @@ py -3.13 python/accuracy_engine.py --spi --bytes 5 6 8 || goto :fail
 echo.
 echo === 4. update path, development build ===
 "%IV%\iverilog" -g2005 -I tb -o build/update_sim tb/update_tb.v tb/ufm_model.v %RTL% || goto :fail
-pushd build & "%IV%\vvp" -n update_sim | findstr /r "^PASS ^FAIL checks ALL" & popd
+pushd build & "%IV%\vvp" -n update_sim > update_dev.log & popd
+findstr /r "^PASS ^FAIL checks ALL" build\update_dev.log
+call :passed build\update_dev.log || goto :fail
 
 echo.
 echo === 5. update path, production build (no model READ) ===
 "%IV%\iverilog" -g2005 -DREAD_MODEL_EN=0 -DEXPECT_READ_BLOCKED -I tb -o build/update_prod_sim tb/update_tb.v tb/ufm_model.v %RTL% || goto :fail
-pushd build & "%IV%\vvp" -n update_prod_sim | findstr /r "^FAIL checks ALL production" & popd
+pushd build & "%IV%\vvp" -n update_prod_sim > update_prod.log & popd
+findstr /r "^FAIL checks ALL production" build\update_prod.log
+call :passed build\update_prod.log || goto :fail
 
 echo.
 echo === bus frames for steps 6 and 7 ===
@@ -95,12 +101,16 @@ popd
 echo.
 echo === 9. flash controller when the flash stops answering ===
 "%IV%\iverilog" -g2005 -o build/nv_timeout_sim tb/nv_timeout_tb.v tb/ufm_model.v rtl/nv/nv_ufm_avmm.v || goto :fail
-"%IV%\vvp" -n build/nv_timeout_sim | findstr /r "^FAIL checks ALL"
+"%IV%\vvp" -n build/nv_timeout_sim > build\nv_timeout.log
+findstr /r "^FAIL checks ALL" build\nv_timeout.log
+call :passed build\nv_timeout.log || goto :fail
 
 echo.
 echo === 10. IPS rate limit ===
 "%IV%\iverilog" -g2005 -o build/ips_limit_sim tb/ips_limit_tb.v rtl/frontend_can/ips_flag.v || goto :fail
-"%IV%\vvp" -n build/ips_limit_sim | findstr /r "^FAIL checks ALL"
+"%IV%\vvp" -n build/ips_limit_sim > build\ips_limit.log
+findstr /r "^FAIL checks ALL" build\ips_limit.log
+call :passed build\ips_limit.log || goto :fail
 
 echo.
 echo === 11. security circuits against Python ===
@@ -108,18 +118,29 @@ echo === 11. security circuits against Python ===
 "%IV%\iverilog" -g2005 -o build/cmac_sim tb/cmac_tb.v %SEC% || goto :fail
 "%IV%\iverilog" -g2005 -o build/ctr_sim tb/ctr_tb.v %SEC% || goto :fail
 pushd build
-"%IV%\vvp" -n aes_sim | findstr /r "^AES FAIL ALL"
-"%IV%\vvp" -n cmac_sim | findstr /r "^CMAC FAIL ALL"
-"%IV%\vvp" -n ctr_sim | findstr /r "^CTR FAIL ALL"
+"%IV%\vvp" -n aes_sim > aes.log
+"%IV%\vvp" -n cmac_sim > cmac.log
+"%IV%\vvp" -n ctr_sim > ctr.log
 popd
+for %%t in (aes cmac ctr) do (
+    findstr /r "^AES ^CMAC ^CTR FAIL ALL" build\%%t.log
+    call :passed build\%%t.log || goto :fail
+)
 
 echo.
 echo === 12. every dataset frame, scrambled blob over SPI ===
 py -3.13 python/accuracy_engine.py --spi --enc --bytes 5 6 8 || goto :fail
 
 echo.
-echo All simulations done. Check the lines above for FAIL.
+echo All simulations done, every test said ALL PASS.
 goto :end
+
+rem A test's log passes when it has an ALL PASS line and no FAIL line.
+:passed
+findstr /b /c:"FAIL" "%~1" >nul && exit /b 1
+findstr /c:"ALL PASS" "%~1" >nul || exit /b 1
+exit /b 0
+
 :fail
 echo.
 echo Stopped: the step above failed.

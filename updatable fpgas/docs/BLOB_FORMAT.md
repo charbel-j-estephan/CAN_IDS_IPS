@@ -82,7 +82,10 @@ all AES-128, from one master key that stays on the PC:
   block number 32 bits big endian from 0, one block per 16 bytes. The header,
   feature map and node counts stay plain: the FPGA needs them before it can
   unscramble. CRC and MAC are worked out on the scrambled bytes (encrypt then
-  MAC), so a bad blob is refused before anything is unscrambled. The FPGA keeps
+  MAC). The FPGA unscrambles while the blob streams in, but it reports nothing
+  about the unscrambled bytes (node ranges, self test) until the stamp has
+  passed, and register `0030` hides the node bits of a scrambled blob: without
+  the key, no answer tells you anything about the hidden part. The FPGA keeps
   the scrambling in flash: it scrambles again on the way out of its RAM.
 
 ## What the FPGA checks
@@ -90,5 +93,6 @@ all AES-128, from one master key that stays on the PC:
 While the blob arrives (`blob_walker.v`): header ranges, feature map, the shape
 of every tree, every feature index, every child pointer, every leaf vote, the
 total length, and at least 5 data bytes read (the IPS allow list needs bytes 0-4).
-At COMMIT: all of that, then protocol, device, version, CRC of
-what is actually in RAM, self test, MAC (checked twice), version again. See `REGISTER_MAP.md` for the error codes.
+At COMMIT, in this order: header, protocol, device, version, length, CRC, then
+version again and the MAC (checked twice), and only then node ranges, CRC of
+what is actually in RAM and self test. See `REGISTER_MAP.md` for the error codes.

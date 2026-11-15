@@ -24,7 +24,11 @@
 `include "device_key.vh"
 
 module updatable_top #(
-    parameter        READ_MODEL_EN = 1            // 0 for a production build: no READ of the model
+    // 1 lets SPI READ the spare bank's model in the clear (development only:
+    // with it, an uploaded scrambled rulebook can be read back unscrambled
+    // without COMMIT). Turn it on for a development build with
+    // set_parameter -name READ_MODEL_EN 1 in quartus/updatable_top.qsf.
+    parameter        READ_MODEL_EN = 0
 ) (
     input               ADC_CLK_10,
     input               MAX10_CLK1_50,

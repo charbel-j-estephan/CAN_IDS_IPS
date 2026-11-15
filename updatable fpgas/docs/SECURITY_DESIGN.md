@@ -113,6 +113,9 @@ would accept an unsigned model. What `update_core.v` does:
 | A single "OK" bit | `mac_pass` is set to the 32 bit code `C3A55A3C` only when both compares agree. `S_C_ERASE` and the boot `S_CFG` refuse to run without it, also if a glitch jumps straight into them. Cleared on every new upload, failure and activation | |
 | The ROM exception (the one blob allowed without a stamp) | ROM source, wildcard device ID and flags 0, checked in `S_LOAD_CHK` and again in `S_LOAD_PASS` | the ROM still boots on empty flash |
 | Rollback | the version against the floor in `S_C_CHECK` and again in `S_C_MAC` | |
+| The bank swap | the swap needs a 32 bit swap code as well as `swap_pending`; the code is set only while `mac_pass` holds. A `swap_pending` without it is dropped | forcing `swap_pending` does not swap |
+| The spare bank | its settings (trees on, rule on) are cleared when an upload starts and set again only after the stamp passes, so a glitched bank select during an upload finds no trees and votes Normal | |
+| The stamp arriving late | the compares wait for a flag set on the clock the tag registers load, not for the seal's done (which rises one clock earlier) | the seal's result held back and given late: still accepted |
 | Lockout counter | two copies, the second inverted; any disagreement counts as locked | forcing a disagreement locks the port |
 | Maintenance switch | sampled every clock and every 128 clocks; both must be up (`updatable_top.v`) | board only |
 | Merging by Quartus | `(* preserve *)` on the duplicated registers; check the fitter report | see `docs/RESULTS.md` |
@@ -130,8 +133,13 @@ really stops someone learning the thresholds from a captured update or a flash d
 
 - Mode: AES-128-CTR, IV from the blob header (bytes 40 to 51) plus a 32 bit block
   counter; the IV must never repeat under the same key.
-- Encrypt then MAC: the MAC covers the ciphertext, so the FPGA rejects a bad blob
-  before decrypting anything.
+- Encrypt then MAC: the MAC covers the ciphertext. The FPGA unscrambles as the
+  bytes stream in, but nothing it says depends on an unscrambled byte until the
+  stamp has passed: COMMIT checks the stamp before the node ranges and the self
+  test, and PARSE_ERRORS (register `0030`) hides the node bits of a scrambled
+  blob. Before 2026-11-12 (review fix) both came first, so someone without the
+  key could edit scrambled bytes, push them, and learn the hidden values from
+  the error codes, with no strike.
 - The header stays in the clear (it holds the version, device and lengths the FPGA
   needs before it can decrypt). Encrypted: self test vectors, key table, nodes.
 - The flag is `Flags` bit 0. The boot ROM blob may never have it.
@@ -143,4 +151,5 @@ really stops someone learning the thresholds from a captured update or a flash d
 - `sign_blob.py --encrypt` picks a fresh random IV every time and offers no way to
   choose one.
 - A development build (`READ_MODEL_EN = 1`) can still read the plain model out of the
-  RAMs over SPI. Production builds must use `READ_MODEL_EN = 0`.
+  RAMs over SPI. The board build now defaults to `READ_MODEL_EN = 0`; turn it on
+  only on purpose (`REGISTER_MAP.md` says how).

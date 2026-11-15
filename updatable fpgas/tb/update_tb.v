@@ -11,7 +11,7 @@ module update_tb;
     reg clk = 0;
     always #10 clk = ~clk;
 
-    reg  rst = 1, por = 1, maint = 0, mac_ok = 1, sclk = 0, cs_n = 1, mosi = 0, rxd = 1;
+    reg  rst = 1, por = 1, maint = 0, sclk = 0, cs_n = 1, mosi = 0, rxd = 1;
     reg  power_cut = 0;
     wire miso, tx_dominant;
     wire model_valid, active_bank, flag_start, verdict_valid, verdict_bank, frame_valid, feat_ready;
@@ -32,7 +32,8 @@ module update_tb;
 `endif
 
     updatable_core #(.DEVICE_ID(`TEST_DEVICE_ID), .MAC_KEY(`TEST_MAC_KEY), .ENC_KEY(`TEST_ENC_KEY),
-                     .READ_MODEL_EN(`READ_MODEL_EN), .NV_SETTLE(5'd6)) dut (
+                     .READ_MODEL_EN(`READ_MODEL_EN), .NV_SETTLE(5'd6),
+                     .NV_TIMEOUT(32'd20_000)) dut (
         .clk(clk), .rst(rst), .por(por), .rxd(rxd), .tx_dominant(tx_dominant), .ips_on(1'b1),
         .maint(maint),
         .spi_sclk(sclk), .spi_cs_n(cs_n), .spi_mosi(mosi), .spi_miso(miso),
@@ -70,6 +71,15 @@ module update_tb;
     localparam E_OK = 0, E_NOT_MAINT = 1, E_LOCKED = 2, E_TRUNCATED = 3, E_HEADER = 4, E_PROTOCOL = 5,
                E_DEVICE = 6, E_VERSION = 7, E_RANGE = 8, E_LENGTH = 9, E_CRC = 10, E_SELFTEST = 11,
                E_MAC = 12;
+
+    // A test that hangs fails the run instead of running for ever. A full run
+    // ends near 66 ms of simulated time.
+    initial begin
+        #150_000_000;
+        $display("FAIL  timeout: no result after 150 ms (%0d checks so far)", checks);
+        $display("%0d checks, %0d failed", checks + 1, fails + 1);
+        $finish;
+    end
 
     task check;
         input [8*40:1] name;
@@ -267,10 +277,26 @@ module update_tb;
         reject("attacker_edit",  E_MAC);        expect_model("  still v2", ID_P8, 32'd2, SRC_A);
         reject("other_key",      E_MAC);        expect_model("  still v2", ID_P8, 32'd2, SRC_A);
         power_on;
+
+        // ---- no answers about the content without a stamp ------------------
+        // A scrambled blob with one node byte made out of range. With this
+        // board's stamp it is refused for the range (so the fault is real) ...
+        reject("enc_bad_node",   E_RANGE);      expect_model("  still v2", ID_P8, 32'd2, SRC_A);
+        // ... without it, neither PARSE_ERRORS nor COMMIT says so: only E_MAC.
+        use_blob("enc_bad_node_nokey");
+        upload_blob;
+        spi_read_reg(16'h0030);
+        check("unstamped scrambled: 0030 hides node bits",
+              reg_word[4:2] == 3'b000 && dut.core.w_err[2] == 1'b1);
+        spi_commit(blob_crc);
+        check("unstamped scrambled bad node: E_MAC", status_now[7:0] == E_MAC);
+        expect_model("  still v2", ID_P8, 32'd2, SRC_A);
+        reject("bad_feature_nokey", E_MAC);     expect_model("  still v2", ID_P8, 32'd2, SRC_A);
+        power_on;
         use_blob("enc_flag_cleared");
         upload_blob;
         spi_commit(blob_crc);
-        check("scrambled, flag cleared: refused before the stamp",
+        check("scrambled, flag cleared: stamped, refused after it",
               status_now[7:0] == E_HEADER || status_now[7:0] == E_RANGE
               || status_now[7:0] == E_LENGTH || status_now[7:0] == E_SELFTEST);
         $display("      (refused with error %0d)", status_now[7:0]);
@@ -395,6 +421,74 @@ module update_tb;
         check("power cycle clears the lockout", status_now[9] == 1'b0);
         good_upload("v5_p8");
         expect_model("updates again after lockout", ID_P8, 32'd5, SRC_A);
+
+        // ---- the stamp is ready late: compare only once the tags are in ------
+        // Hold the seal's result back past the end of the upload, then give it
+        // on one clock, as a slow seal would. The old code compared on that
+        // clock against an empty tag register and refused a good blob.
+        use_blob("v5_p8");
+        force dut.core.cmac_strobe = 1'b0;
+        force dut.core.cmac_done   = 1'b0;
+        upload_blob;
+        send_commit(blob_crc);
+        // COMMIT starts on its last byte, but send_commit returns only after
+        // raising CS, about 30 clocks later: wait for "20 or more", not "20",
+        // or that clock is gone and the wait never ends. The seal gives up at
+        // 255, so this is still well inside the window.
+        wait (dut.core.state == 6'd19 && dut.core.mac_wait >= 8'd20);
+        @(negedge clk);
+        force dut.core.cmac_strobe = 1'b1;
+        force dut.core.cmac_done   = 1'b1;
+        @(negedge clk);
+        release dut.core.cmac_strobe;
+        release dut.core.cmac_done;
+        spi_status;
+        while (status_now[8] || status_now[15]) begin #20000; spi_status; end
+        check("stamp ready late: good blob accepted", status_now[7:0] == E_OK);
+        expect_model("  v5 again, in slot B", ID_P8, 32'd5, SRC_B);
+
+        // ---- a glitched swap request: no swap without the swap code ---------
+        begin : glitch_swap
+            reg bank_before;
+            bank_before = active_bank;
+            @(negedge clk);
+            force dut.core.swap_pending = 1'b1;
+            repeat (10) @(negedge clk);
+            release dut.core.swap_pending;
+            repeat (5) @(negedge clk);
+            check("glitched swap request: bank unchanged, dropped",
+                  active_bank == bank_before && dut.core.swap_pending == 1'b0);
+        end
+        expect_model("  still v5 in slot B", ID_P8, 32'd5, SRC_B);
+
+        // ---- an upload while the boot swap waits for a gap: refused busy -----
+        force dut.core.fe_idle = 1'b0;          // a frame on the bus, for good
+        rst = 1; por = 1;
+        repeat (5) @(posedge clk);
+        @(posedge clk); por = 0;
+        @(posedge clk); rst = 0;
+        #1000;
+        spi_status;
+        while (status_now[8] || !status_now[15]) spi_status;
+        spi_upload(32);
+        spi_status;
+        check("upload while the swap waits: E_BUSY", status_now[7:0] == 8'd16);
+        release dut.core.fe_idle;
+        wait_boot;
+        expect_model("  then boots as normal", ID_P8, 32'd5, SRC_B);
+
+        // ---- the flash stops answering: ROM at once, COMMIT refused ----------
+        ufm.stuck_wait = 1;
+        power_on;
+        expect_model("dead flash: ROM boots at once", ID_P5, 32'd1, SRC_ROM);
+        check("dead flash: error says flash", status_now[7:0] == 8'd18);
+        use_blob("v5_p8");
+        upload_blob;
+        spi_commit(blob_crc);
+        check("dead flash: COMMIT refused", status_now[7:0] == 8'd18);
+        ufm.stuck_wait = 0;
+        power_on;
+        expect_model("flash back: boots v5 from slot B", ID_P8, 32'd5, SRC_B);
 
         // ---- the journal page fills up: the next record goes to the other page
         // Start from an empty flash, put one real update in slot A, then fill
