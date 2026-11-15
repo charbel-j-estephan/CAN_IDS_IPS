@@ -10,6 +10,10 @@ Run it with run_demo.bat (project folder):
     py -3.13 python/demo.py           the whole demo (about 15 minutes)
     py -3.13 python/demo.py attacks   parts 1 and 2 only
     py -3.13 python/demo.py update    part 3 only
+    py -3.13 python/demo.py run <who> <attack>
+                                      one replay for the web presentation:
+                                      who = none, fpga, basic or stm32,
+                                      attack = DoS, Fuzzy, Gear or RPM
 
 Wiring and the checklist: docs/DEMO.md. The demo signs every model it pushes
 with the master key (default Desktop\\master.key, or set CAN_MASTER_KEY), each
@@ -49,7 +53,14 @@ ERRORS = {0: "ACCEPTED", 1: "REFUSED: maintenance mode is off (SW1 down)",
           7: "REFUSED: older version than the board's (rollback)", 10: "REFUSED: CRC",
           12: "REFUSED: stamp does not match (wrong key or edited file)", 16: "busy"}
 ATTACKS = {"DoS": "DoS (flooding the bus with the highest priority ID)",
+           "Fuzzy": "Fuzzy (random IDs and data)",
+           "Gear": "Gear spoofing (a real gear ID with fake data)",
            "RPM": "RPM spoofing (a real engine ID with fake speed values)"}
+FILES = {"DoS": "DoS_dataset.csv", "Fuzzy": "Fuzzy_dataset.csv", "Gear": "gear_dataset.csv",
+         "RPM": "RPM_dataset.csv"}
+# The web presentation (docs/presentation/index.html) reads the results of this
+# session's replays from here; runs/ is not in git.
+LIVE = os.path.join(ROOT, "runs", "live_results.js")
 
 
 # ---------------------------------------------------------------- screen
@@ -168,11 +179,25 @@ def flash(image, name):
 
 # ---------------------------------------------------------------- attacks
 
-def replay(attack, detector):
+def save_live(entry):
+    """Add one result to runs/live_results.js, for the web presentation."""
+    rows = []
+    if os.path.exists(LIVE):
+        try:
+            txt = open(LIVE, encoding="utf-8").read()
+            rows = json.loads(txt[txt.index("["):txt.rindex("]") + 1])
+        except (ValueError, OSError):
+            rows = []
+    rows.append(entry)
+    os.makedirs(os.path.dirname(LIVE), exist_ok=True)
+    with open(LIVE, "w", encoding="utf-8") as f:
+        f.write("window.LIVE_RESULTS = " + json.dumps(rows, indent=1) + ";\n")
+
+
+def replay(attack, detector, label=None):
     """One replay of 5,000 real frames; prints the result in plain words.
     detector: 'none', 'fpga' or 'stm32'."""
-    files = {"DoS": "DoS_dataset.csv", "RPM": "RPM_dataset.csv"}
-    cmd = [PY, os.path.join(ROOT, "python", "run_check.py"), "--file", files[attack],
+    cmd = [PY, os.path.join(ROOT, "python", "run_check.py"), "--file", FILES[attack],
            "--n", "5000"]
     # FPGA and no-protection runs: the STM32 records with its prevention
     # confirmed off, so the FPGA is alone on the bus.
@@ -236,7 +261,29 @@ def replay(attack, detector):
         # was really on the wire (then the logging ESP32 missed it).
         print("  Lost normal frame, ID %s: %s" % (x["can_id"], x["why"]))
     print("  Results page: %s" % os.path.join(run_dir, "report.html"))
+    save_live({"time": time.strftime("%H:%M:%S"), "attack": attack,
+               "who": label or {"none": "No protection", "fpga": "FPGA, updatable",
+                                "stm32": "STM32"}[detector],
+               "attack_sent": atk["sent"], "attack_arrived": atk["arrived"],
+               "normal_sent": nor["sent"], "normal_lost": nor["lost"],
+               "attacker": a.get("state", "?"), "run": os.path.basename(run_dir)})
     return s
+
+
+def run_one(who, attack):
+    """One replay, chosen from the web presentation."""
+    if who not in ("none", "fpga", "basic", "stm32") or attack not in FILES:
+        sys.exit(__doc__)
+    banner("LIVE: %s, %s" % ({"none": "no protection", "fpga": "the FPGA (updatable)",
+                              "basic": "the FPGA (basic IDS)", "stm32": "the STM32"}[who],
+                             ATTACKS[attack]))
+    need_ids()
+    switch = {"none": "SW0 DOWN (the FPGA only watches)", "fpga": "SW0 UP (LEDR9 on)",
+              "basic": "SW0 UP (LEDR9 on)", "stm32": "SW0 DOWN (the FPGA only watches)"}[who]
+    wait_key("DE10-Lite: %s." % switch)
+    replay(attack, "fpga" if who == "basic" else who,
+           "FPGA, basic" if who == "basic" else None)
+    print("\n  Back to the presentation: press 'Refresh live results' on the graph.")
 
 
 def need_ids():
@@ -598,6 +645,13 @@ def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else "all"
     if mode == "prepare":
         prepare()
+        return
+    if mode == "run":
+        if len(sys.argv) != 4:
+            sys.exit(__doc__)
+        checks()
+        attack = {a.lower(): a for a in FILES}.get(sys.argv[3].lower(), sys.argv[3])
+        run_one(sys.argv[2].lower(), attack)
         return
     if mode not in ("all", "attacks", "update"):
         sys.exit(__doc__)

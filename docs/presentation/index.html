@@ -1,0 +1,1073 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stopping CAN bus attacks on the wire</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+/* Matches charbel-j-estephan.com: near-black, cream ink, one mint accent,
+   Space Grotesk + JetBrains Mono, hairline rules, square corners. */
+:root {
+  --bg: #0a0a0a; --bg2: #0f0f0f; --card: #0f0f0f; --line: #333333; --line-soft: #1c1c1c;
+  --ink: #f2f0eb; --ink2: #bcb8b0; --muted: #8c8880; --dim: #6b6862; --accent: #3ee6c0;
+  --fpga: #4a8ce8; --stm: #de6a2e; --upd: #22a888; --none: #7a766f;
+  --attack: #e66767; --ok: #3ee6c0; --warn: #e8a23a; --hi: #f2c14e;
+  --sans: "Space Grotesk", "Helvetica Neue", Arial, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+  --ease: cubic-bezier(.2, .7, .3, 1);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+  font: 20px/1.45 var(--sans); overflow: hidden; }
+::selection { background: var(--accent); color: var(--bg); }
+button { font: inherit; color: inherit; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code { font-family: var(--mono); font-size: .82em; background: #141414; border: 1px solid var(--line-soft); padding: 1px 6px; }
+
+/* ---------- frame ---------- */
+.topbar { position: fixed; top: 0; left: 0; right: 0; height: 44px; display: flex; align-items: center;
+  gap: 18px; padding: 0 28px; background: var(--bg); border-bottom: 1px solid var(--ink); z-index: 10;
+  font-family: var(--mono); font-size: 12px; letter-spacing: .2em; text-transform: uppercase; color: var(--muted); }
+.topbar .part { color: var(--ink); }
+.topbar .part .pn { color: var(--accent); margin-right: 18px; }
+.topbar .sp { flex: 1; }
+.progress { position: fixed; top: 0; left: 0; height: 3px; width: 100%; background: transparent; z-index: 11; }
+.progress div { height: 100%; width: 100%; background: var(--accent); transform-origin: left; transform: scaleX(0); transition: transform .5s var(--ease); }
+.navbtns { position: fixed; right: 22px; bottom: 14px; display: flex; z-index: 10; }
+.navbtns button { background: var(--bg); border: 1px solid var(--line); margin-left: -1px; width: 46px; height: 40px; cursor: pointer;
+  color: var(--ink2); font-family: var(--mono); transition: background .2s, color .2s; }
+.navbtns button:hover { background: var(--accent); color: var(--bg); border-color: var(--accent); position: relative; }
+.counter { position: fixed; left: 28px; bottom: 22px; color: var(--muted); z-index: 10;
+  font-family: var(--mono); font-size: 12px; letter-spacing: .16em; font-variant-numeric: tabular-nums; }
+
+/* All slides are laid out on one 1600 x 792 canvas (the space between the
+   top bar and the buttons), scaled to fill the screen like a slide show. */
+#deck { position: fixed; left: 0; top: 0; width: 1600px; height: 792px; transform-origin: 0 0; }
+#bggrid { position: fixed; inset: 0; z-index: -1; opacity: 0; transition: opacity .6s;
+  background-image: linear-gradient(#141414 1px, transparent 1px), linear-gradient(90deg, #141414 1px, transparent 1px);
+  background-size: 64px 64px; background-position: -1px -1px; }
+body.centered #bggrid { opacity: 1; }
+.slide { position: absolute; inset: 0; display: flex; flex-direction: column; padding: 26px 64px 18px;
+  opacity: 0; visibility: hidden; transform: translateX(40px); transition: opacity .45s, transform .55s var(--ease), visibility 0s .45s; }
+.slide.active { opacity: 1; visibility: visible; transform: none; transition: opacity .45s, transform .55s var(--ease); }
+.slide.left { transform: translateX(-40px); }
+.slide h1, .slide h2 { font-weight: 700; text-transform: uppercase; margin: 0 0 14px; }
+.slide h1 { font-size: 64px; line-height: .9; letter-spacing: -.045em; }
+.slide h2 { font-size: 40px; line-height: .95; letter-spacing: -.03em; }
+.slide .sub { color: var(--ink2); font-size: 22px; line-height: 1.5; margin: 0 0 18px; max-width: 1300px; }
+.stage { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; }
+.stage svg { width: 100%; height: 100%; max-height: 100%; }
+.note { color: var(--muted); font-size: 15px; margin: 6px 0 0; }
+.tag { display: inline-block; font-family: var(--mono); font-size: 13px; font-weight: 400; letter-spacing: .18em;
+  text-transform: uppercase; color: var(--accent); margin: 0 0 10px; }
+.hint { font-family: var(--mono); font-size: 13px; font-weight: 400; letter-spacing: .16em; color: var(--muted); vertical-align: middle; margin-left: 10px; }
+.hl { background: linear-gradient(var(--accent), var(--accent)) 0 62% / 100% .86em no-repeat; color: var(--bg); padding: 0 .08em; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+
+/* title / divider: the site's hero grid */
+.slide.center { justify-content: center; align-items: flex-start; padding-left: 110px; }
+.slide.center h1 { font-size: 92px; max-width: 1500px; }
+.slide.center h1.long { font-size: 66px; max-width: 1400px; }
+.slide.divider .num { position: absolute; right: 50px; bottom: -30px; z-index: -1; pointer-events: none;
+  font: 700 480px/.8 var(--sans); letter-spacing: -.05em; color: #141414; }
+.slide.divider.active .num { animation: ghost 1.2s var(--ease) both; }
+@keyframes ghost { from { opacity: 0; transform: translateY(40px); } to { opacity: 1; transform: none; } }
+
+/* reveal on enter */
+.slide .rv { opacity: 0; transform: translateY(14px); }
+.slide.active .rv { animation: rv .62s var(--ease) forwards; }
+.slide.active h1.rv, .slide.active h2.rv { animation: rise .78s var(--ease) forwards; }
+@keyframes rv { to { opacity: 1; transform: none; } }
+@keyframes rise { from { opacity: 0; transform: translateY(.45em); } to { opacity: 1; transform: none; } }
+.d1 { animation-delay: .15s !important; } .d2 { animation-delay: .35s !important; } .d3 { animation-delay: .55s !important; }
+.d4 { animation-delay: .75s !important; } .d5 { animation-delay: .95s !important; } .d6 { animation-delay: 1.15s !important; }
+.d7 { animation-delay: 1.35s !important; } .d8 { animation-delay: 1.55s !important; } .d9 { animation-delay: 1.8s !important; }
+.d10 { animation-delay: 2.1s !important; } .d11 { animation-delay: 2.4s !important; } .d12 { animation-delay: 2.7s !important; }
+
+/* grids, cards: hairline cells that share their borders */
+.grid { display: grid; gap: 0; width: 100%; }
+.g2 { grid-template-columns: repeat(2, 1fr); } .g3 { grid-template-columns: repeat(3, 1fr); }
+.g4 { grid-template-columns: repeat(4, 1fr); }
+.card { background: transparent; border: 1px solid var(--line); padding: 18px 20px; transition: background .26s; }
+.grid > .card { margin: 0 -1px -1px 0; }
+.card:hover { background: rgba(62, 230, 192, .035); }
+.card h3 { margin: 10px 0 6px; font-size: 21px; font-weight: 500; text-transform: uppercase; letter-spacing: -.01em; line-height: 1.1; }
+.card p { margin: 0; color: var(--ink2); font-size: 17px; line-height: 1.5; }
+.card > small { display: block; margin-top: 8px; font-family: var(--mono); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; line-height: 1.5; }
+.ihead { display: flex; align-items: center; gap: 12px; }
+.ihead svg { width: 26px; height: 26px; flex: none; }
+.ihead h3 { margin: 0; }
+
+/* live prompt */
+.live { border: 1px solid var(--accent); padding: 22px 26px; background: rgba(62, 230, 192, .04); width: 100%; max-width: 1150px; }
+.live .badge { display: inline-flex; align-items: center; gap: 10px; color: var(--accent); font-family: var(--mono);
+  letter-spacing: .2em; font-size: 13px; text-transform: uppercase; }
+.live .badge i { width: 9px; height: 9px; background: var(--attack); animation: blink 1.2s steps(2, end) infinite; }
+@keyframes blink { 50% { opacity: .15; } }
+.steps { list-style: none; margin: 16px 0 0; padding: 0; counter-reset: s; }
+.steps li { counter-increment: s; display: grid; grid-template-columns: 44px 1fr; gap: 12px; margin: 0 0 14px; align-items: start; }
+.steps li::before { content: counter(s, decimal-leading-zero); width: 36px; height: 30px; border: 1px solid var(--line); color: var(--accent);
+  display: grid; place-items: center; font: 13px var(--mono); letter-spacing: .06em; }
+.cmd { display: inline-flex; align-items: center; gap: 12px; background: #050505; border: 1px solid var(--line);
+  padding: 6px 6px 6px 14px; font-family: var(--mono); font-size: 18px; margin-top: 6px; }
+.cmd::before { content: ">"; color: var(--accent); }
+.cmd button { font: 11px var(--mono); letter-spacing: .16em; text-transform: uppercase; border: 1px solid var(--line); padding: 6px 10px;
+  background: transparent; color: var(--ink2); cursor: pointer; transition: background .2s, color .2s; }
+.cmd button:hover { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+.chips { display: flex; flex-wrap: wrap; margin-top: 6px; }
+.chip { border: 1px solid var(--line); margin: 0 -1px -1px 0; background: transparent; padding: 7px 16px; cursor: pointer;
+  font: 13px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink2); transition: background .2s, color .2s; }
+.chip:hover { color: var(--ink); background: rgba(62, 230, 192, .07); }
+.chip[aria-pressed="true"] { background: var(--accent); color: var(--bg); border-color: var(--accent); position: relative; }
+.go { margin-top: 12px; background: var(--accent); color: var(--bg); border: 0; padding: 10px 18px; cursor: pointer;
+  font: 13px var(--mono); letter-spacing: .16em; text-transform: uppercase; }
+
+/* chart */
+.chart-wrap { width: 100%; max-width: 1180px; }
+.ctrl { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.ctrl .lbl { color: var(--muted); font-family: var(--mono); font-size: 12px; letter-spacing: .16em; text-transform: uppercase; }
+.legend { display: flex; gap: 22px; flex-wrap: wrap; font-family: var(--mono); font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink2); margin: 4px 0 8px; }
+.legend span { display: inline-flex; align-items: center; gap: 8px; }
+.legend i { width: 12px; height: 12px; display: inline-block; }
+.tip { position: fixed; pointer-events: none; background: var(--bg); border: 1px solid var(--ink);
+  padding: 9px 12px; font: 13px/1.5 var(--mono); color: var(--ink); z-index: 50; opacity: 0; transition: opacity .12s; max-width: 360px; }
+.tip b { display: block; margin-bottom: 2px; color: var(--accent); font-weight: 500; }
+.livebar { display: flex; align-items: center; gap: 12px; margin-top: 10px; font-size: 15px; color: var(--muted); }
+.livebar button { background: transparent; border: 1px solid var(--accent); color: var(--accent); padding: 7px 12px; cursor: pointer;
+  font: 12px var(--mono); letter-spacing: .14em; text-transform: uppercase; transition: background .2s, color .2s; }
+.livebar button:hover { background: var(--accent); color: var(--bg); }
+
+/* bytes slide */
+.byteframe { display: flex; gap: 0; align-items: stretch; margin: 6px 0 14px; }
+.byteframe div { padding: 8px 0; text-align: center; font: 13px var(--mono); letter-spacing: .08em; background: #111; color: var(--muted);
+  border: 1px solid var(--line); margin-right: -1px; transition: background .3s, color .3s; }
+.byteframe div.on { background: var(--accent); color: var(--bg); border-color: var(--accent); position: relative; }
+.byteframe div.fix { background: #1c1c1c; color: var(--ink2); }
+.stat { font-family: var(--mono); font-size: 40px; font-weight: 700; letter-spacing: -.04em; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.stat small { font-size: 12px; color: var(--muted); font-weight: 400; display: block; margin-top: 6px; letter-spacing: .12em; text-transform: uppercase; }
+.fit { display: flex; align-items: center; gap: 10px; font-size: 19px; margin: 6px 0; }
+.dot { width: 12px; height: 12px; flex: none; }
+
+/* security modal */
+.sec { cursor: pointer; transition: background .26s, box-shadow .3s; position: relative; }
+.sec:hover { background: rgba(62, 230, 192, .05); box-shadow: inset 0 0 0 1px var(--accent); }
+.sec .n { position: absolute; top: 14px; right: 16px; color: var(--accent); font: 12px var(--mono); letter-spacing: .1em; }
+.sec h3 { font-size: 18px; }
+.sec p { font-size: 15px; }
+.modal { position: fixed; inset: 0; background: rgba(10, 10, 10, .86); display: none; align-items: center; justify-content: center; z-index: 60; }
+.modal.open { display: flex; }
+.modal .box { background: var(--bg); border: 1px solid var(--ink); padding: 30px 36px; max-width: 900px; width: 90%; }
+.modal h2 { margin: 0 0 10px; font-size: 34px; line-height: .95; text-transform: uppercase; letter-spacing: -.03em; }
+.modal .what { color: var(--ink2); font-size: 20px; margin: 0 0 16px; }
+.modal ul { margin: 0; padding-left: 0; list-style: none; border-top: 1px solid var(--line); }
+.modal li { margin: 0; padding: 10px 0 10px 26px; font-size: 18px; border-bottom: 1px solid var(--line-soft); position: relative; }
+.modal li::before { content: "+"; position: absolute; left: 4px; color: var(--accent); font-family: var(--mono); }
+.modal .stops { margin-top: 16px; padding: 12px 16px; border-left: 2px solid var(--accent); background: rgba(62, 230, 192, .06); color: var(--ink); font-size: 17px; }
+.modal .close { float: right; background: transparent; border: 1px solid var(--line); padding: 6px 12px; cursor: pointer; color: var(--ink2);
+  font: 11px var(--mono); letter-spacing: .16em; text-transform: uppercase; }
+.modal .close:hover { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+
+/* ---------- filling the slide ---------- */
+/* Card grids that are the slide's content take all the height left, rows of
+   equal height, an index number on top and the text at the bottom. */
+.slide > .grid.fill { flex: 1; min-height: 0; grid-auto-rows: 1fr; counter-reset: c; }
+.fill > .card { display: flex; flex-direction: column; padding: 24px 28px; }
+.fill > .card::before { counter-increment: c; content: counter(c, decimal-leading-zero); padding-bottom: 22px;
+  font: 13px var(--mono); letter-spacing: .16em; color: var(--accent); }
+.fill > .card h3 { font-size: 30px; margin: 0 0 12px; }
+.fill > .card p { font-size: 21px; }
+.fill > .card:has(> svg) p { min-height: 4.5em; }
+.fill > .card .ihead h3 { margin: 0; }
+.fill > .card > svg { flex: 1; min-height: 0; height: auto !important; margin-bottom: 18px; }
+.fill > .card:has(> svg)::before, .fill > .sec::before { content: none; }
+.fill > .sec { justify-content: flex-end; padding-top: 56px; }
+.fill > .sec .n { left: 28px; right: auto; top: 22px; font-size: 13px; }
+.fill > .sec h3 { font-size: 24px; }
+.fill > .sec p { font-size: 17px; }
+
+/* Charts: the drawing takes the height left. */
+.chart-wrap.stretch { flex: 1; min-height: 0; max-width: none; display: flex; flex-direction: column; }
+.chart-wrap.stretch > svg { flex: 1; min-height: 0; width: 100%; }
+
+/* Live boxes: the full slide, bigger type for the room. */
+.live { flex: 1; min-height: 0; max-width: none; display: flex; flex-direction: column; justify-content: center;
+  position: relative; padding: 56px 48px 28px; font-size: 24px; }
+.live .badge { position: absolute; top: 22px; left: 26px; }
+.live .steps li { grid-template-columns: 58px 1fr; margin: 0 0 22px; }
+.live .steps li::before { width: 46px; height: 36px; font-size: 15px; }
+.live .cmd { font-size: 22px; margin-top: 10px; }
+.live .chip { font-size: 15px; padding: 9px 20px; }
+.live .chips { margin-top: 10px; }
+.live .go { font-size: 15px; padding: 12px 22px; }
+
+/* 5, 6 or 8 bytes */
+#bwrap .byteframe div { padding: 16px 0; font-size: 15px; }
+#bwrap .stat { font-size: 56px; }
+#bwrap > .grid.g2 { flex: 1; min-height: 0; }
+#bwrap > .grid.g2 > .card { display: flex; flex-direction: column; justify-content: center; padding: 26px 30px; }
+#bwrap .fit { font-size: 23px; margin: 8px 0; }
+#bwrap .card p { font-size: 19px; margin-top: 8px; }
+
+/* closing slide */
+.slide.center .grid.g4 .stat { font-size: 52px; }
+
+/* svg animation helpers */
+.flow { stroke-dasharray: 8 8; animation: dash 1s linear infinite; }
+@keyframes dash { to { stroke-dashoffset: -16; } }
+.slide.active .travel { animation: travel 6s linear infinite; }
+@keyframes travel { from { transform: translateX(0); } to { transform: translateX(1040px); } }
+.slide.active .pulse { animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+.slide.active .grow { animation: grow 1s var(--ease) forwards; transform-box: fill-box; transform-origin: left; transform: scaleX(0); }
+@keyframes grow { to { transform: scaleX(1); } }
+.slide.active .pop { animation: pop .5s var(--ease) forwards; opacity: 0; transform-box: fill-box; transform-origin: center; }
+@keyframes pop { from { opacity: 0; transform: scale(.6); } to { opacity: 1; transform: none; } }
+.slide.active .cell { animation: cellin .35s ease forwards; opacity: 0; }
+@keyframes cellin { to { opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) { .slide, .slide * { animation: none !important; transition: none !important; } .slide .rv { opacity: 1; transform: none; } }
+@media print { .slide { position: static; opacity: 1; visibility: visible; transform: none; page-break-after: always; height: 100vh; } .navbtns, .topbar, .progress, .counter { display: none; } }
+</style>
+</head>
+<body>
+<div class="progress"><div id="prog"></div></div>
+<div class="topbar"><span class="part" id="part"></span><span class="sp"></span><span>EEN 527 Embedded System Design</span></div>
+
+<!-- ======================= 1 TITLE ======================= -->
+<div id="bggrid" aria-hidden="true"></div>
+<main id="deck">
+<section class="slide center" data-part="">
+  <p class="tag rv">CAN bus · Intrusion prevention · FPGA + STM32</p>
+  <h1 class="rv d1">Stopping car network attacks while they are still <span class="hl">on the wire</span></h1>
+  <p class="sub rv d2">One random forest on an FPGA and on a microcontroller, destroying attack frames before any computer in the car accepts them, with a secure way to update the model.</p>
+  <p class="note rv d3" style="font-size:18px">Anthony El Chakar · Charbel Estephan · Joe Geagea &nbsp;·&nbsp; Instructor: Dr. Abdallah Kassem</p>
+  <p class="note rv d4">→ or Space to move on · F for full screen</p>
+</section>
+
+<!-- ======================= PART 1 ======================= -->
+<section class="slide center divider" data-part="1 · The problem">
+  <div class="num" aria-hidden="true">01</div><p class="tag rv">Part 01 / 06</p><h1 class="rv d1">What is CAN, and why is it open to anyone?</h1>
+</section>
+
+<section class="slide" data-part="1 · The problem">
+  <h2 class="rv">CAN: the network inside every car</h2>
+  <p class="sub rv d1">Two wires. Dozens of small computers. Every message goes to everyone.</p>
+  <div class="stage rv d2">
+    <svg viewBox="-19 22 1177 462">
+      <defs><clipPath id="busclip"><rect x="60" y="150" width="1080" height="80"/></clipPath></defs>
+      <g font-size="18" text-anchor="middle" fill="#f2f0eb">
+        <g><rect x="90" y="40" width="160" height="70" rx="0" fill="#0f0f0f" stroke="#3d3d3d"/><text x="170" y="82">Engine</text><line x1="170" y1="110" x2="170" y2="170" stroke="#3d3d3d" stroke-width="3"/></g>
+        <g><rect x="330" y="40" width="160" height="70" rx="0" fill="#0f0f0f" stroke="#3d3d3d"/><text x="410" y="82">Brakes (ABS)</text><line x1="410" y1="110" x2="410" y2="170" stroke="#3d3d3d" stroke-width="3"/></g>
+        <g><rect x="570" y="40" width="160" height="70" rx="0" fill="#0f0f0f" stroke="#3d3d3d"/><text x="650" y="82">Steering</text><line x1="650" y1="110" x2="650" y2="170" stroke="#3d3d3d" stroke-width="3"/></g>
+        <g><rect x="810" y="40" width="160" height="70" rx="0" fill="#0f0f0f" stroke="#3d3d3d"/><text x="890" y="82">Airbags</text><line x1="890" y1="110" x2="890" y2="170" stroke="#3d3d3d" stroke-width="3"/></g>
+        <g><rect x="210" y="270" width="160" height="70" rx="0" fill="#0f0f0f" stroke="#3d3d3d"/><text x="290" y="312">Dashboard</text><line x1="290" y1="210" x2="290" y2="270" stroke="#3d3d3d" stroke-width="3"/></g>
+        <g><rect x="450" y="270" width="160" height="70" rx="0" fill="#0f0f0f" stroke="#3d3d3d"/><text x="530" y="312">Gearbox</text><line x1="530" y1="210" x2="530" y2="270" stroke="#3d3d3d" stroke-width="3"/></g>
+        <g><rect x="690" y="270" width="180" height="70" rx="0" fill="#0f0f0f" stroke="#3d3d3d"/><text x="780" y="312">Infotainment</text><line x1="780" y1="210" x2="780" y2="270" stroke="#3d3d3d" stroke-width="3"/></g>
+        <g><rect x="950" y="270" width="170" height="70" rx="0" fill="#0f0f0f" stroke="#3d3d3d"/><text x="1035" y="312">OBD-II port</text><line x1="1035" y1="210" x2="1035" y2="270" stroke="#3d3d3d" stroke-width="3"/></g>
+      </g>
+      <line x1="60" y1="170" x2="1140" y2="170" stroke="#e8a23a" stroke-width="5"/>
+      <line x1="60" y1="210" x2="1140" y2="210" stroke="#7aaaf0" stroke-width="5"/>
+      <text x="40" y="176" fill="#e8a23a" font-size="16" text-anchor="end">CANH</text>
+      <text x="40" y="216" fill="#7aaaf0" font-size="16" text-anchor="end">CANL</text>
+      <g clip-path="url(#busclip)">
+        <g class="travel"><rect x="40" y="176" width="110" height="28" rx="0" fill="#3ee6c0"/><text x="95" y="196" font-size="15" text-anchor="middle" fill="#0a0a0a">ID 0x316</text></g>
+        <g class="travel" style="animation-delay:-2s"><rect x="40" y="176" width="110" height="28" rx="0" fill="#3ee6c0"/><text x="95" y="196" font-size="15" text-anchor="middle" fill="#0a0a0a">ID 0x18F</text></g>
+        <g class="travel" style="animation-delay:-4s"><rect x="40" y="176" width="110" height="28" rx="0" fill="#3ee6c0"/><text x="95" y="196" font-size="15" text-anchor="middle" fill="#0a0a0a">ID 0x43F</text></g>
+      </g>
+      <g font-size="15" text-anchor="middle">
+        <g transform="translate(120,390)">
+          <rect x="0" y="0" width="70" height="44" rx="0" fill="#1a1a1a"/><text x="35" y="27" fill="#bcb8b0">start</text>
+          <rect x="74" y="0" width="230" height="44" rx="0" fill="#2e2e2e"/><text x="189" y="27" fill="#f2f0eb" font-size="15">ID: who and how urgent (11 bits)</text>
+          <rect x="308" y="0" width="90" height="44" rx="0" fill="#1a1a1a"/><text x="353" y="27" fill="#bcb8b0">length</text>
+          <rect x="402" y="0" width="330" height="44" rx="0" fill="#16594b"/><text x="567" y="27" fill="#f2f0eb">data: 0 to 8 bytes</text>
+          <rect x="736" y="0" width="100" height="44" rx="0" fill="#1a1a1a"/><text x="786" y="27" fill="#bcb8b0">CRC</text>
+          <rect x="840" y="0" width="70" height="44" rx="0" fill="#1a1a1a"/><text x="875" y="27" fill="#bcb8b0">ACK</text>
+          <rect x="914" y="0" width="60" height="44" rx="0" fill="#1a1a1a"/><text x="944" y="27" fill="#bcb8b0">end</text>
+        </g>
+        <text x="600" y="462" fill="#8c8880">One frame, about 250 µs at 500 kbit/s. The lowest ID wins the wire.</text>
+      </g>
+    </svg>
+  </div>
+</section>
+
+<section class="slide" data-part="1 · The problem">
+  <h2 class="rv">Why CAN is not protected</h2>
+  <p class="sub rv d1">It was designed in the 1980s for a closed box. Today the box has a modem, Bluetooth and an open port.</p>
+  <div class="grid g4 rv d2" style="margin:8px 0 18px">
+    <div class="card"><div class="ihead"><svg viewBox="0 0 24 24" fill="none" stroke="#e66767" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/><line x1="3" y1="3" x2="21" y2="21"/></svg><h3>No sender</h3></div><p style="margin-top:8px">A frame says what it is, never who sent it.</p></div>
+    <div class="card"><div class="ihead"><svg viewBox="0 0 24 24" fill="none" stroke="#e66767" stroke-width="2"><rect x="5" y="11" width="14" height="10" rx="0"/><path d="M8 11V7a4 4 0 0 1 7-2.6"/></svg><h3>No signature</h3></div><p style="margin-top:8px">Nothing proves a frame is genuine.</p></div>
+    <div class="card"><div class="ihead"><svg viewBox="0 0 24 24" fill="none" stroke="#e66767" stroke-width="2"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg><h3>No secrecy</h3></div><p style="margin-top:8px">Every node hears every frame.</p></div>
+    <div class="card"><div class="ihead"><svg viewBox="0 0 24 24" fill="none" stroke="#e66767" stroke-width="2"><path d="M12 2v6M12 22v-6M2 12h6M22 12h-6"/><circle cx="12" cy="12" r="3"/></svg><h3>Lowest ID wins</h3></div><p style="margin-top:8px">Anyone can claim top priority.</p></div>
+  </div>
+  <div class="stage rv d3">
+    <svg viewBox="22 -8 1156 250">
+      <line x1="40" y1="120" x2="1160" y2="120" stroke="#e8a23a" stroke-width="5"/>
+      <line x1="40" y1="140" x2="1160" y2="140" stroke="#7aaaf0" stroke-width="5"/>
+      <rect x="60" y="10" width="200" height="66" rx="0" fill="#2a1212" stroke="#e66767" stroke-width="2"/>
+      <text x="160" y="40" text-anchor="middle" fill="#ffb3b3" font-size="18">Attacker</text>
+      <text x="160" y="62" text-anchor="middle" fill="#e66767" font-size="14">plugged into the OBD port</text>
+      <line x1="160" y1="76" x2="160" y2="120" stroke="#e66767" stroke-width="3"/>
+      <g class="pop d3"><rect x="380" y="98" width="230" height="38" rx="0" fill="#e66767"/><text x="495" y="123" text-anchor="middle" fill="#f2f0eb" font-size="17">ID 0x316 · RPM = 7,000</text></g>
+      <rect x="880" y="168" width="260" height="56" rx="0" fill="#0f0f0f" stroke="#3d3d3d"/>
+      <text x="1010" y="202" text-anchor="middle" fill="#f2f0eb" font-size="18">Dashboard and gearbox</text>
+      <line x1="1010" y1="140" x2="1010" y2="168" stroke="#3d3d3d" stroke-width="3"/>
+      <g class="pop d6"><circle cx="830" cy="196" r="20" fill="#e66767"/><text x="830" y="203" text-anchor="middle" fill="#f2f0eb" font-size="20">✓</text>
+      <text x="800" y="60" text-anchor="end" fill="#ffb3b3" font-size="20">Accepted as if the engine had sent it.</text></g>
+    </svg>
+  </div>
+</section>
+
+<section class="slide" data-part="1 · The problem">
+  <h2 class="rv">Four attacks from a real car (Car Hacking Dataset)</h2>
+  <p class="sub rv d1">Recorded on a real car's bus by the Hacking and Countermeasure Research Lab. We replay them on our bench.</p>
+  <div class="grid fill g4 rv d2">
+    <div class="card"><svg viewBox="0 0 200 90" style="width:100%;height:90px"><line x1="0" y1="60" x2="200" y2="60" stroke="#3d3d3d" stroke-width="4"/><g class="pulse"><rect x="10" y="44" width="40" height="30" rx="0" fill="#e66767"/><rect x="60" y="44" width="40" height="30" rx="0" fill="#e66767"/><rect x="110" y="44" width="40" height="30" rx="0" fill="#e66767"/><rect x="160" y="44" width="40" height="30" rx="0" fill="#e66767"/></g><text x="100" y="26" text-anchor="middle" fill="#ffb3b3" font-size="15">ID 0x000 non-stop</text></svg><h3>DoS</h3><p>Floods the bus with the highest-priority ID. Real messages cannot get through.</p></div>
+    <div class="card"><svg viewBox="0 0 200 90" style="width:100%;height:90px"><line x1="0" y1="60" x2="200" y2="60" stroke="#3d3d3d" stroke-width="4"/><g class="pulse"><rect x="14" y="44" width="40" height="30" rx="0" fill="#e66767"/><rect x="84" y="44" width="40" height="30" rx="0" fill="#e66767"/><rect x="150" y="44" width="40" height="30" rx="0" fill="#e66767"/></g><text x="100" y="26" text-anchor="middle" fill="#ffb3b3" font-size="15">random IDs, random data</text></svg><h3>Fuzzy</h3><p>Sprays random messages to find one that makes the car react.</p></div>
+    <div class="card"><svg viewBox="0 0 200 90" style="width:100%;height:90px"><line x1="0" y1="60" x2="200" y2="60" stroke="#3d3d3d" stroke-width="4"/><rect x="20" y="44" width="70" height="30" rx="0" fill="#3ee6c0"/><g class="pulse"><rect x="110" y="44" width="70" height="30" rx="0" fill="#e66767"/></g><text x="100" y="26" text-anchor="middle" fill="#ffb3b3" font-size="15">real gear ID, fake gear</text></svg><h3>Gear spoofing</h3><p>Uses the gearbox's own ID with false data.</p></div>
+    <div class="card"><svg viewBox="0 0 200 90" style="width:100%;height:90px"><line x1="0" y1="60" x2="200" y2="60" stroke="#3d3d3d" stroke-width="4"/><rect x="20" y="44" width="70" height="30" rx="0" fill="#3ee6c0"/><g class="pulse"><rect x="110" y="44" width="70" height="30" rx="0" fill="#e66767"/></g><text x="100" y="26" text-anchor="middle" fill="#ffb3b3" font-size="15">real engine ID, fake RPM</text></svg><h3>RPM spoofing</h3><p>Uses the engine's own ID with false speed values.</p></div>
+  </div>
+  <p class="note rv d3" style="font-size:18px;margin-top:22px">Spoofing is the hard one: the ID is genuine, so a list of allowed IDs cannot catch it. Only the data gives it away.</p>
+</section>
+
+<section class="slide" data-part="1 · The problem">
+  <h2 class="rv">IDS raises an alarm. IPS stops the frame.</h2>
+  <p class="sub rv d1">The difference is <b>when</b>: after the frame, or while it is still on the wire.</p>
+  <div class="stage rv d2">
+    <svg viewBox="22 5 1156 417" font-size="17">
+      <text x="40" y="40" fill="#bcb8b0">One attack frame on the wire →</text>
+      <g transform="translate(40,60)">
+        <rect x="0" y="0" width="130" height="50" rx="0" fill="#2e2e2e"/><text x="65" y="31" text-anchor="middle" fill="#f2f0eb">ID</text>
+        <rect x="134" y="0" width="60" height="50" rx="0" fill="#1a1a1a"/><text x="164" y="31" text-anchor="middle" fill="#bcb8b0">len</text>
+        <g fill="#16594b"><rect x="198" y="0" width="80" height="50" rx="0"/><rect x="282" y="0" width="80" height="50" rx="0"/><rect x="366" y="0" width="80" height="50" rx="0"/><rect x="450" y="0" width="80" height="50" rx="0"/><rect x="534" y="0" width="80" height="50" rx="0"/></g>
+        <text x="406" y="31" text-anchor="middle" fill="#f2f0eb">data bytes 0 to 4</text>
+        <rect x="618" y="0" width="80" height="50" rx="0" fill="#1a1a1a"/><rect x="702" y="0" width="80" height="50" rx="0" fill="#1a1a1a"/><rect x="786" y="0" width="80" height="50" rx="0" fill="#1a1a1a"/>
+        <text x="742" y="31" text-anchor="middle" fill="#8c8880">bytes 5 to 7</text>
+        <rect x="870" y="0" width="140" height="50" rx="0" fill="#1a1a1a"/><text x="940" y="31" text-anchor="middle" fill="#8c8880">CRC, ACK, end</text>
+        <line x1="616" y1="-10" x2="616" y2="70" stroke="#f2c14e" stroke-width="3" stroke-dasharray="6 5"/>
+        <text x="616" y="92" text-anchor="middle" fill="#f2c14e">the model has what it needs</text>
+        <g class="grow d4"><rect x="618" y="104" width="392" height="10" rx="0" fill="#f2c14e" opacity=".55"/></g>
+        <text x="814" y="138" text-anchor="middle" fill="#f2c14e">at least 86 µs left before the frame ends</text>
+      </g>
+      <g class="rv d5">
+        <rect x="40" y="220" width="540" height="170" rx="0" fill="#0f0f0f" stroke="#3d3d3d"/>
+        <text x="66" y="258" fill="#f2f0eb" font-size="22" font-weight="700">IDS: detect</text>
+        <text x="66" y="292" fill="#bcb8b0">Decides after the frame has ended.</text>
+        <text x="66" y="322" fill="#bcb8b0">The brakes or the dashboard already used it.</text>
+        <text x="66" y="362" fill="#e66767" font-weight="600">Alarm, but the damage is done.</text>
+      </g>
+      <g class="rv d7">
+        <rect x="620" y="220" width="540" height="170" rx="0" fill="#0d2a24" stroke="#3ee6c0"/>
+        <text x="646" y="258" fill="#f2f0eb" font-size="22" font-weight="700">IPS: prevent (our design)</text>
+        <text x="646" y="292" fill="#bcb8b0">Decides inside those 86 µs, then sends an</text>
+        <text x="646" y="322" fill="#bcb8b0">error flag: six bits that break the frame.</text>
+        <text x="646" y="362" fill="#3ee6c0" font-weight="600">Every computer throws it away.</text>
+      </g>
+    </svg>
+  </div>
+</section>
+
+<section class="slide" data-part="1 · The problem">
+  <h2 class="rv">Where CAN runs, and needs an IDS/IPS</h2>
+  <p class="sub rv d1">CAN is not only in cars. Anywhere a CAN bus can be reached from outside, it can be attacked.</p>
+  <div class="grid fill g4 rv d2">
+    <div class="card"><h3>Passenger cars</h3><p>OBD-II dongles, telematics, infotainment. In 2015 a Jeep Cherokee was controlled remotely through its radio; 1.4 million vehicles were recalled.</p></div>
+    <div class="card"><h3>Trucks and buses</h3><p>SAE J1939 on CAN: engine, brakes, fleet trackers plugged into the bus.</p></div>
+    <div class="card"><h3>Farm and construction machines</h3><p>ISOBUS (ISO 11783): tractors and implements from different makers share one bus.</p></div>
+    <div class="card"><h3>Factories and robots</h3><p>CANopen links drives, sensors and controllers on production lines.</p></div>
+    <div class="card"><h3>Elevators and buildings</h3><p>CANopen-Lift connects elevator controllers, doors and call panels.</p></div>
+    <div class="card"><h3>Ships</h3><p>NMEA 2000 (built on CAN) carries engine, GPS and autopilot data.</p></div>
+    <div class="card"><h3>Aircraft</h3><p>ARINC 825 uses CAN for avionics subsystems.</p></div>
+    <div class="card"><h3>Electric vehicles</h3><p>Battery management, motor control and fast charging (CHAdeMO talks over CAN).</p></div>
+  </div>
+  <p class="note rv d4" style="font-size:18px;margin-top:18px">For cars it is now the law: UN Regulation 155 makes new vehicles in the EU detect and respond to cyberattacks, with ISO/SAE 21434 as the engineering standard.</p>
+</section>
+
+<!-- ======================= PART 2 ======================= -->
+<section class="slide center divider" data-part="2 · Our detector, live">
+  <div class="num" aria-hidden="true">02</div><p class="tag rv">Part 02 / 06</p><h1 class="rv d1">One model, three detectors, a real bus</h1>
+</section>
+
+<section class="slide" data-part="2 · Our detector, live">
+  <h2 class="rv">One random forest, the same everywhere</h2>
+  <p class="sub rv d1">5 decision trees, 9 levels deep. Each tree asks yes/no questions about the frame; the majority vote decides.</p>
+  <div class="stage rv d2">
+    <svg viewBox="22 5 1176 433" font-size="17">
+      <g text-anchor="middle">
+        <text x="140" y="40" fill="#bcb8b0">What it reads</text>
+        <g fill="#1a1a1a"><rect x="40" y="60" width="200" height="44" rx="0"/><rect x="40" y="114" width="200" height="44" rx="0"/><rect x="40" y="168" width="200" height="44" rx="0"/></g>
+        <text x="140" y="88" fill="#f2f0eb">CAN ID</text><text x="140" y="142" fill="#f2f0eb">length</text><text x="140" y="196" fill="#f2f0eb">data bytes 0 to 4</text>
+        <text x="140" y="250" fill="#8c8880" font-size="15">plus: unknown ID = Fuzzy</text>
+      </g>
+      <line x1="250" y1="136" x2="330" y2="136" stroke="#3d3d3d" stroke-width="3" class="flow"/>
+      <g id="trees"></g>
+      <line x1="890" y1="136" x2="960" y2="136" stroke="#3d3d3d" stroke-width="3" class="flow"/>
+      <g text-anchor="middle">
+        <rect x="950" y="92" width="230" height="88" rx="0" fill="#0f0f0f" stroke="#3d3d3d"/>
+        <text x="1065" y="126" fill="#f2f0eb">majority vote</text><text x="1065" y="152" fill="#3ee6c0" font-size="14">Normal · DoS · Fuzzy</text><text x="1065" y="170" fill="#3ee6c0" font-size="14">Gear · RPM</text>
+      </g>
+      <g text-anchor="middle" font-size="18" class="rv d5">
+        <rect x="40" y="310" width="350" height="96" rx="0" fill="#0f0f0f" stroke="#3d3d3d"/>
+        <text x="215" y="346" fill="#7aaaf0" font-weight="700">FPGA, basic</text><text x="215" y="378" fill="#bcb8b0">trees compiled into logic gates</text>
+        <rect x="425" y="310" width="350" height="96" rx="0" fill="#0f0f0f" stroke="#3d3d3d"/>
+        <text x="600" y="346" fill="#3ee6c0" font-weight="700">FPGA, updatable</text><text x="600" y="378" fill="#bcb8b0">trees as data, loaded over SPI</text>
+        <rect x="810" y="310" width="350" height="96" rx="0" fill="#0f0f0f" stroke="#3d3d3d"/>
+        <text x="985" y="346" fill="#f08a5d" font-weight="700">STM32 (168 MHz)</text><text x="985" y="378" fill="#bcb8b0">trees in C, bus read in software</text>
+      </g>
+    </svg>
+  </div>
+  <p class="note rv d6">Verilog, C and Python agree on every distinct frame of the dataset (675,167 frames, 0 differ).</p>
+</section>
+
+<section class="slide" data-part="2 · Our detector, live">
+  <h2 class="rv">How the FPGA stops a frame</h2>
+  <p class="sub rv d1">Everything below happens while one frame (about 250 µs) is still on the wire.</p>
+  <div class="stage rv d2">
+    <svg viewBox="12 42 1186 399" font-size="17" text-anchor="middle">
+      <g class="pop d2"><rect x="30" y="60" width="200" height="110" rx="0" fill="#0f0f0f" stroke="#3d3d3d"/><text x="130" y="100" fill="#f2f0eb" font-weight="700">1 · Read</text><text x="130" y="128" fill="#bcb8b0">bit by bit, 2 µs</text><text x="130" y="150" fill="#bcb8b0">each bit</text></g>
+      <g class="pop d4"><rect x="270" y="60" width="200" height="110" rx="0" fill="#0f0f0f" stroke="#3d3d3d"/><text x="370" y="100" fill="#f2f0eb" font-weight="700">2 · Byte 4 is in</text><text x="370" y="128" fill="#bcb8b0">ID, length and</text><text x="370" y="150" fill="#bcb8b0">5 data bytes ready</text></g>
+      <g class="pop d6"><rect x="510" y="60" width="200" height="110" rx="0" fill="#0f0f0f" stroke="#3d3d3d"/><text x="610" y="100" fill="#f2f0eb" font-weight="700">3 · Five trees</text><text x="610" y="128" fill="#bcb8b0">all at once, in</text><text x="610" y="150" fill="#f2c14e" font-weight="700">80 to 300 ns</text></g>
+      <g class="pop d8"><rect x="750" y="60" width="200" height="110" rx="0" fill="#2a1212" stroke="#e66767"/><text x="850" y="100" fill="#ffb3b3" font-weight="700">4 · Attack?</text><text x="850" y="128" fill="#ffb3b3">six dominant bits</text><text x="850" y="150" fill="#ffb3b3">on the wire</text></g>
+      <g class="pop d10"><rect x="990" y="60" width="190" height="110" rx="0" fill="#0d2a24" stroke="#3ee6c0"/><text x="1085" y="100" fill="#f2f0eb" font-weight="700">5 · Destroyed</text><text x="1085" y="128" fill="#bcb8b0">no node accepts</text><text x="1085" y="150" fill="#bcb8b0">the frame</text></g>
+      <g stroke="#3d3d3d" stroke-width="3"><line x1="232" y1="115" x2="268" y2="115"/><line x1="472" y1="115" x2="508" y2="115"/><line x1="712" y1="115" x2="748" y2="115"/><line x1="952" y1="115" x2="988" y2="115"/></g>
+      <g class="rv d11">
+        <text x="600" y="240" fill="#f2f0eb" font-size="22" font-weight="700">Then the attacker switches itself off</text>
+        <text x="600" y="272" fill="#bcb8b0">Each destroyed frame adds 8 to the attacker's error counter. At 256 its own CAN chip leaves the bus.</text>
+        <rect x="200" y="300" width="800" height="34" rx="0" fill="#1a1a1a"/>
+        <g class="grow d12"><rect x="200" y="300" width="800" height="34" rx="0" fill="#e66767"/></g>
+        <text x="200" y="364" fill="#8c8880" text-anchor="start">0</text><text x="1000" y="364" fill="#8c8880" text-anchor="end">bus off</text>
+        <text x="600" y="404" fill="#8c8880">On our bench: after about 22 to 32 destroyed frames, a few milliseconds into the attack.</text>
+      </g>
+    </svg>
+  </div>
+</section>
+
+<section class="slide" data-part="2 · Our detector, live" id="live1">
+  <h2 class="rv">Live: run the FPGA</h2>
+  <p class="sub rv d1">5,000 real car frames with their original timing, about 10 seconds per run. Pick an attack and who protects.</p>
+  <div class="live rv d2">
+    <div class="badge"><i></i>LIVE ON THE BENCH</div>
+    <ol class="steps">
+      <li><div>Attack <div class="chips" data-group="atk"><button class="chip" aria-pressed="true" data-v="DoS">DoS</button><button class="chip" aria-pressed="false" data-v="Fuzzy">Fuzzy</button><button class="chip" aria-pressed="false" data-v="Gear">Gear</button><button class="chip" aria-pressed="false" data-v="RPM">RPM</button></div></div></li>
+      <li><div>Protected by <div class="chips" data-group="who"><button class="chip" aria-pressed="false" data-v="none">nobody (SW0 down)</button><button class="chip" aria-pressed="true" data-v="fpga">the FPGA (SW0 up)</button><button class="chip" aria-pressed="false" data-v="stm32">the STM32 (SW0 down)</button></div></div></li>
+      <li><div>In the terminal (project folder), then follow what it says:<br><span class="cmd"><span id="runcmd">run_demo.bat run fpga DoS</span><button type="button" data-copyfrom="runcmd">Copy</button></span></div></li>
+      <li><div>Back here: open the graph and press <b>Refresh live results</b>.<br><button class="go" data-goto="results">Open the graph →</button></div></li>
+    </ol>
+  </div>
+  <p class="note rv d3">Start with "nobody" to show that every attack frame gets through, then the FPGA.</p>
+</section>
+
+<section class="slide" data-part="2 · Our detector, live" id="results">
+  <h2 class="rv">Results on the bench</h2>
+  <div class="chart-wrap stretch rv d1">
+    <div class="ctrl">
+      <span class="lbl">Attack</span>
+      <div class="chips" data-group="catk"><button class="chip" aria-pressed="true" data-v="DoS">DoS</button><button class="chip" aria-pressed="false" data-v="Fuzzy">Fuzzy</button><button class="chip" aria-pressed="false" data-v="Gear">Gear</button><button class="chip" aria-pressed="false" data-v="RPM">RPM</button></div>
+      <span class="lbl" style="margin-left:14px">Show</span>
+      <div class="chips" data-group="cmet"><button class="chip" aria-pressed="true" data-v="reach">attack frames that reached the car</button><button class="chip" aria-pressed="false" data-v="lost">normal frames lost</button></div>
+    </div>
+    <div class="legend" id="legend"></div>
+    <svg id="chart" viewBox="0 0 1300 460" preserveAspectRatio="xMinYMid meet" role="img" aria-label="Bench results"></svg>
+    <div class="livebar"><button type="button" id="refresh">Refresh live results</button><span id="livestate">Recorded results only. Live runs appear here after "Refresh".</span></div>
+    <p class="note" id="chartnote"></p>
+  </div>
+</section>
+
+<section class="slide" data-part="2 · Our detector, live">
+  <h2 class="rv">Speed: who decides in time?</h2>
+  <p class="sub rv d1">Time to decide after the last byte the model reads. The yellow line is the time left before the frame ends.</p>
+  <div class="chart-wrap stretch rv d2">
+    <div class="ctrl"><span class="lbl">Model reads</span><div class="chips" data-group="tb"><button class="chip" aria-pressed="true" data-v="5">5 bytes</button><button class="chip" aria-pressed="false" data-v="6">6 bytes</button><button class="chip" aria-pressed="false" data-v="8">8 bytes</button></div></div>
+    <svg id="tchart" viewBox="0 0 1180 470" preserveAspectRatio="xMinYMid meet" role="img" aria-label="Decision time"></svg>
+    <p class="note" id="tnote"></p>
+  </div>
+</section>
+
+<!-- ======================= PART 3 ======================= -->
+<section class="slide center divider" data-part="3 · The basic IDS">
+  <div class="num" aria-hidden="true">03</div><p class="tag rv">Part 03 / 06</p><h1 class="rv d1">The basic IDS: the forest as pure logic</h1>
+</section>
+
+<section class="slide" data-part="3 · The basic IDS">
+  <h2 class="rv">Each question becomes a comparator</h2>
+  <p class="sub rv d1">The trees are compiled into the FPGA's logic: every node is a small circuit, and all five trees answer in the same clock.</p>
+  <div class="stage rv d2">
+    <svg viewBox="2 20 1176 342" font-size="17" text-anchor="middle">
+      <g id="ctree"></g>
+      <g class="rv d8">
+        <rect x="830" y="70" width="330" height="260" rx="0" fill="#0f0f0f" stroke="#3d3d3d"/>
+        <text x="995" y="120" fill="#7aaaf0" font-size="22" font-weight="700">Basic IDS</text>
+        <text x="995" y="166" fill="#f2f0eb" font-size="30" font-weight="700">80 ns</text><text x="995" y="190" fill="#8c8880">decision (4 clocks)</text>
+        <text x="995" y="240" fill="#f2f0eb" font-size="30" font-weight="700">1,024</text><text x="995" y="264" fill="#8c8880">logic elements (2 % of the chip)</text>
+        <text x="995" y="306" fill="#e0a030">but: a new model = a new chip design</text>
+      </g>
+    </svg>
+  </div>
+</section>
+
+<section class="slide" data-part="3 · The basic IDS">
+  <h2 class="rv">Live: load the basic IDS</h2>
+  <p class="sub rv d1">Put the hardcoded design on the DE10-Lite and run the same attacks.</p>
+  <div class="live rv d2">
+    <div class="badge"><i></i>LIVE ON THE BENCH</div>
+    <ol class="steps">
+      <li><div>Program the board (about 30 s, answer Y):<br><span class="cmd"><span id="c-basic">program_fpga.bat basic</span><button type="button" data-copyfrom="c-basic">Copy</button></span></div></li>
+      <li><div>Unplug the DE10-Lite USB and plug it back. <b>SW0 up → LEDR9 on</b>.</div></li>
+      <li><div>Run an attack against it:<div class="chips" data-group="batk"><button class="chip" aria-pressed="true" data-v="DoS">DoS</button><button class="chip" aria-pressed="false" data-v="Fuzzy">Fuzzy</button><button class="chip" aria-pressed="false" data-v="Gear">Gear</button><button class="chip" aria-pressed="false" data-v="RPM">RPM</button></div><span class="cmd"><span id="c-brun">run_demo.bat run basic DoS</span><button type="button" data-copyfrom="c-brun">Copy</button></span></div></li>
+      <li><div>Compare it with the updatable FPGA and the STM32 on the graph.<br><button class="go" data-goto="results">Open the graph →</button></div></li>
+    </ol>
+  </div>
+  <p class="note rv d3">The STM32 must run the IDS firmware for these runs (it listens, prevention off). <code>run_demo.bat</code> checks it and asks if it needs flashing.</p>
+</section>
+
+<!-- ======================= PART 4 ======================= -->
+<section class="slide center divider" data-part="4 · 5, 6 or 8 bytes">
+  <div class="num" aria-hidden="true">04</div><p class="tag rv">Part 04 / 06</p><h1 class="rv d1">5, 6 or 8 bytes: more data, less time</h1>
+</section>
+
+<section class="slide" data-part="4 · 5, 6 or 8 bytes">
+  <h2 class="rv">Read more of the frame: more accurate, less time to act</h2>
+  <div class="chart-wrap stretch rv d1" id="bwrap">
+    <div class="ctrl"><span class="lbl">The model reads</span><div class="chips" data-group="by"><button class="chip" aria-pressed="true" data-v="5">5 data bytes</button><button class="chip" aria-pressed="false" data-v="6">6 data bytes</button><button class="chip" aria-pressed="false" data-v="8">8 data bytes</button></div></div>
+    <div class="byteframe" id="bframe"></div>
+    <div class="grid g4" style="margin-bottom:16px">
+      <div class="card"><div class="stat" id="b-acc"></div><small style="color:var(--muted)">accuracy, 6.5 million unseen frames</small></div>
+      <div class="card"><div class="stat" id="b-fz"></div><small style="color:var(--muted)">Fuzzy frames missed</small></div>
+      <div class="card"><div class="stat" id="b-fp"></div><small style="color:var(--muted)">normal frames wrongly flagged</small></div>
+      <div class="card"><div class="stat" id="b-left" style="color:var(--hi)"></div><small style="color:var(--muted)">left to act before the frame ends</small></div>
+    </div>
+    <div class="grid g2">
+      <div class="card"><div class="fit"><span class="dot" style="background:var(--fpga)"></span><b>FPGA</b>&nbsp;decides in 80 ns, whatever the byte count</div><div class="fit" id="b-ffit"></div><p id="b-les"></p></div>
+      <div class="card"><div class="fit"><span class="dot" style="background:var(--stm)"></span><b>STM32</b>&nbsp;worst model run with 5 bytes: 60 to 94 µs</div><div class="fit" id="b-sfit"></div><p>6 and 8 bytes were not timed on the STM32: this compares its 5-byte time with the shorter window.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="slide" data-part="4 · 5, 6 or 8 bytes">
+  <h2 class="rv">Why an FPGA</h2>
+  <p class="sub rv d1">The window shrinks as the model reads more bytes. The FPGA's decision time does not move.</p>
+  <div class="stage rv d2">
+    <svg viewBox="99 2 1000 380" font-size="17" id="whysvg"></svg>
+  </div>
+  <p class="note rv d3">On the bench (11-03) the basic FPGA with 5, 6 and 8 bytes destroyed every attack frame in all four attacks.</p>
+</section>
+
+<!-- ======================= PART 5 ======================= -->
+<section class="slide center divider" data-part="5 · A modular forest">
+  <div class="num" aria-hidden="true">05</div><p class="tag rv">Part 05 / 06</p><h1 class="rv d1">Why we made the forest modular</h1>
+</section>
+
+<section class="slide" data-part="5 · A modular forest">
+  <h2 class="rv">The problem with the basic IDS</h2>
+  <p class="sub rv d1">A new attack appears. With the trees compiled into logic, changing the model means:</p>
+  <div class="stage rv d2">
+    <svg viewBox="2 52 1196 247" font-size="18" text-anchor="middle">
+      <g class="pop d2"><rect x="20" y="70" width="250" height="120" rx="0" fill="#0f0f0f" stroke="#3d3d3d"/><text x="145" y="118" fill="#f2f0eb" font-weight="700">Retrain</text><text x="145" y="148" fill="#bcb8b0">new trees in Python</text></g>
+      <g class="pop d4"><rect x="320" y="70" width="250" height="120" rx="0" fill="#0f0f0f" stroke="#3d3d3d"/><text x="445" y="118" fill="#f2f0eb" font-weight="700">Regenerate Verilog</text><text x="445" y="148" fill="#bcb8b0">and recompile in Quartus</text></g>
+      <g class="pop d6"><rect x="620" y="70" width="250" height="120" rx="0" fill="#0f0f0f" stroke="#3d3d3d"/><text x="745" y="118" fill="#f2f0eb" font-weight="700">New chip design</text><text x="745" y="148" fill="#bcb8b0">timing checked again</text></g>
+      <g class="pop d8"><rect x="920" y="70" width="260" height="120" rx="0" fill="#2a1212" stroke="#e66767"/><text x="1050" y="118" fill="#ffb3b3" font-weight="700">JTAG cable</text><text x="1050" y="148" fill="#ffb3b3">to every car, one by one</text></g>
+      <g stroke="#3d3d3d" stroke-width="3"><line x1="272" y1="130" x2="318" y2="130"/><line x1="572" y1="130" x2="618" y2="130"/><line x1="872" y1="130" x2="918" y2="130"/></g>
+      <text x="600" y="260" fill="#e0a030" class="rv d10" font-size="22">Slow, needs the design tools, and the detector is down while it is reprogrammed.</text>
+    </svg>
+  </div>
+</section>
+
+<section class="slide" data-part="5 · A modular forest">
+  <h2 class="rv">The idea: a fixed engine, the model as data</h2>
+  <p class="sub rv d1">Like a processor and its program. The circuit never changes; the trees are numbers in memory.</p>
+  <div class="stage rv d2">
+    <svg viewBox="-8 5 1196 409" font-size="17" text-anchor="middle" id="engine">
+      <g>
+        <rect x="10" y="140" width="230" height="130" rx="0" fill="#0f0f0f" stroke="#3d3d3d"/>
+        <text x="125" y="186" fill="#f2f0eb" font-weight="700">model file</text><text x="125" y="214" fill="#bcb8b0">4,174 bytes</text><text x="125" y="240" fill="#8c8880" font-size="14">questions, thresholds, answers</text>
+      </g>
+      <line x1="242" y1="205" x2="300" y2="205" stroke="#3ee6c0" stroke-width="3" class="flow"/>
+      <text x="610" y="40" fill="#bcb8b0">Tree engine: 8 trees × 12 levels, one memory per level, one frame per clock</text>
+      <g id="egrid"></g>
+      <g class="rv d9">
+        <rect x="950" y="70" width="220" height="110" rx="0" fill="#0d2a24" stroke="#3ee6c0"/>
+        <text x="1060" y="112" fill="#f2f0eb" font-weight="700">Two banks</text><text x="1060" y="138" fill="#bcb8b0">one runs, one loads,</text><text x="1060" y="160" fill="#bcb8b0">swap between frames</text>
+        <rect x="950" y="200" width="220" height="110" rx="0" fill="#0f0f0f" stroke="#3d3d3d"/>
+        <text x="1060" y="242" fill="#f2f0eb" font-weight="700">Kept in flash</text><text x="1060" y="268" fill="#bcb8b0">two slots, survives</text><text x="1060" y="290" fill="#bcb8b0">power off</text>
+        <text x="1060" y="350" fill="#3ee6c0">300 ns per decision</text>
+      </g>
+    </svg>
+  </div>
+</section>
+
+<section class="slide" data-part="5 · A modular forest">
+  <h2 class="rv">When does a real vehicle need a modular forest?</h2>
+  <div class="grid fill g3 rv d1" style="margin-top:8px">
+    <div class="card"><h3>A new attack is found</h3><p>Retrain on it and send the new model to the whole fleet, the way phones get security updates.</p></div>
+    <div class="card"><h3>A software update in the car</h3><p>A new ECU firmware changes which IDs and values are normal: the model must follow.</p></div>
+    <div class="card"><h3>One chip, many vehicles</h3><p>The same board in different models and trims, each with its own traffic and its own trees.</p></div>
+    <div class="card"><h3>Too many false alarms</h3><p>Fix a model that blocks a real frame without touching the hardware.</p></div>
+    <div class="card"><h3>The law asks for it</h3><p>UN R155 expects makers to respond to new threats for the whole life of the vehicle.</p></div>
+    <div class="card"><h3>More features later</h3><p>Read 6 or 8 bytes instead of 5: the same engine takes the larger model.</p></div>
+  </div>
+  <p class="note rv d2" style="font-size:18px;margin-top:16px">And the detector never stops: the new model loads into the spare bank and takes over between two frames.</p>
+</section>
+
+<!-- ======================= PART 6 ======================= -->
+<section class="slide center divider" data-part="6 · Who may update?">
+  <div class="num" aria-hidden="true">06</div><p class="tag rv">Part 06 / 06</p><h1 class="rv d1">An update port is also a door</h1>
+  <p class="sub rv d2">A fake model could tell the detector that the attack is normal. So who may change the trees?</p>
+</section>
+
+<section class="slide" data-part="6 · Who may update?">
+  <h2 class="rv">The path of an update</h2>
+  <p class="sub rv d1">The PC signs. The STM32 only carries the file. The FPGA checks and decides.</p>
+  <div class="stage rv d2">
+    <svg viewBox="22 72 1156 285" font-size="18" text-anchor="middle">
+      <rect x="40" y="90" width="270" height="170" rx="0" fill="#0f0f0f" stroke="#3d3d3d"/>
+      <text x="175" y="132" fill="#f2f0eb" font-weight="700">PC</text><text x="175" y="162" fill="#bcb8b0">master key (never leaves)</text><text x="175" y="190" fill="#bcb8b0">signs and scrambles</text><text x="175" y="218" fill="#bcb8b0">the model file</text>
+      <rect x="465" y="90" width="270" height="170" rx="0" fill="#0f0f0f" stroke="#3d3d3d"/>
+      <text x="600" y="132" fill="#f2f0eb" font-weight="700">STM32 update tool</text><text x="600" y="162" fill="#bcb8b0">holds no key</text><text x="600" y="190" fill="#bcb8b0">USB in, SPI out</text><text x="600" y="218" fill="#bcb8b0">(4 wires on the shield)</text>
+      <rect x="890" y="90" width="270" height="170" rx="0" fill="#0d2a24" stroke="#3ee6c0"/>
+      <text x="1025" y="132" fill="#f2f0eb" font-weight="700">FPGA</text><text x="1025" y="162" fill="#bcb8b0">its own board key</text><text x="1025" y="190" fill="#bcb8b0">checks everything,</text><text x="1025" y="218" fill="#bcb8b0">then writes to flash</text>
+      <line x1="312" y1="175" x2="463" y2="175" stroke="#3d3d3d" stroke-width="3" class="flow"/>
+      <line x1="737" y1="175" x2="888" y2="175" stroke="#3d3d3d" stroke-width="3" class="flow"/>
+      <g class="pop d4"><rect x="350" y="120" width="76" height="40" rx="0" fill="#3ee6c0"/><text x="388" y="146" fill="#0a0a0a" font-size="15">signed</text></g>
+      <g class="pop d6"><rect x="775" y="120" width="76" height="40" rx="0" fill="#3ee6c0"/><text x="813" y="146" fill="#0a0a0a" font-size="15">signed</text></g>
+      <text x="600" y="320" fill="#8c8880" class="rv d7">Steal the STM32 or listen on the wires: you get a scrambled file you cannot change or read.</text>
+    </svg>
+  </div>
+</section>
+
+<section class="slide" data-part="6 · Who may update?">
+  <h2 class="rv">Twelve precautions <span class="hint">Click one for the details</span></h2>
+  <div class="grid fill g4 rv d1" id="secgrid" style="margin-top:6px"></div>
+</section>
+
+<section class="slide" data-part="6 · Who may update?">
+  <h2 class="rv">Live: a secure update, step by step</h2>
+  <p class="sub rv d1">Put the updatable design back, then let the demo walk through it.</p>
+  <div class="live rv d2">
+    <div class="badge"><i></i>LIVE ON THE BENCH</div>
+    <ol class="steps">
+      <li><div>Back to the updatable design (answer Y):<br><span class="cmd"><span id="c-upd">program_fpga.bat</span><button type="button" data-copyfrom="c-upd">Copy</button></span></div></li>
+      <li><div>Unplug the DE10-Lite USB and plug it back: <b>LEDR4 and LEDR5 both on</b>. SW0 and SW1 down.</div></li>
+      <li><div>Run the update part. It turns the STM32 into the update tool (shield off, BT0 to 3V3, RST; then BT0 back, shield on, RST) and asks for every switch:<br><span class="cmd"><span id="c-run">run_demo.bat update</span><button type="button" data-copyfrom="c-run">Copy</button></span></div></li>
+    </ol>
+    <p class="note" style="font-size:17px">What the audience sees: the file field by field · refused with SW1 down · accepted with SW1 up (the slot LED moves) · an old version refused · a forged file refused, 1 bad stamp counted.</p>
+  </div>
+</section>
+
+<section class="slide" data-part="6 · Who may update?">
+  <h2 class="rv">Honest limits</h2>
+  <div class="grid fill g2 rv d1" style="margin-top:8px">
+    <div class="card"><h3>Not done yet (production steps)</h3><p>The board's key is inside the FPGA design file. A product would program it encrypted, with JTAG secure and verify protect turned on, so the key cannot be read back. We did not do this on our board.</p></div>
+    <div class="card"><h3>Bench, not a car</h3><p>500 kbit/s, four nodes, short wires. The bench replays the first 5,000 or 20,000 frames of each file; accuracy on unseen frames comes from simulation (6.5 million frames).</p></div>
+    <div class="card"><h3>A few lost normal frames</h3><p>The STM32 lost the same 3 normal RPM frames in every 20,000-frame run. The FPGA lost 1 normal frame in one DoS rehearsal run (0 in every cited run). Not yet explained.</p></div>
+    <div class="card"><h3>Only the 5-byte model on the bench for the updatable FPGA</h3><p>6 and 8 bytes on the updatable design were checked in simulation only.</p></div>
+  </div>
+</section>
+
+<section class="slide center" data-part="">
+  <h1 class="rv d1 long">Every attack frame destroyed <span class="hl">on the wire</span>, a model you can update, and nobody else can.</h1>
+  <div class="grid g4 rv d2" style="max-width:1450px;margin-top:14px">
+    <div class="card"><div class="stat">99.988 %</div><small style="color:var(--muted)">accuracy, unseen frames</small></div>
+    <div class="card"><div class="stat">100 %</div><small style="color:var(--muted)">attack frames destroyed on the bench, all four attacks</small></div>
+    <div class="card"><div class="stat">80–300 ns</div><small style="color:var(--muted)">FPGA decision</small></div>
+    <div class="card"><div class="stat">12</div><small style="color:var(--muted)">precautions on the update path</small></div>
+  </div>
+  <p class="sub rv d3" style="margin-top:22px">See it: <a style="color:var(--accent)" href="https://charbel-j-estephan.com/CAN-IDS-IPS" target="_blank" rel="noopener">charbel-j-estephan.com/CAN-IDS-IPS</a> · <a style="color:var(--accent)" href="https://charbel-j-estephan.com/CAN-COMPARE" target="_blank" rel="noopener">charbel-j-estephan.com/CAN-COMPARE</a></p>
+  <p class="note rv d4" style="font-size:18px">Questions?</p>
+</section>
+
+</main>
+
+<div class="counter" id="counter"></div>
+<div class="navbtns"><button type="button" id="prev" aria-label="Previous">←</button><button type="button" id="next" aria-label="Next">→</button><button type="button" id="fs" aria-label="Full screen">⛶</button></div>
+<div class="tip" id="tip"></div>
+<div class="modal" id="modal"><div class="box"><button class="close" type="button" id="mclose">Close</button><h2 id="mt"></h2><p class="what" id="mw"></p><ul id="ml"></ul><div class="stops" id="ms"></div></div></div>
+
+<script>
+(function () {
+"use strict";
+var NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, parent, text) {
+  var e = document.createElementNS(NS, tag);
+  for (var k in attrs) e.setAttribute(k, attrs[k]);
+  if (text != null) e.textContent = text;
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function fmt(n) { return n.toLocaleString("en-US"); }
+
+/* ---------------- navigation ---------------- */
+var slides = Array.prototype.slice.call(document.querySelectorAll(".slide"));
+// Scale the 1600 x 792 canvas to the screen, between the top bar and the buttons.
+function fitDeck() {
+  var aw = innerWidth, ah = innerHeight - 108, k = Math.min(aw / 1600, ah / 792);
+  document.getElementById("deck").style.transform =
+    "translate(" + (aw - 1600 * k) / 2 + "px," + (44 + (ah - 792 * k) / 2) + "px) scale(" + k + ")";
+}
+addEventListener("resize", fitDeck);
+fitDeck();
+var cur = 0;
+function show(i) {
+  i = Math.max(0, Math.min(slides.length - 1, i));
+  slides.forEach(function (s, k) {
+    s.classList.toggle("left", k < i);
+    if (k === i) {
+      s.classList.remove("active"); void s.offsetWidth; s.classList.add("active");
+    } else s.classList.remove("active");
+  });
+  cur = i;
+  document.body.classList.toggle("centered", slides[i].classList.contains("center"));
+  var pt = (slides[i].dataset.part || "").split(" · "), pe = document.getElementById("part");
+  pe.textContent = "";
+  if (pt.length === 2) { var pn = document.createElement("span"); pn.className = "pn"; pn.textContent = "0" + pt[0];
+    pe.appendChild(pn); pe.appendChild(document.createTextNode(pt[1])); } else pe.textContent = pt[0];
+  document.getElementById("counter").textContent = String(i + 1).padStart(2, "0") + " / " + slides.length;
+  document.getElementById("prog").style.transform = "scaleX(" + ((i + 1) / slides.length) + ")";
+  try { if (location.hash !== "#" + (i + 1)) history.replaceState(null, "", "#" + (i + 1)); } catch (e) {}
+}
+document.addEventListener("keydown", function (e) {
+  if (document.getElementById("modal").classList.contains("open")) { if (e.key === "Escape") closeModal(); return; }
+  if (["ArrowRight", "PageDown", " "].indexOf(e.key) >= 0) { e.preventDefault(); show(cur + 1); }
+  else if (["ArrowLeft", "PageUp"].indexOf(e.key) >= 0) { e.preventDefault(); show(cur - 1); }
+  else if (e.key === "Home") show(0);
+  else if (e.key === "End") show(slides.length - 1);
+  else if (e.key === "f" || e.key === "F") toggleFs();
+});
+document.getElementById("next").onclick = function () { show(cur + 1); };
+document.getElementById("prev").onclick = function () { show(cur - 1); };
+function toggleFs() { if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(function () {}); else document.exitFullscreen(); }
+document.getElementById("fs").onclick = toggleFs;
+var tx = null;
+document.addEventListener("touchstart", function (e) { tx = e.touches[0].clientX; });
+document.addEventListener("touchend", function (e) { if (tx == null) return; var d = e.changedTouches[0].clientX - tx; if (Math.abs(d) > 60) show(cur + (d < 0 ? 1 : -1)); tx = null; });
+document.querySelectorAll("[data-goto]").forEach(function (b) {
+  b.onclick = function () { var t = document.getElementById(b.dataset.goto); show(slides.indexOf(t)); };
+});
+
+/* ---------------- chips and copy ---------------- */
+function chipGroup(name, cb) {
+  var g = document.querySelector('[data-group="' + name + '"]');
+  g.querySelectorAll(".chip").forEach(function (c) {
+    c.onclick = function () {
+      g.querySelectorAll(".chip").forEach(function (x) { x.setAttribute("aria-pressed", x === c ? "true" : "false"); });
+      cb(c.dataset.v);
+    };
+  });
+  return function () { return g.querySelector('[aria-pressed="true"]').dataset.v; };
+}
+document.querySelectorAll("[data-copyfrom]").forEach(function (b) {
+  b.onclick = function () {
+    var t = document.getElementById(b.dataset.copyfrom).textContent;
+    var done = function () { b.textContent = "Copied"; setTimeout(function () { b.textContent = "Copy"; }, 1200); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(done, done);
+    else { var a = document.createElement("textarea"); a.value = t; document.body.appendChild(a); a.select(); try { document.execCommand("copy"); } catch (x) {} a.remove(); done(); }
+  };
+});
+var liveAtk = chipGroup("atk", updCmd), liveWho = chipGroup("who", updCmd);
+function updCmd() { document.getElementById("runcmd").textContent = "run_demo.bat run " + liveWho() + " " + liveAtk(); }
+var basicAtk = chipGroup("batk", function (v) { document.getElementById("c-brun").textContent = "run_demo.bat run basic " + v; });
+
+/* ---------------- slide: trees ---------------- */
+(function () {
+  var g = document.getElementById("trees");
+  for (var t = 0; t < 5; t++) {
+    var x0 = 345 + t * 110, y0 = 60;
+    var tg = el("g", { "class": "pop d" + (3 + t) }, g);
+    var lv = [[[x0 + 45, y0]]];
+    for (var l = 1; l < 4; l++) {
+      var n = Math.pow(2, l), row = [];
+      for (var k = 0; k < n; k++) row.push([x0 + (k + .5) * 90 / n, y0 + l * 46]);
+      lv[l - 1].forEach(function (p, i) {
+        el("line", { x1: p[0], y1: p[1], x2: row[2 * i][0], y2: row[2 * i][1], stroke: "#3d3d3d", "stroke-width": 2 }, tg);
+        el("line", { x1: p[0], y1: p[1], x2: row[2 * i + 1][0], y2: row[2 * i + 1][1], stroke: "#3d3d3d", "stroke-width": 2 }, tg);
+      });
+      lv[l] = row;
+    }
+    lv.forEach(function (row, l) { row.forEach(function (p) { el("circle", { cx: p[0], cy: p[1], r: l === 3 ? 5 : 7, fill: l === 3 ? "#3ee6c0" : "#7aaaf0" }, tg); }); });
+    el("text", { x: x0 + 45, y: y0 + 190, fill: "#8c8880", "font-size": 15, "text-anchor": "middle" }, tg, "tree " + (t + 1));
+  }
+})();
+
+/* ---------------- slide: comparator tree (basic) ---------------- */
+(function () {
+  var g = document.getElementById("ctree");
+  var nodes = [[380, 60, "byte 2 ≤ 41?"], [200, 160, "ID ≤ 0x2A0?"], [560, 160, "byte 0 ≤ 3?"], [105, 260, "Normal"], [290, 260, "DoS"], [470, 260, "byte 4 ≤ 127?"], [655, 260, "RPM"]];
+  var links = [[0, 1], [0, 2], [1, 3], [1, 4], [2, 5], [2, 6]];
+  links.forEach(function (l, i) {
+    el("line", { x1: nodes[l[0]][0], y1: nodes[l[0]][1] + 22, x2: nodes[l[1]][0], y2: nodes[l[1]][1] - 22, stroke: "#3d3d3d", "stroke-width": 3, "class": "rv d" + (2 + i) }, g);
+  });
+  nodes.forEach(function (n, i) {
+    var leaf = i === 3 || i === 4 || i === 6;
+    var gg = el("g", { "class": "pop d" + (1 + i) }, g);
+    el("rect", { x: n[0] - 85, y: n[1] - 22, width: 170, height: 44, rx: 0, fill: leaf ? (n[2] === "Normal" ? "#0d2a24" : "#2a1212") : "#0f0f0f", stroke: leaf ? (n[2] === "Normal" ? "#3ee6c0" : "#e66767") : "#7aaaf0" }, gg);
+    el("text", { x: n[0], y: n[1] + 6, fill: "#f2f0eb" }, gg, n[2]);
+  });
+  el("text", { x: 380, y: 340, fill: "#8c8880", "font-size": 15 }, g, "illustration: each box is a comparator in hardware, all evaluated at once");
+})();
+
+/* ---------------- slide: engine grid ---------------- */
+(function () {
+  var g = document.getElementById("egrid");
+  for (var t = 0; t < 8; t++) for (var l = 0; l < 12; l++) {
+    el("rect", { x: 320 + t * 76, y: 62 + l * 26, width: 66, height: 20, rx: 0, fill: l < 9 && t < 5 ? "#3ee6c0" : "#1a1a1a",
+      "class": "cell", style: "animation-delay:" + (0.4 + (t * 12 + l) * 0.018).toFixed(3) + "s" }, g);
+  }
+  el("text", { x: 610, y: 392, fill: "#8c8880", "font-size": 15 }, g, "green: our model (5 trees × 9 levels) inside the 8 × 12 engine");
+})();
+
+/* ---------------- results chart ---------------- */
+var WHO = {
+  "No protection": { c: "var(--none)" }, "FPGA, basic": { c: "var(--fpga)" },
+  "FPGA, updatable": { c: "var(--upd)" }, "STM32": { c: "var(--stm)" }
+};
+var ORDER = ["No protection", "FPGA, basic", "FPGA, updatable", "STM32"];
+// Recorded bench results (docs/PAPER_RESULTS.md, sections 4.1 and 4.2).
+// STM32 rows are the 20,000-frame runs, so they are compared as percentages.
+var REC = {
+  DoS: [
+    { who: "No protection", as: 1861, aa: 1861, ns: 3139, nl: 0, run: "20261115_093152_DoS", n: "5,000 frames, 11-15" },
+    { who: "FPGA, basic", as: 1861, aa: 0, ns: 3139, nl: 0, run: "20261103_143901_DoS", n: "5,000 frames, 11-03" },
+    { who: "FPGA, updatable", as: 1861, aa: 0, ns: 3139, nl: 0, run: "20261115_093312_DoS", n: "5,000 frames, 11-15" },
+    { who: "STM32", as: 5558, aa: 0, ns: 14442, nl: 0, run: "20261115_094139_DoS", n: "20,000 frames, 11-15, fw 16" }],
+  Fuzzy: [
+    { who: "FPGA, basic", as: 709, aa: 0, ns: 4291, nl: 0, run: "20261103_143945_Fuzzy", n: "5,000 frames, 11-03" },
+    { who: "FPGA, updatable", as: 709, aa: 0, ns: 4291, nl: 0, run: "20261115_093336_Fuzzy", n: "5,000 frames, 11-15" },
+    { who: "STM32", as: 2092, aa: 0, ns: 17908, nl: 0, run: "20261115_094224_Fuzzy", n: "20,000 frames, 11-15, fw 16" }],
+  Gear: [
+    { who: "FPGA, basic", as: 922, aa: 0, ns: 4078, nl: 0, run: "20261103_144025_gear", n: "5,000 frames, 11-03" },
+    { who: "FPGA, updatable", as: 922, aa: 0, ns: 4078, nl: 0, run: "20261115_093356_gear", n: "5,000 frames, 11-15" },
+    { who: "STM32", as: 3940, aa: 0, ns: 16060, nl: 0, run: "20261115_094254_gear", n: "20,000 frames, 11-15, fw 16" }],
+  RPM: [
+    { who: "FPGA, basic", as: 1085, aa: 0, ns: 3915, nl: 0, run: "20261103_144101_RPM", n: "5,000 frames, 11-03" },
+    { who: "FPGA, updatable", as: 1085, aa: 0, ns: 3915, nl: 0, run: "20261115_093416_RPM", n: "5,000 frames, 11-15" },
+    { who: "STM32", as: 4075, aa: 0, ns: 15925, nl: 3, run: "20261115_094326_RPM", n: "20,000 frames, 11-15, fw 16" }]
+};
+var live = [];
+var catk = chipGroup("catk", drawChart), cmet = chipGroup("cmet", drawChart);
+var tip = document.getElementById("tip");
+function showTip(e, html) { tip.innerHTML = html; tip.style.opacity = 1; tip.style.left = Math.min(e.clientX + 14, innerWidth - 360) + "px"; tip.style.top = (e.clientY + 14) + "px"; }
+function hideTip() { tip.style.opacity = 0; }
+
+function drawChart() {
+  var svg = document.getElementById("chart"); svg.innerHTML = "";
+  var atk = catk(), met = cmet();
+  var rows = REC[atk].map(function (r) { return Object.assign({ live: false }, r); });
+  live.filter(function (r) { return r.attack === atk; }).forEach(function (r) {
+    rows.push({ who: r.who, as: r.attack_sent, aa: r.attack_arrived, ns: r.normal_sent, nl: r.normal_lost, run: r.run, n: "today " + r.time + ", 5,000 frames", live: true, attacker: r.attacker });
+  });
+  rows.sort(function (a, b) { return ORDER.indexOf(a.who) - ORDER.indexOf(b.who) || (a.live - b.live); });
+  var leg = document.getElementById("legend"); leg.innerHTML = "";
+  ORDER.forEach(function (w) { if (rows.some(function (r) { return r.who === w; })) leg.insertAdjacentHTML("beforeend", '<span><i style="background:' + WHO[w].c + '"></i>' + w + "</span>"); });
+  if (rows.some(function (r) { return r.live; })) leg.insertAdjacentHTML("beforeend", '<span><i style="background:transparent;border:2px dashed #f2f0eb"></i>live, today</span>');
+
+  var X0 = 300, W = 740, rowH = Math.min(100, 440 / Math.max(rows.length, 1)), y0 = 24;
+  var maxLost = Math.max(5, Math.max.apply(null, rows.map(function (r) { return r.nl; })));
+  // axis
+  var ticks = met === "reach" ? [0, 25, 50, 75, 100] : [0, Math.ceil(maxLost / 2), maxLost];
+  ticks.forEach(function (t) {
+    var x = X0 + W * t / (met === "reach" ? 100 : maxLost);
+    el("line", { x1: x, y1: y0 - 6, x2: x, y2: y0 + rows.length * rowH, stroke: "#262626", "stroke-width": 1 }, svg);
+    el("text", { x: x, y: y0 + rows.length * rowH + 28, fill: "#8c8880", "font-size": 17, "text-anchor": "middle" }, svg, met === "reach" ? t + " %" : String(t));
+  });
+  rows.forEach(function (r, i) {
+    var y = y0 + i * rowH, h = Math.min(46, rowH - 24);
+    var val = met === "reach" ? 100 * r.aa / r.as : r.nl;
+    var w = W * val / (met === "reach" ? 100 : maxLost);
+    el("text", { x: X0 - 18, y: y + h / 2 + 8, fill: "#f2f0eb", "font-size": 23, "text-anchor": "end" }, svg, r.who + (r.live ? " (live)" : ""));
+    var g = el("g", { style: "cursor:default" }, svg);
+    el("rect", { x: X0, y: y - 6, width: W, height: h + 12, fill: "transparent" }, g);
+    if (w > 0) {
+      el("rect", { x: X0, y: y, width: Math.max(w, 4), height: h, rx: 0, fill: WHO[r.who] ? WHO[r.who].c : "#888",
+        stroke: r.live ? "#f2f0eb" : "none", "stroke-width": r.live ? 2 : 0, "stroke-dasharray": r.live ? "6 4" : "" }, g);
+    } else {
+      el("line", { x1: X0, y1: y, x2: X0, y2: y + h, stroke: WHO[r.who] ? WHO[r.who].c : "#888", "stroke-width": 4, "stroke-linecap": "butt" }, g);
+    }
+    var label = met === "reach" ? fmt(r.aa) + " of " + fmt(r.as) + "  (" + (Math.round(val * 10) / 10) + " %)" : fmt(r.nl) + " of " + fmt(r.ns);
+    el("text", { x: X0 + Math.max(w, 4) + 16, y: y + h / 2 + 8, fill: "#bcb8b0", "font-size": 21 }, svg, label);
+    g.addEventListener("mousemove", function (e) {
+      showTip(e, "<b>" + r.who + (r.live ? " · live" : "") + "</b>" + atk + " attack, " + r.n +
+        "<br>attack frames: " + fmt(r.as) + " sent, " + fmt(r.aa) + " reached the car" +
+        "<br>normal frames: " + fmt(r.ns) + " sent, " + fmt(r.nl) + " lost" +
+        (r.attacker ? "<br>attacker: " + (r.attacker === "busoff" ? "bus off" : r.attacker) : "") +
+        '<br><span style="color:#8c8880">run ' + r.run + "</span>");
+    });
+    g.addEventListener("mouseleave", hideTip);
+  });
+  svg.setAttribute("viewBox", "0 0 1300 " + (y0 + rows.length * rowH + 44));
+  var note = atk === "DoS" ? "" : "No-protection runs were recorded for DoS only: without an IPS nothing on the bus stops a frame. ";
+  note += met === "lost" ? (atk === "RPM" ? "The STM32 loses the same 3 normal RPM frames in every run; the FPGA none. " : "") + "The FPGA also lost 1 normal frame in one DoS rehearsal run (not shown)." : "STM32 bars: 20,000-frame runs, shown as a share. Hover a bar for its run.";
+  document.getElementById("chartnote").textContent = note;
+}
+function loadLive() {
+  var st = document.getElementById("livestate");
+  var s = document.createElement("script");
+  s.src = "../../runs/live_results.js?t=" + Date.now();
+  s.onload = function () {
+    live = (window.LIVE_RESULTS || []).filter(function (r) { return WHO[r.who]; });
+    st.textContent = live.length ? live.length + " live run(s) loaded, last at " + live[live.length - 1].time + "." : "No live run yet.";
+    drawChart(); s.remove();
+  };
+  s.onerror = function () { st.textContent = "No live run yet (runs\\live_results.js not found)."; s.remove(); };
+  document.head.appendChild(s);
+}
+document.getElementById("refresh").onclick = loadLive;
+drawChart();
+// The live results exist only on the bench PC (the file opened from the project folder).
+if (location.protocol === "file:") loadLive();
+else document.querySelector(".livebar").style.display = "none";
+
+/* ---------------- timing chart ---------------- */
+var LEFT = { 5: 86, 6: 70, 8: 38 };
+var tb = chipGroup("tb", drawTiming);
+function drawTiming() {
+  var svg = document.getElementById("tchart"); svg.innerHTML = "";
+  var left = LEFT[tb()];
+  var X0 = 260, W = 700, lo = Math.log10(0.05), hi = Math.log10(200), R = 115, Y2 = 30 + 3 * R;
+  function x(us) { return X0 + W * (Math.log10(us) - lo) / (hi - lo); }
+  [0.1, 1, 10, 100].forEach(function (t) {
+    el("line", { x1: x(t), y1: 10, x2: x(t), y2: Y2, stroke: "#262626" }, svg);
+    el("text", { x: x(t), y: Y2 + 30, fill: "#8c8880", "font-size": 17, "text-anchor": "middle" }, svg, t < 1 ? t * 1000 + " ns" : t + " µs");
+  });
+  el("text", { x: X0 + W / 2, y: Y2 + 64, fill: "#8c8880", "font-size": 17, "text-anchor": "middle" }, svg, "decision time, log scale (each grid line is 10 times the last)");
+  var rows = [
+    { who: "FPGA, basic", a: 0.08, b: 0.08, lab: "80 ns", c: "var(--fpga)", tip: "4 clocks at 50 MHz (simulation, Quartus timing)" },
+    { who: "FPGA, updatable", a: 0.3, b: 0.3, lab: "300 ns", c: "var(--upd)", tip: "15 clocks at 50 MHz (latency testbench)" },
+    { who: "STM32", a: 60, b: 94, lab: "60 to 94 µs (worst runs)", c: "var(--stm)", tip: "worst model run per replay: 60-87 µs on 11-15 (cmax), up to 94 µs in earlier runs; 5 bytes only" }
+  ];
+  rows.forEach(function (r, i) {
+    var y = 40 + i * R;
+    el("text", { x: X0 - 18, y: y + 26, fill: "#f2f0eb", "font-size": 23, "text-anchor": "end" }, svg, r.who);
+    var g = el("g", {}, svg);
+    el("rect", { x: X0, y: y - 8, width: W, height: 52, fill: "transparent" }, g);
+    // A log scale has no zero, so each value is a marker (a range for the STM32), not a bar.
+    el("line", { x1: X0, y1: y + 18, x2: x(r.a), y2: y + 18, stroke: "#262626", "stroke-width": 2 }, g);
+    if (r.a !== r.b) el("rect", { x: x(r.a), y: y + 2, width: x(r.b) - x(r.a), height: 32, rx: 0, fill: r.c }, g);
+    else el("circle", { cx: x(r.a), cy: y + 18, r: 13, fill: r.c }, g);
+    el("text", { x: x(r.b) + 20, y: y + 26, fill: "#bcb8b0", "font-size": 21 }, svg, r.lab);
+    g.addEventListener("mousemove", function (e) { showTip(e, "<b>" + r.who + "</b>" + r.tip); });
+    g.addEventListener("mouseleave", hideTip);
+  });
+  el("line", { x1: x(left), y1: 8, x2: x(left), y2: Y2 + 2, stroke: "#f2c14e", "stroke-width": 3, "stroke-dasharray": "7 5" }, svg);
+  el("text", { x: x(left) - 10, y: Y2 - 6, fill: "#f2c14e", "font-size": 20, "text-anchor": "end" }, svg, left + " µs left");
+  var n = tb();
+  document.getElementById("tnote").textContent = n === "5"
+    ? "With 5 bytes the STM32's worst runs reach the end of the window; on the bench none of its verdicts came too late."
+    : "With " + n + " bytes only " + left + " µs are left. The STM32 was not timed with " + n + " bytes, but its 5-byte worst case alone (60 to 94 µs) is already longer. The FPGA still uses under 1 %.";
+}
+drawTiming();
+
+/* ---------------- bytes slide ---------------- */
+var BY = {
+  5: { acc: "99.988 %", fz: "92", fp: "720", left: 86, les: "1,024 logic elements, 81.95 MHz", lost: "RPM bench run: 0 normal frames lost" },
+  6: { acc: "99.998 %", fz: "41", fp: "66", left: 70, les: "1,300 logic elements, 88.74 MHz", lost: "RPM bench run: 1 normal frame lost" },
+  8: { acc: "99.998 %", fz: "50", fp: "55", left: 38, les: "960 logic elements, 91.53 MHz", lost: "RPM bench run: 2 normal frames lost" }
+};
+var byc = chipGroup("by", drawBytes);
+function drawBytes() {
+  var n = +byc(), d = BY[n], f = document.getElementById("bframe"); f.innerHTML = "";
+  [["ID", 2.2, "fix"], ["len", 1, "fix"]].forEach(function (p) { f.insertAdjacentHTML("beforeend", '<div class="fix" style="flex:' + p[1] + '">' + p[0] + "</div>"); });
+  for (var i = 0; i < 8; i++) f.insertAdjacentHTML("beforeend", '<div class="' + (i < n ? "on" : "") + '" style="flex:1">byte ' + i + "</div>");
+  f.insertAdjacentHTML("beforeend", '<div style="flex:2.4">CRC · ACK · end</div>');
+  document.getElementById("b-acc").textContent = d.acc;
+  document.getElementById("b-fz").textContent = d.fz;
+  document.getElementById("b-fp").textContent = d.fp;
+  document.getElementById("b-left").textContent = d.left + " µs";
+  document.getElementById("b-ffit").innerHTML = '<span style="color:var(--ok)">✓ fits: 80 ns of ' + d.left + " µs (" + (0.08 / d.left * 100).toFixed(2) + " %)</span>";
+  document.getElementById("b-sfit").innerHTML = n === 5 ? '<span style="color:var(--warn)">◐ at the edge: 60 to 94 µs against 86 µs</span>'
+    : '<span style="color:var(--attack)">✗ does not fit: its 5-byte time alone exceeds ' + d.left + " µs</span>";
+  document.getElementById("b-les").textContent = "The forest alone with " + n + " bytes: " + d.les + ". " + d.lost + " (one run each).";
+}
+drawBytes();
+
+/* ---------------- why FPGA ---------------- */
+(function () {
+  var svg = document.getElementById("whysvg");
+  var X0 = 200, W = 780, max = 100;
+  function x(v) { return X0 + W * v / max; }
+  [0, 25, 50, 75, 100].forEach(function (t) {
+    el("line", { x1: x(t), y1: 20, x2: x(t), y2: 300, stroke: "#262626" }, svg);
+    el("text", { x: x(t), y: 326, fill: "#8c8880", "font-size": 14, "text-anchor": "middle" }, svg, t + " µs");
+  });
+  [5, 6, 8].forEach(function (n, i) {
+    var y = 40 + i * 90, left = LEFT[n];
+    el("text", { x: X0 - 16, y: y + 30, fill: "#f2f0eb", "text-anchor": "end", "font-size": 18 }, svg, n + " bytes");
+    el("rect", { x: X0, y: y + 10, width: x(left) - X0, height: 30, rx: 0, fill: "#f2c14e", opacity: .3, "class": "grow d" + (2 + i) }, svg);
+    el("text", { x: x(left) + 10, y: y + 31, fill: "#f2c14e", "font-size": 16 }, svg, left + " µs to act");
+    el("rect", { x: X0, y: y + 46, width: 4, height: 14, rx: 0, fill: "#4a8ce8" }, svg);
+    el("text", { x: X0 + 12, y: y + 58, fill: "#7aaaf0", "font-size": 14 }, svg, "FPGA 0.08 µs");
+    el("rect", { x: x(60), y: y + 46, width: x(94) - x(60), height: 14, rx: 0, fill: "#de6a2e", opacity: n === 5 ? 1 : .55 }, svg);
+    el("text", { x: x(94) + 8, y: y + 58, fill: "#f08a5d", "font-size": 14 }, svg, n === 5 ? "STM32 60–94 µs" : "STM32 (5-byte time)");
+  });
+  el("text", { x: X0, y: 360, fill: "#8c8880", "font-size": 15 }, svg, "Bars of the same scale: time left after the last byte read, the FPGA's decision, the STM32's worst 5-byte model run.");
+})();
+
+/* ---------------- security ---------------- */
+var SEC = [
+  { t: "Maintenance switch", s: "Updates need a hand on the board", w: "The update port only opens while SW1 on the board is up.",
+    d: ["Without it, every command except STATUS and VERSION is refused (error NOT_MAINT).", "The switch is sampled every clock and again every 128 clocks; both must agree.", "LEDR8 shows when maintenance mode is on."],
+    x: "Malware on the PC or a hacked STM32 cannot update the FPGA on its own." },
+  { t: "One key per board", s: "Derived from a master key", w: "Each board's key is computed from the master key and the board number with AES-CMAC.",
+    d: ["The master key stays on the PC that signs; it is never in git.", "A stamp key and a separate scrambling key for every board.", "Leaking one board's key does not open the others."],
+    x: "A file signed for board 1 means nothing to board 2." },
+  { t: "The stamp (AES-CMAC)", s: "Proves who made the file", w: "A 16-byte AES-CMAC over every byte of the file, the CRC included.",
+    d: ["The FPGA computes it while the bytes arrive over SPI.", "Compared in constant time: a 128-bit XOR then OR, the same time whatever the data.", "Change one bit anywhere and the stamp no longer matches."],
+    x: "Nobody without the key can make or edit a model the FPGA accepts." },
+  { t: "Checked twice", s: "Against glitch attacks", w: "Two separate registers hold the stamp result and are compared at two different moments.",
+    d: ["A pass is the 32-bit code C3A55A3C, not a single bit.", "Erasing flash and booting both refuse to run without that code.", "In simulation, forcing the first compare to pass still gives a refusal."],
+    x: "One flipped bit at the right moment is not enough to accept a fake." },
+  { t: "Scrambling (AES-CTR)", s: "Keeps the trees secret", w: "The model bytes are encrypted with a new random 12-byte IV for every file.",
+    d: ["Encrypt, then stamp: the stamp covers the scrambled bytes.", "Nothing the FPGA says depends on an unscrambled byte until the stamp passes.", "In flash the model stays scrambled."],
+    x: "A copied file or a flash dump does not reveal the thresholds." },
+  { t: "Board binding", s: "Device ID in the header", w: "Each file names the board it is for.",
+    d: ["A file for another board is refused (error DEVICE).", "The wildcard board number is accepted only from the built-in boot ROM model."],
+    x: "A valid update for one car cannot be replayed on another." },
+  { t: "No rollback", s: "A version floor in flash", w: "The board remembers the highest version it ever accepted and refuses anything older.",
+    d: ["Checked twice, at two different steps.", "Stored in flash, so it survives a power cut.", "An equal version is allowed (re-sending the same model)."],
+    x: "An attacker cannot bring back an old, genuine model with a known weakness." },
+  { t: "Lockout", s: "3 bad stamps, port closed", w: "After three wrong stamps the update port locks until the board is powered off and on.",
+    d: ["A reset button does not unlock it.", "The counter is kept twice, the second copy inverted; any disagreement counts as locked."],
+    x: "Nobody can try key after key." },
+  { t: "Integrity checks", s: "CRC, ranges, self test", w: "Before using a model the FPGA checks it is complete and sane.",
+    d: ["CRC-32 of the file, length, format and protocol (CAN).", "Every tree pointer and feature index inside its range.", "Test frames stored in the file run through the new trees; the answers must match."],
+    x: "A damaged or malformed model never goes live." },
+  { t: "Power-cut safe", s: "Two slots and a journal", w: "The new model is written to the slot that is not running, read back, then a journal record switches over.",
+    d: ["The record is written last, with its own check word.", "A power cut at any moment leaves the old model or the new one, never half of one.", "Slot LEDs: LEDR4 = A, LEDR5 = B."],
+    x: "An interrupted update cannot leave the car without a detector." },
+  { t: "Checked at every boot", s: "Not only when updated", w: "At power on the FPGA reads the journal, loads the newest model and checks its stamp before using it.",
+    d: ["If no stamped model is valid, it falls back to the model built into the design.", "Writing the flash directly with someone else's file does not get it accepted."],
+    x: "Tampering with the stored model is caught on the next start." },
+  { t: "Safe swap", s: "Between two frames", w: "The new model takes over in a gap between two CAN frames, never during one.",
+    d: ["The swap needs a 32-bit swap code that is only set while the stamp pass holds.", "A forced swap request without it is dropped.", "The spare bank has no trees until its stamp passes."],
+    x: "Protection never stops, and a glitch cannot switch to an unchecked bank." }
+];
+(function () {
+  var grid = document.getElementById("secgrid");
+  SEC.forEach(function (p, i) {
+    var c = document.createElement("div");
+    c.className = "card sec"; c.tabIndex = 0; c.setAttribute("role", "button");
+    c.innerHTML = '<span class="n">' + String(i + 1).padStart(2, "0") + "</span><h3>" + p.t + "</h3><p>" + p.s + "</p>";
+    c.onclick = function () { openModal(p); };
+    c.onkeydown = function (e) { if (e.key === "Enter") openModal(p); };
+    grid.appendChild(c);
+  });
+})();
+function openModal(p) {
+  document.getElementById("mt").textContent = p.t;
+  document.getElementById("mw").textContent = p.w;
+  var ul = document.getElementById("ml"); ul.innerHTML = "";
+  p.d.forEach(function (x) { var li = document.createElement("li"); li.textContent = x; ul.appendChild(li); });
+  document.getElementById("ms").textContent = "Stops: " + p.x;
+  document.getElementById("modal").classList.add("open");
+}
+function closeModal() { document.getElementById("modal").classList.remove("open"); }
+document.getElementById("mclose").onclick = closeModal;
+document.getElementById("modal").onclick = function (e) { if (e.target.id === "modal") closeModal(); };
+
+/* ---------------- start ---------------- */
+var h = parseInt((location.hash || "").slice(1), 10);
+show(isNaN(h) ? 0 : h - 1);
+})();
+</script>
+</body>
+</html>

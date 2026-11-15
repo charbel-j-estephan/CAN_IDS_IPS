@@ -23,7 +23,7 @@ All numbers with their sources and limits: **[docs/PAPER_RESULTS.md](docs/PAPER_
 
 | | |
 |---|---|
-| **Presentation** | [docs/presentation/CAN_IDS_IPS_presentation.pptx](docs/presentation/CAN_IDS_IPS_presentation.pptx), 29 slides with speaker notes |
+| **Presentation** | [docs/presentation/index.html](docs/presentation/index.html): the web version, animated, works offline; it drives the live demo and its results graph takes the runs made on stage. Slides with speaker notes: [CAN_IDS_IPS_presentation.pptx](docs/presentation/CAN_IDS_IPS_presentation.pptx) |
 | **Interactive walkthrough** | [charbel-j-estephan.com/CAN-IDS-IPS](https://charbel-j-estephan.com/CAN-IDS-IPS): Normal, Attack, IDS, IPS and the model update, animated |
 | **STM32 vs FPGA race** | [charbel-j-estephan.com/CAN-COMPARE](https://charbel-j-estephan.com/CAN-COMPARE): the same trees on both chips, who stops the attack in time |
 
