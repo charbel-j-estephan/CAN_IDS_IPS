@@ -29,6 +29,8 @@ FILES = {
     "esp32/link_receiver/link_receiver.ino": "esp32/link_receiver/link_receiver.ino",
     "run_check_stm32_IDS.bat": "run_check_stm32_IDS.bat",
     "run_check_stm32_IPS.bat": "run_check_stm32_IPS.bat",
+    "run_demo.bat": "run_demo.bat",
+    "docs/DEMO.md": "DEMO.md",
     "docs/STM32_WIRING.md": "STM32_WIRING.md",
     "mcu/stm32_ids/platformio.ini": "stm32_ids/platformio.ini",
     "mcu/stm32_ids/boards/black_f407ve_usb.json": "stm32_ids/boards/black_f407ve_usb.json",

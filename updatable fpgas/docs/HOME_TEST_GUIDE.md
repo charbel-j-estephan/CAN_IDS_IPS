@@ -367,6 +367,14 @@ and 6) and `docs/HANDOVER.md`:
 - STM32 fw 17 on the four attacks: compare `lat`, `abort` and `dlate` with
   fw 16.
 
+Before the bench, load the 5-byte model. The board now holds version 3 and
+refuses anything older, so it goes in as version 4 (`build/signed/p5_v4.bin`,
+command in `SPI_WIRING.md`, bench test 5). The order on the STM32:
+1. update tool on (3.1), wires on (3.2), SW1 up, push `p5_v4.bin`, check
+   `VERSION model=2DDDA531 version=4`, SW1 down;
+2. wires off (GND last), IDS fw 17 back on (`mcu/stm32_ids`, same DFU steps,
+   environment `black_f407ve_dfu`), check `#STAT ... fw=17`.
+
 ---
 
 ## Results to send back
