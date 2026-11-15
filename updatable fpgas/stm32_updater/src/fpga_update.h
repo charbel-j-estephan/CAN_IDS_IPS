@@ -4,6 +4,14 @@
 
 void fpga_begin();
 
+// Edge speed of the SPI outputs, 0 (slowest) to 3 (fastest). fpga_begin sets 0.
+void set_edges(uint8_t speed);
+
+// Link test: n STATUS reads at hz with edge speed `speed`, then back to the
+// normal settings. Returns how many did not start with C1; *all_ff gets how
+// many of those were all FF.
+uint32_t fpga_spi_test(uint32_t n, uint32_t hz, uint8_t speed, uint32_t *all_ff);
+
 struct FpgaVersion {
     uint32_t model_id;
     uint32_t version;

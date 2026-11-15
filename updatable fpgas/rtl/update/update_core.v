@@ -7,9 +7,17 @@
 //           twice -> self test -> activate
 //           (on failure: the other slot, then the boot ROM, the only source
 //           allowed without a stamp)
-//   COMMIT: length, magic, protocol, device, version, ranges -> settings ->
-//           CRC of what is in RAM -> self test -> version again, MAC twice ->
-//           erase -> write -> read back -> journal -> swap at a frame boundary
+//   COMMIT: length, magic, protocol, device, version, length, CRC (all from
+//           the header and the bytes as sent, nothing unscrambled) -> version
+//           again, MAC twice -> ranges -> settings -> CRC of what is in RAM ->
+//           self test -> erase -> write -> read back -> journal -> swap at a
+//           frame boundary
+//
+// The stamp comes before every check that looks at unscrambled bytes (node
+// ranges, self test): those answers are only given for a rulebook that carries
+// this board's stamp, so they cannot be used to learn a scrambled one. For the
+// same reason PARSE_ERRORS (register 0030) hides the node bits of a scrambled
+// blob.
 //
 // The stamp (AES-CMAC, cmac_stream.v) is worked out as the blob streams into
 // the walker. A scrambled blob (Flags bit 0) is unscrambled on the way in
@@ -18,9 +26,17 @@
 //
 // Glitch hardening of the commit and boot decisions (docs/SECURITY_DESIGN.md):
 // two separate tag registers compared at two different clocks, a 32 bit pass
-// code that S_C_ERASE and the boot S_CFG check, the version checked twice, the
-// ROM exception checked twice, and the lockout counter kept in two copies.
-// (* preserve *) keeps Quartus from merging the duplicated registers.
+// code that S_CFG and S_C_ERASE check, a 32 bit swap code without which a bank
+// swap is dropped, the version checked twice, the ROM exception checked twice,
+// and the lockout counter kept in two copies. (* preserve *) keeps Quartus
+// from merging the duplicated registers. The spare bank's settings are cleared
+// when an upload starts, so until a stamped rulebook passes, a glitched bank
+// select finds a bank with no trees switched on.
+//
+// A flash read that times out during the journal scan stops the scan: the ROM
+// model boots at once (one timeout, not one per journal word), and COMMIT is
+// refused (E_FLASH) until the next reset, because the rollback floor was not
+// read completely.
 // The active bank keeps classifying the whole time. Any failure leaves it alone.
 //
 // Flash layout (words of 32 bits, 2048 words per 8 KB page):
@@ -62,6 +78,10 @@ module update_core #(
     output wire [31:0]  n_blocked_out,
     output wire [31:0]  n_errors_out,
     output wire [31:0]  n_sig_out,
+    input  wire [31:0]  ips_ilate,           // IPS counters (ips_flag.v), for READ only
+    input  wire [31:0]  ips_allow,
+    input  wire [31:0]  ips_abort,
+    input  wire [31:0]  ips_limit,
     output wire         locked,
     output wire         busy,
     // front end and engine
@@ -132,7 +152,7 @@ module update_core #(
     localparam [7:0] E_OK = 0, E_NOT_MAINT = 1, E_LOCKED = 2, E_TRUNCATED = 3, E_HEADER = 4,
                      E_PROTOCOL = 5, E_DEVICE = 6, E_VERSION = 7, E_RANGE = 8, E_LENGTH = 9,
                      E_CRC = 10, E_SELFTEST = 11, E_MAC = 12, E_ERASE = 13, E_WRITE = 14,
-                     E_VERIFY = 15, E_BUSY = 16, E_SEQUENCE = 17;
+                     E_VERIFY = 15, E_BUSY = 16, E_SEQUENCE = 17, E_FLASH = 18;
 
     localparam [5:0]
         S_SCAN_REQ  = 0,  S_SCAN_WAIT = 1,  S_CHOOSE    = 2,  S_LOAD_INIT = 3,
@@ -148,7 +168,10 @@ module update_core #(
         S_C_MAC2    = 40, S_C_MAC3    = 41;
 
     reg [5:0] state;
-    assign busy = (state != S_IDLE);
+    reg  swap_pending;
+    // Busy for the command decoder: also while a swap waits for a gap in the
+    // traffic, so no upload can start into the bank that is about to go live.
+    assign busy = (state != S_IDLE) || swap_pending;
     wire rdr_busy;
     reg  model_on;
     reg  [1:0] active_src;
@@ -293,8 +316,15 @@ module update_core #(
     (* preserve *) reg         mac_ok2 = 1'b0;
     (* preserve *) reg [31:0]  mac_pass = 32'd0;
     reg [7:0]   mac_wait;
-    wire        tag_a_eq = cmac_done && ~|(tag_a ^ stored_mac);
-    wire        tag_b_eq = cmac_done && ~|(tag_b ^ stored_mac);
+    // tag_a and tag_b load on the clock cmac_strobe is high, so they are only
+    // there one clock after cmac_done rises: tags_in says they are.
+    reg         tags_in = 1'b0;
+    wire        tag_a_eq = tags_in && ~|(tag_a ^ stored_mac);
+    wire        tag_b_eq = tags_in && ~|(tag_b ^ stored_mac);
+
+    localparam [31:0] SWAP_CODE = 32'h5AC3_3CA5;     // a swap goes ahead only with this
+    (* preserve *) reg [31:0] swap_ok = 32'd0;
+    reg         nv_fault;                            // the journal scan hit a dead flash
 
     // Register read path into the model (development builds only).
     reg        spi_rd_req, spi_kt_req;
@@ -341,7 +371,6 @@ module update_core #(
     assign active_version  = model_on ? cfg_version[active] : 32'd0;
 
     assign model_valid = model_on;
-    reg        swap_pending;
     reg [1:0]  load_src;
     reg [1:0]  shadow_src;
 
@@ -559,12 +588,23 @@ module update_core #(
         if (w_s_start) begin
             tag_a    <= 128'd0;
             tag_b    <= 128'd0;
+            tags_in  <= 1'b0;
             mac_ok1  <= 1'b0;
             mac_ok2  <= 1'b0;
             mac_pass <= 32'd0;
         end else if (cmac_strobe) begin
-            tag_a <= bswap128(cmac_tag);
-            tag_b <= bswap128(cmac_tag);
+            tag_a   <= bswap128(cmac_tag);
+            tag_b   <= bswap128(cmac_tag);
+            tags_in <= 1'b1;
+        end
+
+        // A new upload: the spare bank's settings go off until a stamped
+        // rulebook passes and S_CFG sets them again (busy covers a pending
+        // swap, so this is never the bank about to go live).
+        if (state == S_IDLE && cmd_start_upload && !swap_pending) begin
+            cfg_valid[~active]   <= 1'b0;
+            cfg_tree_en[~active] <= 8'd0;
+            cfg_rule_en[~active] <= 1'b0;
         end
 
         if (cmd_reject) begin
@@ -575,12 +615,17 @@ module update_core #(
         if (out_valid && !out_tag) n_seen <= n_seen + 1'b1;
         if (count_blocked)         n_blocked <= n_blocked + 1'b1;
 
-        // The swap itself: only between frames, and the moment it is allowed.
+        // The swap itself: only between frames, and only with the swap code,
+        // which is set together with swap_pending and only while the stamp's
+        // pass code holds. A swap_pending without it (a glitch) is dropped.
         if (swap_pending && fe_idle) begin
-            active       <= ~active;
-            active_src   <= shadow_src;
+            if (swap_ok == SWAP_CODE) begin
+                active     <= ~active;
+                active_src <= shadow_src;
+                model_on   <= 1'b1;
+            end
             swap_pending <= 1'b0;
-            model_on     <= 1'b1;
+            swap_ok      <= 32'd0;
         end
 
         if (rst) begin
@@ -588,6 +633,8 @@ module update_core #(
             active       <= 1'b0;
             model_on     <= 1'b0;
             swap_pending <= 1'b0;
+            swap_ok      <= 32'd0;
+            nv_fault     <= 1'b0;
             active_src   <= SRC_NONE;
             shadow_src   <= SRC_NONE;
             last_error   <= E_OK;
@@ -626,7 +673,15 @@ module update_core #(
             state    <= S_SCAN_WAIT;
         end
 
-        S_SCAN_WAIT: if (nv_done) begin
+        // A read that failed (the controller timed out): the flash is not
+        // answering. Waiting out the timeout on all 4,096 words would leave the
+        // bus unprotected for most of an hour, so stop and boot the ROM.
+        S_SCAN_WAIT: if (nv_done && !nv_ok) begin
+            nv_fault   <= 1'b1;
+            last_error <= E_FLASH;
+            n_errors   <= n_errors + 1'b1;
+            state      <= S_CHOOSE;
+        end else if (nv_done) begin
             case (scan_w)
                 2'd0: scan_d0 <= nv_rdata;
                 2'd1: scan_d1 <= nv_rdata;
@@ -655,7 +710,7 @@ module update_core #(
             j_page <= best_found ? best_page : 1'b0;
             j_idx  <= best_found ? next_rec[best_page] : next_rec[0];
             j_seq  <= best_found ? best_seq + 1'b1 : 24'd1;
-            attempt <= best_found ? 2'd0 : 2'd2;
+            attempt <= (best_found && !nv_fault) ? 2'd0 : 2'd2;
             state   <= S_LOAD_INIT;
         end
 
@@ -731,7 +786,7 @@ module update_core #(
         S_LOAD_CHK: begin
             if (!(w_done && w_err == 7'd0)) begin
                 state <= S_LOAD_FAIL;
-            end else if (!cmac_done && load_src != SRC_ROM && mac_wait != 8'd255) begin
+            end else if (!tags_in && load_src != SRC_ROM && mac_wait != 8'd255) begin
                 mac_wait <= mac_wait + 1'b1;
             end else if (w_crc == stored_crc && h_protocol == PROTOCOL_ID
                          && !(load_src == SRC_ROM && h_flags[0])
@@ -775,8 +830,9 @@ module update_core #(
         end
 
         // ---------------- settings, then self test (boot and COMMIT) ------
-        S_CFG: if (boot_mode && mac_pass != MAC_PASS) begin
-            state <= S_LOAD_FAIL;                   // reached without passing the gate
+        S_CFG: if (mac_pass != MAC_PASS) begin     // reached without passing the gate
+            if (boot_mode) state <= S_LOAD_FAIL;
+            else           fail(E_MAC);
         end else begin
             cfg_valid[~active]   <= 1'b1;
             cfg_model[~active]   <= h_model_id;
@@ -818,7 +874,7 @@ module update_core #(
                 if (boot_mode) state <= S_LOAD_FAIL;
                 else           fail(E_SELFTEST);
             end else if (st_i + 1'b1 == h_n_selftest) begin
-                state <= boot_mode ? S_ACTIVATE : S_C_MAC;
+                state <= boot_mode ? S_ACTIVATE : S_C_ERASE;
             end else begin
                 st_i    <= st_i + 1'b1;
                 st_j    <= 6'd0;
@@ -829,6 +885,7 @@ module update_core #(
 
         S_ACTIVATE: begin
             swap_pending <= 1'b1;
+            swap_ok      <= (mac_pass == MAC_PASS) ? SWAP_CODE : 32'd0;
             boot_mode    <= 1'b0;
             mac_pass     <= 32'd0;
             state        <= S_IDLE;
@@ -836,7 +893,10 @@ module update_core #(
 
         // ---------------- waiting for a command ------------------------------
         S_IDLE: begin
-            if (cmd_commit && !swap_pending) begin
+            if (cmd_commit && nv_fault) begin
+                last_error <= E_FLASH;              // rollback floor unknown: no updates
+                n_errors   <= n_errors + 1'b1;
+            end else if (cmd_commit && !swap_pending) begin
                 expect_crc  <= cmd_commit_crc;
                 busy_commit <= 1'b1;
                 last_error  <= E_OK;
@@ -851,21 +911,23 @@ module update_core #(
         S_HALT: ;                               // only reached from an illegal state
 
         // ---------------- COMMIT ------------------------------------------------
+        // Only what the header and the bytes as sent can tell, before the
+        // stamp: none of these looks at an unscrambled byte. (The header and
+        // the node counts sit before offset 176, outside the scrambled part.)
         S_C_CHECK: begin
             if      (!w_done)                                 fail(E_TRUNCATED);
             else if (w_err[0])                                fail(E_HEADER);
             else if (h_protocol != PROTOCOL_ID)               fail(E_PROTOCOL);
             else if (h_device_id != DEVICE_ID)                fail(E_DEVICE);
             else if (h_version < floor)                       fail(E_VERSION);
-            else if (w_err[4:1] != 4'd0)                      fail(E_RANGE);
             else if (w_err[6:5] != 2'd0)                      fail(E_LENGTH);
             else if (w_crc != expect_crc || stored_crc != expect_crc) fail(E_CRC);
-            else if (!cmac_done) begin
+            else if (!tags_in) begin
                 if (mac_wait == 8'd255) fail(E_MAC);    // the seal never finished
                 else                    mac_wait <= mac_wait + 1'b1;
             end else begin
                 mac_ok1 <= tag_a_eq;                    // first compare, from tag_a
-                state   <= S_CFG;
+                state   <= S_C_MAC;
             end
         end
 
@@ -887,7 +949,8 @@ module update_core #(
         end
 
         // Version again, then the second compare (tag_b, a different register
-        // and a later clock), then the pass code, then the gate.
+        // and a later clock), then the pass code, then the gate. Only past the
+        // gate are the node ranges and the self test looked at.
         S_C_MAC: begin
             if (h_version < floor) fail(E_VERSION);
             else begin
@@ -908,7 +971,8 @@ module update_core #(
             if (mac_pass == MAC_PASS) begin
                 c_page      <= 2'd0;
                 target_slot <= (active_src == SRC_A) ? 1'b1 : 1'b0;
-                state       <= S_C_ERASE;
+                if (w_err[4:1] != 4'd0) fail(E_RANGE);
+                else                    state <= S_CFG;   // then RAM CRC, self test, erase
             end else begin
                 strike;
                 fail(E_MAC);
@@ -1044,6 +1108,7 @@ module update_core #(
                 floor      <= h_version;
                 shadow_src <= target_slot ? SRC_B : SRC_A;
                 swap_pending <= 1'b1;
+                swap_ok    <= (mac_pass == MAC_PASS) ? SWAP_CODE : 32'd0;
                 state      <= S_C_SWAP;
             end else begin
                 j_w   <= j_w + 1'b1;
@@ -1053,6 +1118,7 @@ module update_core #(
 
         S_C_SWAP: if (!swap_pending) begin
             busy_commit <= 1'b0;
+            mac_pass    <= 32'd0;
             w_start     <= 1'b1;
             state       <= S_IDLE;
         end
@@ -1079,7 +1145,13 @@ module update_core #(
                 16'h0024: reg_data <= {16'd0, w_offset};
                 16'h0028: reg_data <= floor;
                 16'h002C: reg_data <= DEVICE_ID;
-                16'h0030: reg_data <= {25'd0, w_err};
+                // A scrambled blob's node bits (feature, child, vote) come from
+                // unscrambled bytes: hidden, so they cannot be probed without a stamp.
+                16'h0030: reg_data <= {25'd0, w_err[6:5], h_flags[0] ? 3'b000 : w_err[4:2], w_err[1:0]};
+                16'h0034: reg_data <= ips_ilate;
+                16'h0038: reg_data <= ips_allow;
+                16'h003C: reg_data <= ips_abort;
+                16'h0040: reg_data <= ips_limit;
                 default:  reg_data <= 32'hDEAD0BAD;
             endcase
         end

@@ -12,6 +12,7 @@ module updatable_core #(
     parameter        ROM_INIT_HEX  = "default_model.hex",
     parameter [15:0] PROTOCOL_ID   = 16'd1,
     parameter [4:0]  NV_SETTLE     = 5'd31,    // testbenches shorten this
+    parameter [31:0] NV_TIMEOUT    = 32'd40_000_000,  // clocks; testbenches shorten this
     // This board's keys (python/make_device_key.py). No default a board could
     // ship with: 0 matches no real stamp, so every slot would fail its check.
     parameter [127:0] MAC_KEY      = 128'd0,
@@ -121,13 +122,13 @@ module updatable_core #(
     assign verdict_bank  = out_bank;
 
     // ---- IPS ------------------------------------------------------------------
-    wire [31:0] n_rej, n_ilate, n_allow, n_abort;
+    wire [31:0] n_rej, n_ilate, n_allow, n_abort, n_limit;
     ips_flag ips (
         .clk(clk), .rst(rst), .enable(ips_on),
         .verdict_valid(verdict_valid), .verdict(verdict), .can_id(can_id), .data(data),
         .before_eof(before_eof), .bit_edge(bit_edge),
         .tx_dominant(tx_dominant), .flag_start(flag_start),
-        .n_rej(n_rej), .n_ilate(n_ilate), .n_allow(n_allow), .n_abort(n_abort)
+        .n_rej(n_rej), .n_ilate(n_ilate), .n_allow(n_allow), .n_abort(n_abort), .n_limit(n_limit)
     );
 
     // ---- update port ------------------------------------------------------------
@@ -175,6 +176,7 @@ module updatable_core #(
         .status_word(status_word), .version_info(version_info),
         .active_model_id(active_model_id), .active_version(active_version),
         .n_seen_out(n_seen), .n_blocked_out(n_blocked), .n_errors_out(n_errors), .n_sig_out(n_sig),
+        .ips_ilate(n_ilate), .ips_allow(n_allow), .ips_abort(n_abort), .ips_limit(n_limit),
         .locked(locked), .busy(core_busy),
         .maint(maint), .fe_idle(!in_frame), .fe_valid(feat_ready), .count_blocked(flag_start),
         .model_valid(model_valid), .active(active_bank), .feat_bytes(feat_bytes),
@@ -194,7 +196,7 @@ module updatable_core #(
         .nv_done(nv_done), .nv_ok(nv_ok), .nv_rdata(nv_rdata)
     );
 
-    nv_ufm_avmm #(.SETTLE(NV_SETTLE)) nv (
+    nv_ufm_avmm #(.SETTLE(NV_SETTLE), .TIMEOUT(NV_TIMEOUT)) nv (
         .clk(clk), .rst(rst), .op(nv_op), .start(nv_start), .addr(nv_addr), .wdata(nv_wdata),
         .done(nv_done), .ok(nv_ok), .rdata(nv_rdata),
         .csr_address(csr_address), .csr_read(csr_read), .csr_write(csr_write),

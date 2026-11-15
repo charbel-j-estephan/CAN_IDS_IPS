@@ -126,4 +126,6 @@ Not run by me: this needs the hardware.
 | `err=12` | stamp wrong: signed with another key, or `keys/device_key.vh` made for another device ID |
 | `err=6` | blob signed for another device ID |
 | `err=7` | version lower than the one already accepted |
+| `err=16` | busy: a COMMIT or boot is still running, or the bank swap waits for a gap in traffic. Try again |
+| `err=18` | the flash did not answer at power on; the ROM model runs and updates are refused. Power cycle; if it stays, the flash or the program file is wrong |
 | LEDR[5:4] = 3 after a power cycle | the flash slots failed their checks and the ROM model is running |

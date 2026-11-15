@@ -2,8 +2,9 @@
 for each fault the FPGA must reject. Every blob carries a correct CRC and a
 correct stamp (MAC, with the public test key, blob_crypto.TEST_MASTER_KEY)
 unless that is the fault under test, so the check under test is the one that
-fires. COMMIT checks in this order: header and ranges, protocol, device,
-version, CRC, self test, then the stamp.
+fires. COMMIT checks in this order: header, protocol, device, version, length,
+CRC, the stamp, then node ranges and the self test (the two that look at
+unscrambled bytes, so only a stamped blob gets an answer about them).
 
     py -3.13 make_test_blobs.py      (after export_blob.py for 5, 6 and 8 bytes)
 
@@ -13,6 +14,7 @@ manifest.txt with each blob's length and CRC for the testbenches.
 import os
 import struct
 import sys
+import zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -37,6 +39,14 @@ def device_of(b):
 def seal(b, key=KEY):
     """CRC and stamp after a change, for the device the header names."""
     return bytearray(bc.seal(bytes(b), key, device_of(b)))
+
+
+def fix_crc(b):
+    """A correct CRC, the stamp left as it was: anyone can do this."""
+    x = bytearray(b)
+    n = len(x)
+    struct.pack_into("<I", x, n - bf.TRAILER_SIZE, zlib.crc32(bytes(x[:n - bf.TRAILER_SIZE])))
+    return x
 
 
 def field32(b, off, v):
@@ -140,12 +150,25 @@ def main():
     x = plain(8, 5); x = seal(x); x[-16:] = bytes(16)
     blobs["unsigned_v5_p8"] = x            # written straight into flash: must not boot
 
+    # ---- no answers about the content without a stamp (the probing hole).
+    # A node's feature byte set to 15 (out of range), CRC fixed, the old stamp
+    # kept: what someone without the key can make. It must get E_MAC, not E_RANGE.
+    x = good(5, base); x[bf.OFF_NODES + 4] = 0x0F
+    blobs["bad_feature_nokey"] = fix_crc(x)
+    # The same on a scrambled blob, by flipping the scrambled byte (CTR: the
+    # plain byte flips with it). With the stamp: E_RANGE, so the fault is real.
+    enc = scrambled(5, base, bytes(range(40, 52)))
+    p_feat = plain(5, base)[bf.OFF_NODES + 4]
+    x = bytearray(enc); x[bf.OFF_NODES + 4] ^= p_feat ^ 0x0F
+    blobs["enc_bad_node_nokey"] = fix_crc(x)
+    blobs["enc_bad_node"] = seal(x)
+
     # ---- scrambling
     blobs["enc_v6_p6"] = scrambled(6, 6, bytes(range(100, 112)))
     blobs["plain_v6_p6"] = good(6, 6)      # the same model, for the flash comparison
     x = bytearray(scrambled(5, base, bytes(range(12))))
     struct.pack_into("<H", x, 6, 0)        # flag cleared: the FPGA reads noise as nodes
-    blobs["enc_flag_cleared"] = seal(x)
+    blobs["enc_flag_cleared"] = seal(x)    # stamped, so it gets past the stamp and fails after
 
     with open(os.path.join(out, "manifest.txt"), "w") as m:
         for name, b in blobs.items():

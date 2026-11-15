@@ -3,13 +3,17 @@
 // when the update is done, and the FPGA keeps running from its own flash.
 //
 // Commands, one per line, 115200 (USB CDC):
-//   STATUS      VERSION      COUNTERS
+//   STATUS      VERSION      COUNTERS      ID
+//   TEST <reads> <kHz> <edge 0-3>   SPI link test: counts STATUS reads not starting C1
 //   PUSH <len> <crc hex>     then exactly <len> raw bytes follow: upload and COMMIT
 #include <Arduino.h>
 
 #include "fpga_update.h"
 
 #define LED PA6
+
+// Printed by ID, so you can tell which build is on the board.
+#define FW_ID "updater 3: slow edges, TEST"
 
 static uint8_t blob[24576];
 
@@ -98,6 +102,22 @@ void loop()
     if (line == "STATUS") print_status();
     else if (line == "VERSION") print_version();
     else if (line == "COUNTERS") print_counters();
+    else if (line == "ID") Serial.print("ID " FW_ID "\r\n");
+    else if (line.startsWith("TEST ")) {
+        // TEST <reads> <kHz> <edge 0-3>: link quality, e.g. TEST 1000 2625 1
+        char *end;
+        uint32_t n   = strtoul(line.c_str() + 5, &end, 10);
+        uint32_t khz = strtoul(end, &end, 10);
+        uint32_t spd = strtoul(end, nullptr, 10);
+        if (n == 0 || n > 100000 || khz < 100 || khz > 10000 || spd > 3) {
+            Serial.print("ERROR TEST <reads 1-100000> <kHz 100-10000> <edge 0-3>\r\n");
+        } else {
+            uint32_t ff;
+            uint32_t bad = fpga_spi_test(n, khz * 1000UL, (uint8_t)spd, &ff);
+            Serial.printf("TEST reads=%lu khz=%lu edge=%lu bad=%lu all_ff=%lu\r\n",
+                          n, khz, spd, bad, ff);
+        }
+    }
     else if (line.startsWith("PUSH ")) {
         char *end;
         const char *p = line.c_str() + 5;
