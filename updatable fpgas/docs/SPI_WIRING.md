@@ -15,6 +15,29 @@ remove it last.**
 | CS_n | pin 8, GPIO[7] | PIN_W7 | PB12 |
 | GND | pin 12 | | GND |
 
+### The shields
+
+Since 2026-11-15 each board has a shield that carries its CAN part and a 5-pin
+JST for SPI, joined by a straight JST cable (pin 1 to pin 1):
+
+| JST pin | Signal | DE10-Lite shield | STM32 shield |
+|---|---|---|---|
+| 1 | GND | pin 12 | GND |
+| 2 | SCLK | pin 5 | PB13 |
+| 3 | MOSI | pin 6 | PB15 |
+| 4 | MISO | pin 7, through 51 Ω | PB14 |
+| 5 | CS_n | pin 8, 10 kΩ pull up to 3.3 V (pin 29) | PB12 |
+
+The 51 Ω sits at the FPGA, the end that drives MISO, and damps its edge; the
+10 kΩ keeps CS_n high (port idle) while the STM32 is unplugged, resetting or in
+DFU. Measured on the cable (`python/spi_test.py COM11 10000`): 0 bad reads in
+10,000 at each setting, the faster edge setting included (on jumper wires that
+one lost reads). Power the DE10-Lite before the STM32; if every read is FF,
+push both JST plugs fully in.
+
+The cable can stay plugged in while the STM32 runs the IDS firmware: that
+firmware does not use PB12 to PB15, and with SW[1] down the port is closed.
+
 The STM32 is powered from its own USB, and is not powered from the FPGA. PB12 to
 PB15 also go to the board's TFT touch header; leave no TFT fitted.
 
@@ -124,7 +147,7 @@ Not run by me: this needs the hardware.
 1. Push a new model with a higher version number than the board holds (for
    example the 8-byte model, `--version 3` on a fresh board, `--version 5` after
    the home test and test 5). LEDR[5:4] shows slot 1 or 2.
-2. Unplug the STM32 completely (all five wires).
+2. Unplug the STM32 completely (the SPI cable, or all five wires).
 3. Power cycle the DE10-Lite (USB out, wait, USB in).
 4. Plug the STM32 back in with SW[1] down and run `push_model.py COM5`: GET_VERSION
    still works without maintenance mode. It must show the new model and version.

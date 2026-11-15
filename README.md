@@ -33,18 +33,20 @@ All numbers with their sources and limits: **[docs/PAPER_RESULTS.md](docs/PAPER_
 
 `run_demo.bat` (in this folder) runs the whole demo on the real bench and tells the
 presenter, before every step, which switch or jumper to set. Each attack step replays
-5,000 real car frames (about 3 s) and opens its results page. The full checklist,
-wiring and troubleshooting are in **[docs/DEMO.md](docs/DEMO.md)**.
+5,000 real car frames and prints the result in plain words (attack frames that
+reached the car, destroyed, normal frames lost, attacker bus off). The update part
+prints what to say at each step. The full checklist, wiring and troubleshooting are
+in **[docs/DEMO.md](docs/DEMO.md)**.
 
 **Before the talk:** the bench wired (three ESP32s, the DE10-Lite and the STM32 on the
-CAN bus), the five SPI wires between the STM32 and the DE10-Lite, then
+CAN bus, each on its shield), the SPI cable between the two shields, then
 
 ```bash
 run_demo.bat prepare
 ```
 
-It puts the update tool on the STM32 (it asks you to move the BOOT0 jumper) and
-checks that the FPGA answers.
+It puts the IDS firmware on the STM32 if needed (it tells you when to take the
+shield off and move the BOOT0 jumper, and waits for you).
 
 **On stage:**
 
@@ -54,21 +56,24 @@ run_demo.bat
 
 | Part | Step | Switch | What the audience sees |
 |---|---|---|---|
-| **1. Secure update** | 1. Board state | SW1 down | the model, its version, the flash slot it runs from |
-| | 2. Update with maintenance off | SW1 down | refused: the update port only opens with the switch on the board |
-| | 3. A real update, signed and scrambled | SW1 up | accepted: new version, LEDR4 / LEDR5 switch to the other flash slot |
-| | 4. The previous version again | SW1 up | refused: no rollback |
-| | 5. A model signed with an attacker's key | SW1 up | refused: stamp mismatch, model unchanged |
-| **2. Change roles** | unplug the SPI wires, BOOT0 jumper | SW1 down | the STM32 becomes the CAN detector (flashed in seconds) |
-| **3. Attacks** | 6. No protection | SW0 down | a DoS attack: every attack frame gets through |
-| | 7. The FPGA protects | SW0 up | every DoS frame destroyed, 0 normal frames lost, attacker bus off, with the model pushed in part 1 |
-| | 8. Spoofed engine speed (RPM) | SW0 up | every RPM frame destroyed, 0 normal frames lost |
-| | 9. The STM32 protects | SW0 down | every DoS frame destroyed, in software |
+| **1. The FPGA alone** | 1. No protection | SW0 down | a DoS attack: every attack frame reaches the car |
+| | 2. The FPGA protects | SW0 up | every DoS frame destroyed, 0 normal frames lost, attacker bus off |
+| | 3. Spoofed engine speed (RPM) | SW0 up | every RPM frame destroyed, 0 normal frames lost |
+| **2. The STM32 alone** | 4. The STM32 protects | SW0 down | every DoS frame destroyed, in software |
+| **3. Updating the FPGA** | the STM32 becomes the update tool | | flashed in seconds (BOOT0 jumper) |
+| | 5. Board state | SW1 down | the model, its version, the flash slot it runs from |
+| | 6. The update file | | header, the trees before and after scrambling, CRC, stamp |
+| | 7. Maintenance off | SW1 down | refused: the update port only opens with the switch on the board |
+| | 8. A real update | SW1 up | accepted: new version, LEDR4 / LEDR5 switch slot, the nine checks and steps listed |
+| | 9. The previous version again | SW1 up | refused: no rollback |
+| | 10. Signed with an attacker's key | SW1 up | refused: stamp mismatch, model unchanged |
+| | 11. Close the port | SW1 down | the new model stays, even through a power cut |
 
 The demo signs each new model itself, one version above the board's, with the master
 key (`Desktop\master.key`, or set `CAN_MASTER_KEY`), so it can be run again and again.
-It shows one forged update per power-up, far from the three-strike lockout.
-`run_demo.bat attacks` runs part 3 alone.
+It shows one forged update per run, far from the three-strike lockout (a power cycle
+resets the count). `run_demo.bat attacks` runs parts 1 and 2, `run_demo.bat update`
+part 3.
 
 ---
 
