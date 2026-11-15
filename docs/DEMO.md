@@ -1,75 +1,76 @@
 # Live demo: checklist
 
-About 10 minutes on stage, 15 minutes of setup before. Rehearsed on the real
-bench on 2026-11-15.
+About 12 minutes on stage, 20 minutes of setup before. Everything runs from
+`run_demo.bat` in the project folder (`Desktop\CAN_IDS_IPS`). Before every step
+it says which switch or jumper to set and waits for Enter.
 
 ## What the audience sees
 
-A real CAN bus (the network inside a car) carrying real traffic recorded from a
-car (Car Hacking Dataset, HCRL), with a separate attacker board injecting
-attacks. Two detectors sit on the bus, each running the same trained random
-forest:
+1. **A secure model update on the real board.** The FPGA runs a model from its
+   own flash. The STM32 update tool pushes a new, signed and scrambled version:
+   refused while the maintenance switch is off, accepted when it is on (the
+   flash slot LEDs switch), an older version refused, a forged file refused.
+2. **The STM32 changes job** and becomes the second CAN detector.
+3. **Attacks on a real CAN bus,** real car traffic: without protection every
+   attack frame gets through; with the FPGA (running the model just pushed)
+   every one is destroyed on the wire and no normal frame is lost; then the
+   STM32 does the same in software.
 
-- **the FPGA** (DE10-Lite), the model in hardware, updated earlier over a
-  signed and encrypted channel and kept in its own flash;
-- **the STM32** (black F407VE), the same model in software.
-
-Either one can destroy an attack frame on the wire, while it is still being
-sent, so the car's other computers never accept it. The attacker's own CAN
-controller counts each destroyed frame as its error and soon switches itself
-off the bus.
+Websites to show (the script offers to open them): the walkthrough
+`https://charbel-j-estephan.com/CAN-IDS-IPS` before part 1 (step 5, Update),
+the STM32 vs FPGA race `https://charbel-j-estephan.com/CAN-COMPARE` at the end.
 
 ## Setup (before the talk)
 
 | Check | |
 |---|---|
-| Three ESP32s on the bus: sender, attacker, receiver (`docs/ESP32_WIRING.md`) | ☐ |
-| DE10-Lite on the bus: pin 1 CAN RX through the divider, pin 2 CAN TX through the level shifter, GND (`docs/HANDOVER.md`, 11-03 wiring). **No jumper from pin 1 to pin 29** | ☐ |
-| STM32 on the bus with its own TJA1050: RX to PB8, TX to PB9, 5 V, GND (`docs/STM32_WIRING.md`). BOOT0 jumper (BT0) on GND | ☐ |
-| No SPI wires between the STM32 and the DE10-Lite (the model is already in the FPGA's flash) | ☐ |
-| One 120 Ω terminator at each end. Power off, CANH to CANL reads about 60 Ω | ☐ |
+| Three ESP32s on the CAN bus: sender, attacker, receiver (`docs/ESP32_WIRING.md`) | ☐ |
+| DE10-Lite on the bus: pin 1 CAN RX through the divider, pin 2 CAN TX through the level shifter, GND. **No jumper from pin 1 to pin 29** | ☐ |
+| STM32 on the bus with its own TJA1050: RX to PB8, TX to PB9, 5 V, GND (`docs/STM32_WIRING.md`) | ☐ |
+| **Five SPI wires** STM32 to DE10-Lite, GND first: pin 12 GND, pin 5 PB13, pin 6 PB15, pin 7 PB14, pin 8 PB12 (`updatable fpgas/docs/SPI_WIRING.md`) | ☐ |
+| One 120 Ω terminator at each end of the bus; power off, CANH to CANL reads about 60 Ω | ☐ |
 | USB: three ESP32s, the STM32 and the DE10-Lite to the laptop | ☐ |
-| DE10-Lite: **LEDR5 on** (model from flash slot B) and LEDR9 blinking off/on with SW0. SW1 **down** | ☐ |
-| Every Arduino Serial Monitor closed | ☐ |
+| DE10-Lite: LEDR4 or LEDR5 on (a model from flash), **SW0 down, SW1 down** | ☐ |
+| `Desktop\master.key` present (the demo signs with it); every Arduino Serial Monitor closed | ☐ |
+| Run **`run_demo.bat prepare`**: it puts the update tool on the STM32 (BT0 jumper to 3V3 + RST, then back to GND + RST when asked) and shows what the FPGA runs | ☐ |
 
-The FPGA keeps its design and its model through a power cycle (both are in its
-flash), so no Quartus step is needed on the day. If LEDR4 and LEDR5 are both
-off, the board is still starting: wait 2 s or press KEY0.
+The FPGA keeps its design and its model through a power cycle, so no Quartus
+step is needed on the day.
 
-## Run
+## Run: `run_demo.bat`
 
-Double-click **`run_demo.bat`** in `Desktop\esp32 setup\can_replay`. It first
-lists the boards it found, then runs four steps. Before each step it says which
-switch to set and waits for a key. Each step replays 5,000 frames (about 3 s)
-and opens the results page in the browser.
-
-| Step | Switch | What to say | Expected on the results page |
+| Step | Do | Say | Expected |
 |---|---|---|---|
-| 1. No protection | SW0 **down** | "This is the attack with nothing protecting the bus." | DoS: all 1,861 attack frames arrive |
-| 2. FPGA protects | SW0 **up** | "Now the FPGA watches every frame and destroys the attacks on the wire." | DoS 1,861 of 1,861 destroyed, **0 normal frames lost**, attacker `busoff` |
-| 3. Harder attack | SW0 **up** | "Spoofed engine speed: a real car ID with fake contents. Only the model can tell." | RPM 1,085 of 1,085 destroyed, 0 normal lost, attacker `busoff` |
-| 4. STM32 protects | SW0 **down** | "The same model in software on a 168 MHz microcontroller." | DoS 1,861 of 1,861 destroyed, 0 normal lost, attacker `busoff` |
+| 1 | SW1 down | “This is what the FPGA runs, from its own flash.” | model, version N, slot A or B |
+| 2 | keep SW1 down | “The update port only opens with a physical switch.” | refused: maintenance mode is off |
+| 3 | **SW1 up** | “A new model, signed for this board and encrypted.” | accepted, version N+1, LEDR4 / LEDR5 switch slot |
+| 4 | keep SW1 up | “An attacker re-sends an old model with a known weakness.” | refused: older version (rollback) |
+| 5 | keep SW1 up | “A model signed with the attacker’s own key.” | refused: stamp does not match; 1 bad stamp counted |
+| – | **SW1 down**, unplug the 5 SPI wires (GND last), BT0 to 3V3 + RST; when told, BT0 to GND + RST | “The update tool holds no keys. Now the STM32 becomes a detector.” | IDS firmware flashed in a few seconds |
+| 6 | SW0 down | “The attack with nothing protecting the bus.” | DoS: every attack frame arrives |
+| 7 | **SW0 up** | “The FPGA, with the model we just pushed, destroys attacks on the wire.” | DoS 1,861 of 1,861 destroyed, 0 normal lost, attacker bus off |
+| 8 | keep SW0 up | “Spoofed engine speed: a real ID with fake data. Only the trees can tell.” | RPM 1,085 of 1,085 destroyed, 0 normal lost |
+| 9 | **SW0 down** | “The same model in software on a 168 MHz microcontroller.” | DoS 1,861 of 1,861 destroyed by the STM32 |
 
-Talking points while a step runs:
-- The decision is made **inside the frame**: the FPGA's model needs 15 clocks
-  (300 ns) once the bytes it reads (ID, length, data bytes 0-4) are in, while
-  the rest of an 8-byte frame still takes about 100 µs on the wire, so
-  there is time to destroy it before it ends.
-- 0 normal frames lost: the model does not touch the car's own traffic.
-- The FPGA's model came in **stamped and scrambled** (AES-CMAC, AES-CTR): a
-  model signed with another key, an older version, or one for another board is
-  refused, and three bad stamps lock the update port until a power cycle.
+On each results page point at two numbers: attack frames lost (= destroyed)
+and normal frames lost (must be 0).
+
+To run the demo again: `run_demo.bat prepare` (the STM32 back to the update
+tool), then `run_demo.bat`. Each run pushes a new version, so it never runs
+out. Only part 3: `run_demo.bat attacks` (the STM32 must run the IDS firmware).
 
 ## If something goes wrong
 
 | Sign | Fix |
 |---|---|
-| "Could not find exactly one sender and one receiver" | a USB cable, or a Serial Monitor still open. Unplug and replug the ESP32s, run again |
-| "STM32 USB port ..." | the STM32's USB cable, or BT0 still on 3V3 (move to GND, press RST) |
-| Link check FAILED | a bus wire or terminator. Check CANH/CANL and the 60 Ω |
-| Step 2 or 3: attack frames arrive | SW0 is down, or the FPGA is not on the bus (pin 1 / pin 2 wiring, the jumper to pin 29 removed?) |
-| Step 2: normal frames lost too | FPGA RX wiring (pin 1 divider) |
-| Results page did not open | it is in `runs\<date>_<file>\report.html` |
+| “The FPGA does not answer (all FF)” | an SPI wire: reseat all five, pin 8 (CS) and GND first |
+| “not running the update tool” | run `run_demo.bat prepare` |
+| “did not appear in 60 s” after a jumper step | BT0 jumper position, then press RST |
+| Step 3 refused with “port locked” | three bad stamps since power on: unplug the DE10-Lite USB, plug it back |
+| “Could not find exactly one sender and one receiver” | a USB cable, or a Serial Monitor open; replug the ESP32s |
+| Link check FAILED | a bus wire or terminator: CANH/CANL, the 60 Ω |
+| Step 7 or 8: attack frames arrive | SW0 is down, or the FPGA’s pin 1 / pin 2 wiring |
+| Results page did not open | `runs\<date>_<file>\report.html` in the project folder |
 
-Spare runs for slides, all from 2026-11-15, are in
-`Desktop\esp32 setup\can_replay\runs\20261115_*` (listed in `docs/PAPER_RESULTS.md`).
+Spare results for slides, all from 2026-11-15: `Desktop\esp32 setup\can_replay\runs\20261115_*`
+(listed in `docs/PAPER_RESULTS.md`).

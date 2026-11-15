@@ -69,7 +69,8 @@ to start the flag). The STM32's worst model run reaches or passes it; on the
 bench no attack verdict came too late (`ilate=0`, `dlate=0` in every run
 below). Why the worst runs did not cause a late verdict is not analysed.
 
-The 15-slide deck for the talk follows this document's numbers.
+The presentation (`docs/presentation/CAN_IDS_IPS_presentation.pptx`, 29 slides)
+follows this document's numbers.
 
 Of the updatable design's 33,253 LEs, the security (AES-128, CMAC, CTR, the
 checks) is most of the growth: before the security stage it was 29,869 LEs;
@@ -129,6 +130,9 @@ Verification in simulation (`updatable fpgas/docs/RESULTS.md`):
   lockout), power cuts during erase and write, glitch cases.
 - Every dataset frame through the model loaded over SPI, plain and scrambled,
   5 / 6 / 8 bytes: 0 differ from Python.
+- The whole `run_sim.bat` (12 steps, including the design on a simulated bus with
+  the IPS on and a model swap mid-traffic) ran end to end on 2026-11-15, after the
+  last design change: every step ALL PASS (`updatable fpgas/docs/RESULTS.md`).
 
 On the board, 11-14/15 (`updatable fpgas/docs/RESULTS.md`, home test): update
 accepted into slot A then slot B; older version refused; three wrong-key blobs

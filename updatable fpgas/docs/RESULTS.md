@@ -193,10 +193,21 @@ exact clock of the stamp wait, which had already passed by the time the SPI
 task returned. The test now waits for "that clock or later", and a 150 ms
 timeout makes any future hang print FAIL instead of running forever.
 
-**Not rerun after these fixes:** the IPS on a simulated bus, the mid-traffic
-swap and every dataset frame over SPI (steps 3, 4, 5 and 12 of `run_sim.bat`;
-the numbers above are from 2026-11-12). The AES, CMAC and CTR circuits did not
-change.
+**Whole `run_sim.bat` after these fixes (2026-11-15), end to end from the .bat,
+about 2.5 hours: every step ALL PASS.**
+
+| Step | Result |
+|---|---|
+| 1. Blobs (5 / 6 / 8 bytes) | each agrees with sklearn's hard vote on 2,000,000 of 2,000,000 test frames |
+| 2. Latency | 15 clocks; 100 frames back to back, 100 verdicts |
+| 3. Every dataset frame, plain blob over SPI | 675,167 / 761,078 / 977,861 distinct frames, **0 differ** (forest and final) |
+| 4, 5. Update path | 112 checks (development), 111 (production), 0 failed |
+| 6. Whole design on a simulated bus, IPS on | attack frames destroyed 100 of 100 (25 of each attack), normal frames lost 0 of 100, every frame read back exactly |
+| 7. Model swap mid-traffic (5-byte to 8-byte model) | swap at frame 72 of 120, every frame one verdict from one whole model, 0 frames with the wrong byte count |
+| 8. Flash controller vs Intel's model (Questa) | ALL PASS |
+| 9, 10. Flash timeout, IPS rate limit | 23 and 7 checks, 0 failed |
+| 11. AES, CMAC, CTR vs Python | 1,001 / 18 / 7, 0 wrong |
+| 12. Every dataset frame, scrambled blob over SPI | same frames, **0 differ** |
 
 ## Home test on the board (2026-11-14/15)
 
@@ -276,10 +287,8 @@ timeout fix (2026-11-12): **all pass**.
 
 ## Reproducing
 
-`run_sim.bat` runs all 12 steps. Before Stage 5 it ran end to end from an empty
-`build/` folder in about an hour. For the Stage 5 numbers above, its steps were run
-one by one (the same commands, from a bash script), not the .bat itself; the AES
-circuits make the simulations several times slower. `normal_run_data.txt` is
+`run_sim.bat` runs all 12 steps. On 2026-11-15 it ran end to end, as the .bat,
+in about 2.5 hours, every step ALL PASS (table under "Review fixes"). `normal_run_data.txt` is
 extracted from the dataset zip automatically.
 
 SPI was tested at 2.625 MHz, the speed the STM32 tool uses. The limit is about 4 MHz.
