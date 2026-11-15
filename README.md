@@ -39,7 +39,14 @@ prints what to say at each step. The full checklist, wiring and troubleshooting 
 in **[docs/DEMO.md](docs/DEMO.md)**.
 
 **Before the talk:** the bench wired (three ESP32s, the DE10-Lite and the STM32 on the
-CAN bus, each on its shield), the SPI cable between the two shields, then
+CAN bus, each on its shield), the SPI cable between the two shields. If the DE10-Lite
+runs another design (for example Terasic's factory demo), put the project's back first:
+
+```bash
+program_fpga.bat
+```
+
+then
 
 ```bash
 run_demo.bat prepare
@@ -108,7 +115,7 @@ part 3.
 | `mcu/stm32_ids/` | the STM32 IDS/IPS firmware; `mcu/prebuilt/` the two images the demo flashes |
 | `esp32/` | the bench sketches: replay sender, attacker, receiver, link test |
 | `docs/` | paper results, demo, handover, wiring, build guide, presentation, literature review |
-| `run_demo.bat` | the live demo; `run_check_*.bat` the bench tests; `run_sim_FPGA.bat` the hardcoded simulation |
+| `run_demo.bat` | the live demo; `program_fpga.bat` puts the design on the DE10-Lite; `run_check_*.bat` the bench tests; `run_sim_FPGA.bat` the hardcoded simulation |
 
 ## Reproduce
 

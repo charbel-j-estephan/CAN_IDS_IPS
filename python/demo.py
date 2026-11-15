@@ -469,9 +469,12 @@ def part_update():
          "the model, its version and the flash slot it booted from.")
     s = u.show()
     v = s["version"]
-    new_v = v + 1
+    # After program_fpga.bat the board runs its built-in model (version 0 or
+    # 1); keep the rollback file strictly older than the new one.
+    new_v = max(v + 1, 2)
+    old_v = new_v - 1
     good = sign(new_v, os.path.join(WORK, "model_v%d.bin" % new_v))
-    old = sign(v - 1 if v > 1 else 1, os.path.join(WORK, "model_v%d.bin" % max(v - 1, 1)))
+    old = sign(old_v, os.path.join(WORK, "model_v%d.bin" % old_v))
     forged = sign(new_v + 1, os.path.join(WORK, "forged_v%d.bin" % (new_v + 1)), wrong_key())
     say("""Read from the FPGA over SPI. At power on it read its journal in flash,
         loaded the newest model, and checked that model's stamp before using it.
@@ -532,7 +535,7 @@ def part_update():
                                 subsequent_indent="       "))
         print()
 
-    step("9", "Rollback: send the older version %d again" % max(v - 1, 1),
+    step("9", "Rollback: send the older version %d again" % old_v,
          ["Keep SW1 up.", "This file is correctly signed, but older than what the board has."],
          "refused: older version.")
     u.need_sw1(1)

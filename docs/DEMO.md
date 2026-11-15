@@ -32,12 +32,15 @@ part 3.
 | **SPI cable** between the two shields, both JST plugs pushed fully in (pin 1 GND, 2 SCLK, 3 MOSI, 4 MISO, 5 CS; `updatable fpgas/docs/SPI_WIRING.md`) | ☐ |
 | One 120 Ω terminator at each end of the bus; power off, CANH to CANL reads about 60 Ω | ☐ |
 | USB: three ESP32s, then the DE10-Lite, then the STM32 (the DE10-Lite before the STM32) | ☐ |
-| DE10-Lite: LEDR4 or LEDR5 on (a model from flash), **SW0 down, SW1 down** | ☐ |
+| DE10-Lite runs the project's design: LEDR4 or LEDR5 on. If it runs anything else (the factory demo, another lab), run **`program_fpga.bat`** (about 30 s, USB-Blaster over the board's USB), then unplug and replug the board: LEDR4 and LEDR5 both on (the built-in model). Then **SW0 down, SW1 down** | ☐ |
 | `Desktop\master.key` present (the demo signs with it); every Arduino Serial Monitor closed | ☐ |
 | Run **`run_demo.bat prepare`**: it puts the IDS firmware on the STM32 if needed (shield off, BT0 jumper to 3V3 + RST; after programming, BT0 off 3V3, shield back on, RST; it waits for Enter after each) | ☐ |
 
-The FPGA keeps its design and its model through a power cycle, so no Quartus
-step is needed on the day.
+The FPGA keeps its design and its model through a power cycle, so
+`program_fpga.bat` is only needed if the board was given another design.
+`program_fpga.bat check` checks Quartus, the design file and the cable without
+programming. The design file (`updatable fpgas\quartus\output_files\updatable_top.pof`)
+holds the board's key: it stays on this PC, not in git.
 
 ## Run: `run_demo.bat`
 
