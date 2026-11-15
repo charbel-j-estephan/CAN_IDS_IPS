@@ -91,12 +91,19 @@ never arrived.
 | **FPGA updatable, model loaded over SPI, 11-15** | **1,861 / 1,861** | **709 / 709** | **922 / 922** | **1,085 / 1,085** | **0, 0, 0, 0** | bus off every run |
 | FPGA updatable after a power cycle, 11-15 | 1,861 / 1,861 | | | 1,085 / 1,085 | 0, 0 | bus off |
 | FPGA updatable, RPM repeated 3 times, 11-15 | | | | 1,085 / 1,085 each | 0 in all 3 | bus off |
+| FPGA updatable, demo rehearsal, 11-15 evening | 1,861 / 1,861 | | | 1,085 / 1,085 | **1**, 0 | bus off |
+| STM32 fw 16 on its new shield, 11-15 evening | 1,861 / 1,861 (twice) | | | | 0, 0 | bus off |
 
 Runs (11-15): prevention off `20261115_093152_DoS`; FPGA updatable
 `093312_DoS`, `093336_Fuzzy`, `093356_gear`, `093416_RPM`; after the power
 cycle `095349_DoS`, `095619_RPM`; RPM repeats (with the STM32 as a second
 recorder) `094949_RPM`, `095010_RPM`, `095031_RPM`. 11-03: `20261103_143901_DoS`,
 `143945_Fuzzy`, `144025_gear`, `144101_RPM` (in the project's `runs/`).
+Evening of 11-15, in the project's `runs/`: the demo rehearsal
+`20261115_190719_DoS` (prevention off: 1,861 of 1,861 attack frames arrived),
+`190749_DoS` and `190817_RPM` (FPGA), `190842_DoS` (STM32); the STM32 shield
+check `161709_DoS`. Both boards were on new shields (soldered CAN and SPI
+connectors) for these runs; see 7.2 for the one lost frame.
 
 ### 4.2 Long runs, 20,000 frames per file, STM32
 
@@ -166,6 +173,14 @@ the model kept through power cycles and boots from flash with no PC attached.
    (other IDs, during the error storm; `docs/HANDOVER.md` argues the ESP32
    receiver dropped them). The sender reports no failed transmissions in any
    of these runs. Not explained: report them as lost.
+   On the evening of 11-15 the updatable FPGA lost **one** normal frame in a
+   DoS run during the demo rehearsal (`20261115_190749_DoS`: ID 0x130, index
+   1477; 1,861 of 1,861 attack frames destroyed). The sender reports it sent
+   (txfail 0, transmit error counter 0); the receiver recorded 3,139 frames,
+   one fewer than the sender sent. No second recorder ran in that run, so it
+   cannot be shown whether the frame was on the bus. Report it with the other
+   lost frames. The FPGA runs in section 4.1 that are cited as 0 lost are
+   unchanged.
 3. **fw 17** (two IPS race fixes from a code review) gives the same results but
    its bit samples are late about 35 times more often than fw 16's (`nlate`
    24,557-29,978 vs 653-898, same bench, same day). Open; fw 16 is the
@@ -183,4 +198,4 @@ the model kept through power cycles and boots from flash with no PC attached.
 | Security design | `updatable fpgas/docs/SECURITY_DESIGN.md` |
 | Live demo | `docs/DEMO.md`, `run_demo.bat` |
 | Literature review, references | `docs/literature_review.pdf`, `REFERENCES.md` |
-| Bench runs (not in git) | `Desktop\esp32 setup\can_replay\runs\` |
+| Bench runs (not in git) | `Desktop\esp32 setup\can_replay\runs\` and the project's `runs\`; the cited ones are in the hand-off zip `CAN_IDS_IPS_paper_runs.zip` (see its `READ_ME.txt`) |
