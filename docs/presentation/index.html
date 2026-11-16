@@ -71,9 +71,9 @@ body.centered #bggrid { opacity: 1; }
 .slide.center { justify-content: center; align-items: flex-start; padding-left: 110px; }
 .slide.center h1 { font-size: 92px; max-width: 1500px; }
 .slide.center h1.long { font-size: 66px; max-width: 1400px; }
-.slide.divider .num { position: absolute; right: 50px; bottom: -30px; z-index: -1; pointer-events: none;
+.slide.divider::after { content: attr(data-num); position: absolute; right: 50px; bottom: -30px; z-index: -1; pointer-events: none;
   font: 700 480px/.8 var(--sans); letter-spacing: -.05em; color: #141414; }
-.slide.divider.active .num { animation: ghost 1.2s var(--ease) both; }
+.slide.divider.active::after { animation: ghost 1.2s var(--ease) both; }
 @keyframes ghost { from { opacity: 0; transform: translateY(40px); } to { opacity: 1; transform: none; } }
 
 /* reveal on enter */
@@ -96,7 +96,7 @@ body.centered #bggrid { opacity: 1; }
 .card:hover { background: rgba(62, 230, 192, .035); }
 .card h3 { margin: 10px 0 6px; font-size: 21px; font-weight: 500; text-transform: uppercase; letter-spacing: -.01em; line-height: 1.1; }
 .card p { margin: 0; color: var(--ink2); font-size: 17px; line-height: 1.5; }
-.card > small { display: block; margin-top: 8px; font-family: var(--mono); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; line-height: 1.5; }
+.card > small { display: block; margin-top: 8px; font-family: var(--mono); font-size: 14px; letter-spacing: .02em; line-height: 1.5; }
 .ihead { display: flex; align-items: center; gap: 12px; }
 .ihead svg { width: 26px; height: 26px; flex: none; }
 .ihead h3 { margin: 0; }
@@ -147,7 +147,7 @@ body.centered #bggrid { opacity: 1; }
 .byteframe div.on { background: var(--accent); color: var(--bg); border-color: var(--accent); position: relative; }
 .byteframe div.fix { background: #1c1c1c; color: var(--ink2); }
 .stat { font-family: var(--mono); font-size: 40px; font-weight: 700; letter-spacing: -.04em; font-variant-numeric: tabular-nums; line-height: 1.1; }
-.stat small { font-size: 12px; color: var(--muted); font-weight: 400; display: block; margin-top: 6px; letter-spacing: .12em; text-transform: uppercase; }
+.stat small { font-size: 14px; color: var(--muted); font-weight: 400; display: block; margin-top: 6px; letter-spacing: .02em; }
 .fit { display: flex; align-items: center; gap: 10px; font-size: 19px; margin: 6px 0; }
 .dot { width: 12px; height: 12px; flex: none; }
 
@@ -239,8 +239,7 @@ body.centered #bggrid { opacity: 1; }
 <!-- ======================= 1 TITLE ======================= -->
 <div id="bggrid" aria-hidden="true"></div>
 <main id="deck">
-<section class="slide center" data-part="">
-  <p class="tag rv">CAN bus · Intrusion prevention · FPGA + STM32</p>
+<section class="slide center" data-part="CAN bus / Intrusion prevention / FPGA + STM32">
   <h1 class="rv d1">Stopping car network attacks while they are still <span class="hl">on the wire</span></h1>
   <p class="sub rv d2">One random forest on an FPGA and on a microcontroller, destroying attack frames before any computer in the car accepts them, with a secure way to update the model.</p>
   <p class="note rv d3" style="font-size:18px">Anthony El Chakar · Charbel Estephan · Joe Geagea &nbsp;·&nbsp; Instructor: Dr. Abdallah Kassem</p>
@@ -248,8 +247,8 @@ body.centered #bggrid { opacity: 1; }
 </section>
 
 <!-- ======================= PART 1 ======================= -->
-<section class="slide center divider" data-part="1 · The problem">
-  <div class="num" aria-hidden="true">01</div><p class="tag rv">Part 01 / 06</p><h1 class="rv d1">What is CAN, and why is it open to anyone?</h1>
+<section class="slide center divider" data-num="01" data-part="1 · The problem">
+  <h1 class="rv d1">What is CAN, and why is it open to anyone?</h1>
 </section>
 
 <section class="slide" data-part="1 · The problem">
@@ -386,8 +385,8 @@ body.centered #bggrid { opacity: 1; }
 </section>
 
 <!-- ======================= PART 2 ======================= -->
-<section class="slide center divider" data-part="2 · Our detector, live">
-  <div class="num" aria-hidden="true">02</div><p class="tag rv">Part 02 / 06</p><h1 class="rv d1">One model, three detectors, a real bus</h1>
+<section class="slide center divider" data-num="02" data-part="2 · Our detector, live">
+  <h1 class="rv d1">One model, three detectors, a real bus</h1>
 </section>
 
 <section class="slide" data-part="2 · Our detector, live">
@@ -466,7 +465,7 @@ body.centered #bggrid { opacity: 1; }
       <span class="lbl">Attack</span>
       <div class="chips" data-group="catk"><button class="chip" aria-pressed="true" data-v="DoS">DoS</button><button class="chip" aria-pressed="false" data-v="Fuzzy">Fuzzy</button><button class="chip" aria-pressed="false" data-v="Gear">Gear</button><button class="chip" aria-pressed="false" data-v="RPM">RPM</button></div>
       <span class="lbl" style="margin-left:14px">Show</span>
-      <div class="chips" data-group="cmet"><button class="chip" aria-pressed="true" data-v="reach">attack frames that reached the car</button><button class="chip" aria-pressed="false" data-v="lost">normal frames lost</button></div>
+      <div class="chips" data-group="cmet"><button class="chip" aria-pressed="true" data-v="reach">attacks that got through</button><button class="chip" aria-pressed="false" data-v="lost">normal frames lost</button></div>
     </div>
     <div class="legend" id="legend"></div>
     <svg id="chart" viewBox="0 0 1300 460" preserveAspectRatio="xMinYMid meet" role="img" aria-label="Bench results"></svg>
@@ -486,8 +485,8 @@ body.centered #bggrid { opacity: 1; }
 </section>
 
 <!-- ======================= PART 3 ======================= -->
-<section class="slide center divider" data-part="3 · The basic IDS">
-  <div class="num" aria-hidden="true">03</div><p class="tag rv">Part 03 / 06</p><h1 class="rv d1">The basic IDS: the forest as pure logic</h1>
+<section class="slide center divider" data-num="03" data-part="3 · The basic IDS">
+  <h1 class="rv d1">The basic IDS: the forest as pure logic</h1>
 </section>
 
 <section class="slide" data-part="3 · The basic IDS">
@@ -523,8 +522,8 @@ body.centered #bggrid { opacity: 1; }
 </section>
 
 <!-- ======================= PART 4 ======================= -->
-<section class="slide center divider" data-part="4 · 5, 6 or 8 bytes">
-  <div class="num" aria-hidden="true">04</div><p class="tag rv">Part 04 / 06</p><h1 class="rv d1">5, 6 or 8 bytes: more data, less time</h1>
+<section class="slide center divider" data-num="04" data-part="4 · 5, 6 or 8 bytes">
+  <h1 class="rv d1">5, 6 or 8 bytes: more data, less time</h1>
 </section>
 
 <section class="slide" data-part="4 · 5, 6 or 8 bytes">
@@ -555,8 +554,8 @@ body.centered #bggrid { opacity: 1; }
 </section>
 
 <!-- ======================= PART 5 ======================= -->
-<section class="slide center divider" data-part="5 · A modular forest">
-  <div class="num" aria-hidden="true">05</div><p class="tag rv">Part 05 / 06</p><h1 class="rv d1">Why we made the forest modular</h1>
+<section class="slide center divider" data-num="05" data-part="5 · A modular forest">
+  <h1 class="rv d1">Why we made the forest modular</h1>
 </section>
 
 <section class="slide" data-part="5 · A modular forest">
@@ -611,8 +610,8 @@ body.centered #bggrid { opacity: 1; }
 </section>
 
 <!-- ======================= PART 6 ======================= -->
-<section class="slide center divider" data-part="6 · Who may update?">
-  <div class="num" aria-hidden="true">06</div><p class="tag rv">Part 06 / 06</p><h1 class="rv d1">An update port is also a door</h1>
+<section class="slide center divider" data-num="06" data-part="6 · Who may update?">
+  <h1 class="rv d1">An update port is also a door</h1>
   <p class="sub rv d2">A fake model could tell the detector that the attack is normal. So who may change the trees?</p>
 </section>
 
