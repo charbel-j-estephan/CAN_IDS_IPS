@@ -4,6 +4,10 @@
 before the car's computers accept them, with a secure way to update the model.**
 EEN 527 Embedded System Design, ECCE Department, Faculty of Engineering.
 
+<!-- Bench photo goes here: save it as docs/img/bench.jpg and remove these comment marks.
+![The bench: three ESP32s, the DE10-Lite and the STM32 on one CAN bus](docs/img/bench.jpg)
+-->
+
 A car's CAN bus has no authentication: any node reached through the OBD port, the
 infotainment unit or a modem can flood it, fuzz it or spoof the engine speed. This
 project trains one random forest on real attack traffic (Car Hacking Dataset) and
@@ -19,6 +23,8 @@ Accuracy on the 6.5 million frames the model never saw: **99.988 %**, every DoS,
 and RPM frame flagged (simulation; Verilog, C and Python agree on every frame).
 All numbers with their sources and limits: **[docs/PAPER_RESULTS.md](docs/PAPER_RESULTS.md)**.
 
+![One CAN frame: the model reads bytes 0 to 4, then has 86 µs to act. The FPGA decides in 80 to 300 ns, the STM32 in 60 to 94 µs.](docs/img/timing.svg)
+
 ## See it
 
 | | |
@@ -27,6 +33,10 @@ All numbers with their sources and limits: **[docs/PAPER_RESULTS.md](docs/PAPER_
 | **Case study** | [charbel-j-estephan.com/projects/can-bus-ids-ips](https://charbel-j-estephan.com/projects/can-bus-ids-ips): the whole project on one page, with results and costs |
 | **Interactive walkthrough** | [charbel-j-estephan.com/CAN-IDS-IPS](https://charbel-j-estephan.com/CAN-IDS-IPS): Normal, Attack, IDS, IPS and the model update, animated |
 | **STM32 vs FPGA race** | [charbel-j-estephan.com/CAN-COMPARE](https://charbel-j-estephan.com/CAN-COMPARE): the same trees on both chips, who stops the attack in time |
+
+| IPS mode | STM32 vs FPGA | Signed model update |
+|---|---|---|
+| ![Five trees vote on a frame while it is still on the wire](docs/img/walkthrough-bench.jpg) | ![The STM32 and the FPGA against the 86 µs deadline](docs/img/walkthrough-race.jpg) | ![A signed update written into the spare flash bank](docs/img/walkthrough-update.jpg) |
 
 ---
 
@@ -55,6 +65,8 @@ run_demo.bat prepare
 
 It puts the IDS firmware on the STM32 if needed (it tells you when to take the
 shield off and move the BOOT0 jumper, and waits for you).
+
+![Bench wiring: three ESP32s, the DE10-Lite and the STM32 on one CAN bus, each with a TJA1050, and the SPI cable between the two shields](docs/img/bench-wiring.svg)
 
 **On stage:**
 
@@ -108,6 +120,8 @@ part 3.
 4. **The bench.** Three ESP32s (normal traffic, attacker, logging receiver) replay the
    dataset on a real 500 kbit/s bus with its original timing; the receiver is the
    ground truth for what was destroyed and what was lost.
+
+![The update path: the PC signs and scrambles, the STM32 only relays, the FPGA checks everything and writes the spare flash slot](docs/img/update-path.svg)
 
 ### Twelve precautions on the update path
 

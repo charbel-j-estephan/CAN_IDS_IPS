@@ -1,0 +1,132 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 700" width="1200" height="700" font-family="'JetBrains Mono', 'DejaVu Sans Mono', Consolas, monospace" xmlns:c2pa="http://c2pa.org/manifest">
+  <style>
+    .t { fill: #f2f0eb; font-size: 15px; font-weight: 700; }
+    .s { fill: #bcb8b0; font-size: 12.5px; }
+    .m { fill: #8c8880; font-size: 11.5px; }
+    .w { fill: #3ee6c0; font-size: 11.5px; }
+    .box { fill: #0f0f0f; stroke: #333; stroke-width: 1.5; }
+    .xcv { fill: #141414; stroke: #6b6862; stroke-width: 1.2; }
+    .wire { stroke: #3ee6c0; stroke-width: 1.6; fill: none; }
+    .h { stroke: #f2c14e; stroke-width: 2.4; }
+    .l { stroke: #4a8ce8; stroke-width: 2.4; }
+    .drop { stroke-width: 1.6; }
+  </style>
+  <rect width="1200" height="700" fill="#0a0a0a"/>
+  <text x="40" y="38" class="t" font-size="18">THE BENCH · 500 kbit/s · five nodes on one CAN bus</text>
+  <text x="40" y="58" class="m">Every board is also on USB to the PC. Pins from docs/ESP32_WIRING.md, docs/STM32_WIRING.md, updatable fpgas/docs/SPI_WIRING.md.</text>
+
+  <!-- ===== top row: ESP32s ===== -->
+  <g id="esp-sender">
+    <rect x="60" y="85" width="300" height="78" class="box"/>
+    <text x="76" y="110" class="t">ESP32 · SENDER</text>
+    <text x="76" y="131" class="s">replay_sender: normal car traffic</text>
+    <text x="76" y="150" class="m">original dataset timing</text>
+    <rect x="110" y="205" width="200" height="40" class="xcv"/>
+    <text x="210" y="230" class="s" text-anchor="middle">TJA1050</text>
+    <line x1="170" y1="163" x2="170" y2="205" class="wire"/>
+    <line x1="250" y1="163" x2="250" y2="205" class="wire"/>
+    <text x="164" y="188" class="w" text-anchor="end">GPIO5 TX</text>
+    <text x="256" y="188" class="w">GPIO4 RX</text>
+  </g>
+  <g id="esp-attacker">
+    <rect x="450" y="85" width="300" height="78" class="box" style="stroke:#e66767"/>
+    <text x="466" y="110" class="t" style="fill:#e66767">ESP32 · ATTACKER</text>
+    <text x="466" y="131" class="s">attack_sender: DoS, Fuzzy,</text>
+    <text x="466" y="150" class="s">Gear and RPM spoofing</text>
+    <rect x="500" y="205" width="200" height="40" class="xcv"/>
+    <text x="600" y="230" class="s" text-anchor="middle">TJA1050</text>
+    <line x1="560" y1="163" x2="560" y2="205" class="wire"/>
+    <line x1="640" y1="163" x2="640" y2="205" class="wire"/>
+    <text x="554" y="188" class="w" text-anchor="end">GPIO5 TX</text>
+    <text x="646" y="188" class="w">GPIO4 RX</text>
+  </g>
+  <g id="esp-receiver">
+    <rect x="840" y="85" width="300" height="78" class="box"/>
+    <text x="856" y="110" class="t">ESP32 · RECEIVER</text>
+    <text x="856" y="131" class="s">usb_receiver: logs and ACKs</text>
+    <text x="856" y="150" class="m">ground truth for every run</text>
+    <rect x="890" y="205" width="200" height="40" class="xcv"/>
+    <text x="990" y="230" class="s" text-anchor="middle">TJA1050</text>
+    <line x1="950" y1="163" x2="950" y2="205" class="wire"/>
+    <line x1="1030" y1="163" x2="1030" y2="205" class="wire"/>
+    <text x="944" y="188" class="w" text-anchor="end">GPIO5 TX</text>
+    <text x="1036" y="188" class="w">GPIO4 RX</text>
+  </g>
+  <text x="650" y="282" class="m">each ESP32 RX: 1 kΩ / 2 kΩ divider</text>
+  <text x="650" y="298" class="m">(5 V module, 3.3 V pin)</text>
+
+  <!-- drops from top transceivers -->
+  <g class="drop">
+    <line x1="180" y1="245" x2="180" y2="320" class="h"/><line x1="240" y1="245" x2="240" y2="350" class="l"/>
+    <line x1="570" y1="245" x2="570" y2="320" class="h"/><line x1="630" y1="245" x2="630" y2="350" class="l"/>
+    <line x1="960" y1="245" x2="960" y2="320" class="h"/><line x1="1020" y1="245" x2="1020" y2="350" class="l"/>
+  </g>
+
+  <!-- ===== the bus ===== -->
+  <line x1="70" y1="320" x2="1130" y2="320" class="h"/>
+  <line x1="70" y1="350" x2="1130" y2="350" class="l"/>
+  <text x="40" y="324" class="w" style="fill:#f2c14e" text-anchor="middle">CANH</text>
+  <text x="40" y="354" class="w" style="fill:#4a8ce8" text-anchor="middle">CANL</text>
+  <!-- terminators -->
+  <g fill="#0a0a0a" stroke="#f2f0eb" stroke-width="1.4">
+    <rect x="76" y="326" width="14" height="18"/>
+    <rect x="1110" y="326" width="14" height="18"/>
+  </g>
+  <line x1="83" y1="320" x2="83" y2="326" stroke="#f2f0eb" stroke-width="1.4"/><line x1="83" y1="344" x2="83" y2="350" stroke="#f2f0eb" stroke-width="1.4"/>
+  <line x1="1117" y1="320" x2="1117" y2="326" stroke="#f2f0eb" stroke-width="1.4"/><line x1="1117" y1="344" x2="1117" y2="350" stroke="#f2f0eb" stroke-width="1.4"/>
+  <text x="98" y="372" class="s">120 Ω</text>
+  <text x="1102" y="372" class="s" text-anchor="end">120 Ω</text>
+  <text x="600" y="380" class="m" text-anchor="middle">one terminator at each physical end only · power off, CANH to CANL reads about 60 Ω · GND common to all nodes</text>
+
+  <!-- drops to bottom transceivers -->
+  <g class="drop">
+    <line x1="270" y1="320" x2="270" y2="420" class="h"/><line x1="330" y1="350" x2="330" y2="420" class="l"/>
+    <line x1="870" y1="320" x2="870" y2="420" class="h"/><line x1="930" y1="350" x2="930" y2="420" class="l"/>
+  </g>
+  <circle cx="270" cy="320" r="3" fill="#f2c14e"/><circle cx="330" cy="350" r="3" fill="#4a8ce8"/>
+  <circle cx="870" cy="320" r="3" fill="#f2c14e"/><circle cx="930" cy="350" r="3" fill="#4a8ce8"/>
+  <circle cx="180" cy="320" r="3" fill="#f2c14e"/><circle cx="240" cy="350" r="3" fill="#4a8ce8"/>
+  <circle cx="570" cy="320" r="3" fill="#f2c14e"/><circle cx="630" cy="350" r="3" fill="#4a8ce8"/>
+  <circle cx="960" cy="320" r="3" fill="#f2c14e"/><circle cx="1020" cy="350" r="3" fill="#4a8ce8"/>
+
+  <!-- ===== bottom row: FPGA and STM32 ===== -->
+  <g id="fpga">
+    <rect x="200" y="420" width="200" height="40" class="xcv"/>
+    <text x="300" y="445" class="s" text-anchor="middle">TJA1050</text>
+    <line x1="260" y1="460" x2="260" y2="520" class="wire"/>
+    <line x1="340" y1="460" x2="340" y2="520" class="wire"/>
+    <text x="254" y="484" class="w" text-anchor="end">RX: 5 kΩ / 5 kΩ divider</text>
+    <text x="254" y="502" class="w" text-anchor="end">to pin 1, GPIO[0]</text>
+    <text x="346" y="484" class="w">TX: pin 2, GPIO[1]</text>
+    <text x="346" y="502" class="w">via TXS0108E</text>
+    <rect x="60" y="520" width="440" height="100" class="box" style="stroke:#4a8ce8"/>
+    <text x="76" y="546" class="t" style="fill:#4a8ce8">DE10-LITE · INTEL MAX 10</text>
+    <text x="76" y="568" class="s">FPGA IDS/IPS, hardcoded or updatable design</text>
+    <text x="76" y="588" class="m">SW0 up = prevention · SW1 up = update port open</text>
+    <text x="76" y="606" class="m">LEDR4 / LEDR5 = flash slot A / B · LEDR8 = maintenance</text>
+  </g>
+  <g id="stm32">
+    <rect x="800" y="420" width="200" height="40" class="xcv"/>
+    <text x="900" y="445" class="s" text-anchor="middle">TJA1050 · 5 V</text>
+    <line x1="860" y1="460" x2="860" y2="520" class="wire"/>
+    <line x1="940" y1="460" x2="940" y2="520" class="wire"/>
+    <text x="854" y="484" class="w" text-anchor="end">RX: PB8, direct</text>
+    <text x="854" y="502" class="w" text-anchor="end">(5 V tolerant)</text>
+    <text x="946" y="484" class="w">TX: PB9</text>
+    <text x="946" y="502" class="w">open drain</text>
+    <rect x="700" y="520" width="440" height="100" class="box" style="stroke:#de6a2e"/>
+    <text x="716" y="546" class="t" style="fill:#de6a2e">STM32F407VE · 168 MHz</text>
+    <text x="716" y="568" class="s">software IDS/IPS (CAN decoded bit by bit)</text>
+    <text x="716" y="588" class="s">or the update tool for the FPGA</text>
+    <text x="716" y="606" class="m">BOOT0 jumper to 3V3 + RST to flash it over DFU</text>
+  </g>
+
+  <!-- ===== SPI cable ===== -->
+  <line x1="500" y1="570" x2="700" y2="570" stroke="#3ee6c0" stroke-width="3"/>
+  <text x="600" y="560" class="w" text-anchor="middle">SPI · 5-pin JST</text>
+  <g class="m">
+    <text x="600" y="640" text-anchor="middle">JST  1 GND · 2 SCLK · 3 MOSI · 4 MISO · 5 CS_n</text>
+    <text x="600" y="658" text-anchor="middle">FPGA header  pin 12 · pin 5 · pin 6 · pin 7 (51 Ω) · pin 8 (10 kΩ pull up)</text>
+    <text x="600" y="676" text-anchor="middle">STM32        GND · PB13 · PB15 · PB14 · PB12</text>
+  </g>
+<metadata><c2pa:manifest>AAAWgmp1bWIAAAAeanVtZGMycGEAEQAQgAAAqgA4m3EDYzJwYQAAABZcanVtYgAAAEdqdW1kYzJtYQARABCAAACqADibcQN1cm46YzJwYTowMzViNDk1ZC00NWU2LTRhOTctODI3Zi0wZDI1ODBjMTQ3ZjgAAAADl2p1bWIAAAApanVtZGMyYXMAEQAQgAAAqgA4m3EDYzJwYS5hc3NlcnRpb25zAAAAALxqdW1iAAAARGp1bWRjYm9yABEAEIAAAKoAOJtxE2MycGEuaW5ncmVkaWVudC52MwAAAAAYYzJzaDbehwPZkaR1vHC9GaKbny0AAABwY2JvcqNpZGM6Zm9ybWF0bWltYWdlL3N2Zyt4bWxqaW5zdGFuY2VJRHgseG1wOmlpZDo0NGU0ZTAwNi1hY2FkLTRmMjktOTVhMy1mYzY0MjczNWNjYWRscmVsYXRpb25zaGlwaHBhcmVudE9mAAAB4mp1bWIAAABBanVtZGNib3IAEQAQgAAAqgA4m3ETYzJwYS5hY3Rpb25zLnYyAAAAABhjMnNodlg5CwZm4lB4V60gfm33fwAAAZljYm9yomdhY3Rpb25zgqJmYWN0aW9ua2MycGEub3BlbmVkanBhcmFtZXRlcnOha2luZ3JlZGllbnRzgaJjdXJseC1zZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmluZ3JlZGllbnQudjNkaGFzaFggKPJHyPQMNM6+SCeYBQv+Sxy2/L6ytwt+iSntw+gBz7mkZmFjdGlvbngdY29tLmFudGhyb3BpYy5jbGF1ZGUucHJvdmlkZWRqcGFyYW1ldGVyc6F4H2NvbS5hbnRocm9waWMub3JpZ2luLWNvbmZpZGVuY2VndW5rbm93bmtkZXNjcmlwdGlvbnhmQ2xhdWRlIHByb3ZpZGVkIHRoaXMgZmlsZSBhdCB0aGUgcmVxdWVzdCBvZiBhIHVzZXIgYW5kIG1heSBoYXZlIGNyZWF0ZWQgb3IgbW9kaWZpZWQgdGhlIGZpbGUgY29udGVudHMubXNvZnR3YXJlQWdlbnShZG5hbWVmQ2xhdWRlcmFsbEFjdGlvbnNJbmNsdWRlZPUAAADIanVtYgAAAEBqdW1kY2JvcgARABCAAACqADibcRNjMnBhLmhhc2guZGF0YQAAAAAYYzJzaC1mgFyo0qPIp23BRuMWlf4AAACAY2JvcqVjYWxnZnNoYTI1NmNwYWRMAAAAAAAAAAAAAAAAZGhhc2hYIJdxcqyKdBU8lDu0LRuqp9GtKBGK9NfWrVfANnIXxB53ZG5hbWVuanVtYmYgbWFuaWZlc3RqZXhjbHVzaW9uc4GiZXN0YXJ0GSAmZmxlbmd0aBkeBAAAAj5qdW1iAAAAJ2p1bWRjMmNsABEAEIAAAKoAOJtxA2MycGEuY2xhaW0udjIAAAACD2Nib3KlY2FsZ2ZzaGEyNTZpc2lnbmF0dXJleE1zZWxmI2p1bWJmPS9jMnBhL3VybjpjMnBhOjAzNWI0OTVkLTQ1ZTYtNGE5Ny04MjdmLTBkMjU4MGMxNDdmOC9jMnBhLnNpZ25hdHVyZWppbnN0YW5jZUlEeCx4bXA6aWlkOjYwYjg2YWQwLWEzNjgtNDZmZC05ODU3LTU2Yzk1YzA2ZTg4YXJjcmVhdGVkX2Fzc2VydGlvbnODomN1cmx4LXNlbGYjanVtYmY9YzJwYS5hc3NlcnRpb25zL2MycGEuaW5ncmVkaWVudC52M2RoYXNoWCAo8kfI9Aw0zr5IJ5gFC/5LHLb8vrK3C36JKe3D6AHPuaJjdXJseCpzZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmFjdGlvbnMudjJkaGFzaFggvRmsioZG33xQ/uqjM9Oo7MAOhOS/det6mBx/qIZGl7yiY3VybHgpc2VsZiNqdW1iZj1jMnBhLmFzc2VydGlvbnMvYzJwYS5oYXNoLmRhdGFkaGFzaFggmlcHjzqvkFiJTd7cChCNQqnMdISSknM7Txg445CBnS50Y2xhaW1fZ2VuZXJhdG9yX2luZm+jZG5hbWVvQW50aHJvcGljIEZpbGVzZ3ZlcnNpb25lMS4wLjBrc3BlY1ZlcnNpb25lMi40LjAAABA4anVtYgAAAChqdW1kYzJjcwARABCAAACqADibcQNjMnBhLnNpZ25hdHVyZQAAABAIY2JvctKEWQISogEmGCFZAgowggIGMIIBjaADAgECAhRA5aAK7sI50L64g/oGQgU9Z1UTADAKBggqhkjOPQQDAzBJMRcwFQYDVQQKEw5BbnRocm9waWMsIFBCQzEuMCwGA1UEAxMlQW50aHJvcGljIENvbnRlbnQgQ3JlZGVudGlhbHMgUm9vdCBDQTAeFw0yNjA4MDcxODQzNTZaFw0yODA4MDYxOTQzNTZaMEQxFzAVBgNVBAoTDkFudGhyb3BpYywgUEJDMSkwJwYDVQQDEyBBbnRocm9waWMgQ2xhdWRlIENvbnRlbnQgU2lnbmluZzBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJh6CmvLUBgFFNU0vUKlOVtE6djd17L5SuwX0LemFisBM3dkd/3cyjxFA3Qo5S46fX0/ihY0VZ7mfb9KF703t5OjWDBWMA4GA1UdDwEB/wQEAwIHgDAVBgNVHSUEDjAMBgorBgEEAYPoXgIBMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUzlHiBIFOZFsj+OPEz5o+nMHXXMIwCgYIKoZIzj0EAwMDZwAwZAIwMXMdFJ4BetLLVY7ORuE9noqbbAZOZn/aArXyTwFAZfKrPzxF2vPoJNf1+UCdg1XGAjBwX1zd9WGqYkqmL5SFqw1QySjr1zJfpJM9+1rdDwSPLMOPOjKuiXjoU/pUUeG9RwmhY3BhZFkNngAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPZYQN/gslXSzQWDCyN8lYBi8jU5c9KScy3Pm+IV8pV5QVjvDObXQq+Ne0mA8SQWQDQ8AhZqpdKlkuIAiOpy7Y+5jJ8=</c2pa:manifest></metadata></svg>
