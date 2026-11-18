@@ -3,6 +3,24 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="An animated presentation of a CAN bus intrusion prevention system: why CAN is open to attack, a random forest on an FPGA and an STM32 destroying attack frames on the wire, 5, 6 or 8 bytes, a modular forest and a secure model update.">
+<meta name="author" content="Charbel Estephan">
+<meta name="theme-color" content="#0a0a0a">
+<link rel="canonical" href="https://charbel-j-estephan.com/CAN-BUS-PRESENTATION">
+<link rel="icon" type="image/svg+xml" href="https://charbel-j-estephan.com/favicon.svg">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://charbel-j-estephan.com/CAN-BUS-PRESENTATION">
+<meta property="og:site_name" content="Charbel Estephan">
+<meta property="fb:app_id" content="1607066517831897">
+<meta property="og:title" content="Stopping CAN Bus Attacks on the Wire | Charbel Estephan">
+<meta property="og:description" content="An animated presentation of a CAN bus intrusion prevention system: why CAN is open to attack, a random forest on an FPGA and an STM32 destroying attack frames on the wire, 5, 6 or 8 bytes, a modular forest and a secure model update.">
+<meta property="og:image" content="https://charbel-j-estephan.com/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Stopping CAN Bus Attacks on the Wire | Charbel Estephan">
+<meta name="twitter:description" content="An animated presentation of a CAN bus intrusion prevention system: why CAN is open to attack, a random forest on an FPGA and an STM32 destroying attack frames on the wire, 5, 6 or 8 bytes, a modular forest and a secure model update.">
+<meta name="twitter:image" content="https://charbel-j-estephan.com/og-image.png">
 <title>Stopping CAN bus attacks on the wire</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -228,13 +246,68 @@ body.centered #bggrid { opacity: 1; }
 .slide.active .cell { animation: cellin .35s ease forwards; opacity: 0; }
 @keyframes cellin { to { opacity: 1; } }
 
+/* ---------- phones ----------
+   The deck is one 1600 x 792 canvas scaled to fit, so on a 390px phone held
+   upright k works out at 0.24 and every slide renders at a quarter size: the
+   body text lands around 5px. No amount of CSS fixes that, because the slides
+   are authored for a wide screen. So in portrait the deck stands aside for a
+   short note with somewhere better to go, and anyone who wants it anyway can
+   say so. In landscape the chrome shrinks instead, which is where the room
+   actually is. */
+.rotate-note { display: none; }
+@media (max-width: 760px) and (orientation: portrait) {
+  html:not(.force-deck) .rotate-note { display: flex; }
+  html:not(.force-deck) #deck,
+  html:not(.force-deck) .navbtns,
+  html:not(.force-deck) .counter,
+  html:not(.force-deck) .topbar,
+  html:not(.force-deck) .progress,
+  html:not(.force-deck) #bggrid { display: none; }
+}
+.rotate-note { position: fixed; inset: 0; z-index: 20; flex-direction: column; justify-content: center;
+  gap: 18px; padding: 28px 24px; background: var(--bg); }
+.rotate-note h2 { font-size: 26px; line-height: 1.1; margin: 0; text-transform: uppercase;
+  letter-spacing: -.03em; font-weight: 700; }
+.rotate-note p { margin: 0; font-size: 16px; line-height: 1.5; color: var(--ink2); }
+.rotate-note ul { margin: 6px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.rotate-note li a { display: block; padding: 13px 0; font-family: var(--mono); font-size: 13px;
+  letter-spacing: .1em; text-transform: uppercase; border-bottom: 1px solid var(--line-soft); }
+.rotate-note button { align-self: flex-start; margin-top: 6px; background: none; border: 1px solid var(--line);
+  color: var(--muted); font-family: var(--mono); font-size: 12px; letter-spacing: .12em;
+  text-transform: uppercase; padding: 12px 16px; cursor: pointer; }
+
+/* Short viewports: a phone in landscape is about 390px tall, and the 108px
+   the chrome reserves is more than a quarter of it. */
+@media (max-height: 560px) {
+  .topbar { height: 34px; padding: 0 14px; font-size: 10px; letter-spacing: .12em; gap: 10px; }
+  .topbar .course { display: none; }
+  .navbtns { right: 10px; bottom: 8px; }
+  .navbtns button { width: 44px; height: 34px; }
+  .counter { left: 14px; bottom: 13px; font-size: 10px; }
+}
+/* The part label is free text set by each slide; on a narrow bar it wrapped
+   out of the bar's fixed height and sat on top of the slide. */
+.topbar .part { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 @media (prefers-reduced-motion: reduce) { .slide, .slide * { animation: none !important; transition: none !important; } .slide .rv { opacity: 1; transform: none; } }
 @media print { .slide { position: static; opacity: 1; visibility: visible; transform: none; page-break-after: always; height: 100vh; } .navbtns, .topbar, .progress, .counter { display: none; } }
 </style>
 </head>
 <body>
 <div class="progress"><div id="prog"></div></div>
-<div class="topbar"><span class="part" id="part"></span><span class="sp"></span><span>EEN 527 Embedded System Design</span></div>
+<div class="topbar"><span class="part" id="part"></span><span class="sp"></span><span class="course">EEN 527 Embedded System Design</span></div>
+
+<div class="rotate-note">
+  <h2>Turn your phone sideways</h2>
+  <p>This is a 29-slide deck laid out for a projector. Upright on a phone it shrinks to about a quarter size and nothing on it is readable. Landscape works.</p>
+  <p>Or read the same work as a page built for this screen:</p>
+  <ul>
+    <li><a href="https://charbel-j-estephan.com/projects/can-bus-ids-ips">The full case study →</a></li>
+    <li><a href="https://charbel-j-estephan.com/CAN-IDS-IPS">The interactive walkthrough →</a></li>
+    <li><a href="https://charbel-j-estephan.com/CAN-COMPARE">STM32 vs FPGA →</a></li>
+  </ul>
+  <button type="button" id="forcedeck">Show the deck anyway</button>
+</div>
 
 <!-- ======================= 1 TITLE ======================= -->
 <div id="bggrid" aria-hidden="true"></div>
@@ -700,12 +773,21 @@ function fmt(n) { return n.toLocaleString("en-US"); }
 var slides = Array.prototype.slice.call(document.querySelectorAll(".slide"));
 // Scale the 1600 x 792 canvas to the screen, between the top bar and the buttons.
 function fitDeck() {
-  var aw = innerWidth, ah = innerHeight - 108, k = Math.min(aw / 1600, ah / 792);
+  // The top bar and the button row both shrink under 560px tall (a phone in
+  // landscape), so the space they reserve has to shrink with them or the
+  // deck keeps scaling to a frame that is no longer there.
+  var short = innerHeight < 560, top = short ? 34 : 44, reserve = short ? 76 : 108;
+  var aw = innerWidth, ah = innerHeight - reserve, k = Math.min(aw / 1600, ah / 792);
   document.getElementById("deck").style.transform =
-    "translate(" + (aw - 1600 * k) / 2 + "px," + (44 + (ah - 792 * k) / 2) + "px) scale(" + k + ")";
+    "translate(" + (aw - 1600 * k) / 2 + "px," + (top + (ah - 792 * k) / 2) + "px) scale(" + k + ")";
 }
 addEventListener("resize", fitDeck);
 fitDeck();
+var forceBtn = document.getElementById("forcedeck");
+if (forceBtn) forceBtn.addEventListener("click", function () {
+  document.documentElement.classList.add("force-deck");
+  fitDeck();
+});
 var cur = 0;
 function show(i) {
   i = Math.max(0, Math.min(slides.length - 1, i));
