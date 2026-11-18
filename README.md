@@ -34,9 +34,19 @@ All numbers with their sources and limits: **[docs/PAPER_RESULTS.md](docs/PAPER_
 | **Interactive walkthrough** | [charbel-j-estephan.com/CAN-IDS-IPS](https://charbel-j-estephan.com/CAN-IDS-IPS): Normal, Attack, IDS, IPS and the model update, animated |
 | **STM32 vs FPGA race** | [charbel-j-estephan.com/CAN-COMPARE](https://charbel-j-estephan.com/CAN-COMPARE): the same trees on both chips, who stops the attack in time |
 
-| IPS mode | STM32 vs FPGA | Signed model update |
-|---|---|---|
-| ![Five trees vote on a frame while it is still on the wire](docs/img/walkthrough-bench.jpg) | ![The STM32 and the FPGA against the 86 µs deadline](docs/img/walkthrough-race.jpg) | ![A signed update written into the spare flash bank](docs/img/walkthrough-update.jpg) |
+**IPS mode.** The attacker sends a spoofed frame; the FPGA's five trees vote while
+the frame is still on the wire, and the error flag destroys it.
+
+![IPS mode: five trees vote on a frame while it is still on the wire](docs/img/walkthrough-bench.jpg)
+
+**STM32 vs FPGA.** The same trees on both chips, against the 86 µs deadline.
+
+![The STM32 and the FPGA against the 86 µs deadline](docs/img/walkthrough-race.jpg)
+
+**Signed model update.** A new model arrives over SPI and is written into the
+spare flash bank, while the running model keeps protecting the bus.
+
+![A signed update written into the spare flash bank](docs/img/walkthrough-update.jpg)
 
 ---
 
