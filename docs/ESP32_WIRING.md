@@ -1,5 +1,7 @@
 # CAN bench: wiring and how to run it
 
+![The whole bench, wired](img/bench-wiring.svg)
+
 The bench replays the Car Hacking Dataset onto a real CAN bus with the original
 timing, and records every frame that arrives.
 

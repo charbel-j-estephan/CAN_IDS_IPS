@@ -1,5 +1,7 @@
 # Wiring the STM32 update tool, and the bench steps
 
+![The whole bench, wired](../../docs/img/bench-wiring.svg)
+
 The STM32 is only an update tool. Plug it in, push a model, unplug it.
 
 ## Wiring

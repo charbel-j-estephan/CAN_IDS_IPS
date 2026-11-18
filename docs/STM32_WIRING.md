@@ -1,5 +1,7 @@
 # STM32 IDS node: wiring
 
+![The whole bench, wired](img/bench-wiring.svg)
+
 The black STM32F407VET6 board joins the CAN bench as one more node. It reads
 the bus bit by bit in software (M1), classifies every frame (M2) and later
 destroys attack frames with an error flag (M3).
