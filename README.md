@@ -13,7 +13,7 @@ runs that **exact same model** on three detectors, on a real CAN bus:
 |---|---|---|---|
 | **FPGA, hardcoded** (DE10-Lite, MAX 10) | compiled into logic | 80 ns | every attack frame destroyed, 0 normal frames lost |
 | **FPGA, updatable** (same board) | data in RAM, loaded over a signed and encrypted update, kept in flash | 300 ns | every attack frame destroyed, 0 normal frames lost |
-| **STM32F407** (168 MHz) | C code, CAN decoded bit by bit in software | up to 87–94 µs | every attack frame destroyed, 3 normal frames lost in 1 of 4 attacks |
+| **STM32F407** (168 MHz) | C code, CAN decoded bit by bit in software | worst model run 60–94 µs | every attack frame destroyed, 3 normal frames lost in 1 of 4 attacks |
 
 Accuracy on the 6.5 million frames the model never saw: **99.988 %**, every DoS, Gear
 and RPM frame flagged (simulation; Verilog, C and Python agree on every frame).
@@ -23,7 +23,8 @@ All numbers with their sources and limits: **[docs/PAPER_RESULTS.md](docs/PAPER_
 
 | | |
 |---|---|
-| **Presentation** | [docs/presentation/index.html](docs/presentation/index.html): the web version, animated, works offline; it drives the live demo and its results graph takes the runs made on stage. Slides with speaker notes: [CAN_IDS_IPS_presentation.pptx](docs/presentation/CAN_IDS_IPS_presentation.pptx) |
+| **Presentation** | online at [charbel-j-estephan.com/CAN-BUS-PRESENTATION](https://charbel-j-estephan.com/CAN-BUS-PRESENTATION) (29 slides, for landscape screens). The same deck is in [docs/presentation/index.html](docs/presentation/index.html): animated, works offline, drives the live demo, and its results graph takes the runs made on stage. Slides with speaker notes: [CAN_IDS_IPS_presentation.pptx](docs/presentation/CAN_IDS_IPS_presentation.pptx) |
+| **Case study** | [charbel-j-estephan.com/projects/can-bus-ids-ips](https://charbel-j-estephan.com/projects/can-bus-ids-ips): the whole project on one page, with results and costs |
 | **Interactive walkthrough** | [charbel-j-estephan.com/CAN-IDS-IPS](https://charbel-j-estephan.com/CAN-IDS-IPS): Normal, Attack, IDS, IPS and the model update, animated |
 | **STM32 vs FPGA race** | [charbel-j-estephan.com/CAN-COMPARE](https://charbel-j-estephan.com/CAN-COMPARE): the same trees on both chips, who stops the attack in time |
 
@@ -88,21 +89,68 @@ part 3.
 
 1. **The model.** `python/train.py` trains 5 trees of depth 9 on the CAN ID, the length
    and data bytes 0–4, with a time split (train on the start of each recording, test
-   on the rest). An unknown CAN ID is flagged as Fuzzy. `export_verilog.py` and
+   on the rest). An allow list holds the 38 CAN IDs the car uses: any other ID is
+   flagged as Fuzzy without asking the trees. `export_verilog.py` and
    `export_c.py` turn it into Verilog and C.
 2. **Prevention.** After data byte 4 there are at least 86 µs before the frame ends.
-   On "attack" the detector drives an error flag: every node drops the frame, and the
-   attacker's error counter climbs until its controller switches itself off the bus.
+   On "attack" the detector drives an error flag (six dominant bits): every node drops
+   the frame, and the attacker's error counter climbs by 8 per destroyed frame until
+   it passes 255 and its controller switches itself off the bus. On the bench that
+   took about 22 to 32 destroyed frames, a few milliseconds into the attack.
 3. **The updatable FPGA** (`updatable fpgas/`). A fixed tree engine (8 trees × 12
    levels, one RAM per level, one frame per clock) reads the model from memory. A new
    model arrives as a 4,174-byte file over SPI: stamped with AES-CMAC (per-board key),
    scrambled with AES-CTR, refused if older than the board's version, written to the
    flash slot that is not running, and swapped in between two CAN frames. Three bad
-   stamps lock the port until a power cycle. Details:
+   stamps lock the port until a power cycle. The signing master key stays on the PC:
+   the STM32 only relays the file and holds no key. Details:
    `updatable fpgas/docs/SECURITY_DESIGN.md`, `BLOB_FORMAT.md`, `RESULTS.md`.
 4. **The bench.** Three ESP32s (normal traffic, attacker, logging receiver) replay the
    dataset on a real 500 kbit/s bus with its original timing; the receiver is the
    ground truth for what was destroyed and what was lost.
+
+### Twelve precautions on the update path
+
+| Precaution | What it stops |
+|---|---|
+| Maintenance switch (SW1, sampled twice) | malware on the PC or a hacked STM32 updating the FPGA on its own |
+| One key per board, derived from the master key | a file signed for one board working on another |
+| AES-CMAC stamp over the whole file, compared in constant time | anyone without the key making or editing a model |
+| Stamp result checked twice, pass = 32-bit code | a single glitched bit accepting a fake |
+| AES-CTR scrambling, new IV per file | a copied file or a flash dump revealing the trees |
+| Board ID in the header | a valid update for one car replayed on another |
+| Version floor in flash | rolling back to an old genuine model |
+| Lockout after 3 bad stamps (counter kept twice) | trying key after key |
+| CRC, range checks and stored test frames | a damaged or malformed model going live |
+| Two flash slots and a journal | a power cut leaving the car without a detector |
+| Stamp checked again at every boot | tampering with the stored model in flash |
+| Swap between two CAN frames, gated by a swap code | a gap in protection, or a glitch switching to an unchecked bank |
+
+The full list with the details is on slide "Twelve precautions" of the presentation.
+
+## Costs
+
+| Item | Value |
+|---|---|
+| Hardcoded design | 1,618 LEs (forest alone 1,024 LEs, 2 %), 89 MHz worst case |
+| Updatable design | 33,253 LEs (67 %), 146 of 182 M9K blocks (29,869 LEs before the security stage, 40 M9K for the AES S-boxes) |
+| Decision latency | 4 clocks (80 ns) hardcoded, 15 clocks (300 ns) updatable |
+| STM32 firmware | 42,864 B flash, 29,860 B RAM |
+| Update file | 4,174 B |
+
+## Limits
+
+- **Not production ready.** The board's key is inside the FPGA design file. A product
+  would program the FPGA encrypted, with JTAG secure and verify protect on, so the key
+  cannot be read back. We did not do this on our board.
+- **A bench, not a car.** 500 kbit/s, four nodes, short wires. The bench replays the
+  first 5,000 or 20,000 frames of each file, so it proves prevention in real time;
+  accuracy on unseen frames comes from the 6.5 million frame simulation.
+- **A few lost normal frames.** The STM32 lost the same 3 normal RPM frames in every
+  20,000-frame run. The updatable FPGA lost 1 normal frame in one DoS rehearsal run
+  (0 in every cited run). Not yet explained.
+- **Only the 5-byte model on the bench for the updatable FPGA.** 6 and 8 bytes were
+  checked in simulation only.
 
 ## What's in the repo
 
