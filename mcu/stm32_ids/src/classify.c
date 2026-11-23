@@ -27,7 +27,19 @@
 #error "no model for this CAN_RX_FEATURE_BYTES"
 #endif
 
+#include "can_ids_ranges.h"
+
 const char *const classify_model_id = CAN_IDS_MODEL_ID;
+
+/* ID -> row in the range table, 0xFF for IDs without a row. Filled once. */
+static uint8_t range_row[2048];
+static int range_ready = 0;
+void classify_init(void)
+{
+    for (int i = 0; i < 2048; i++) range_row[i] = 0xFF;
+    for (int r = 0; r < CAN_IDS_N_RANGES; r++) range_row[can_ids_range_id[r]] = (uint8_t)r;
+    range_ready = 1;
+}
 
 MODEL_PLACE int classify(uint16_t can_id, uint8_t dlc, const uint8_t d[CAN_RX_FEATURE_BYTES])
 {
@@ -49,4 +61,35 @@ MODEL_PLACE int classify(uint16_t can_id, uint8_t dlc, const uint8_t d[CAN_RX_FE
     if (cls == 0 && !can_ids_id_known(can_id))   /* the unknown ID rule */
         cls = 2;                                  /* Fuzzy */
     return cls;
+}
+
+MODEL_PLACE int classify_guarded(uint16_t can_id, uint8_t dlc, const uint8_t d[CAN_RX_FEATURE_BYTES], int *cls_out)
+{
+    if (!range_ready) classify_init();
+    float x[10] = {(float)can_id, (float)(dlc > 8 ? 8 : dlc),
+                   0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+    for (int i = 0; i < CAN_RX_FEATURE_BYTES; i++)
+        x[2 + i] = (float)d[i];
+    int32_t v[5] = {0, 0, 0, 0, 0};
+    v[can_ids_tree_0(x, 10)]++;
+    v[can_ids_tree_1(x, 10)]++;
+    v[can_ids_tree_2(x, 10)]++;
+    v[can_ids_tree_3(x, 10)]++;
+    v[can_ids_tree_4(x, 10)]++;
+    int cls = 0, top = 0;
+    for (int i = 0; i < 5; i++)
+        if (v[i] > top) { top = v[i]; cls = i; }   /* first max wins, as can_ids_predict */
+    int known = can_ids_id_known(can_id);
+    if (cls == 0 && !known)
+        cls = 2;
+    *cls_out = cls;
+    if (!known) return 2;
+    if (cls == 0) return 0;
+    if (top == 5) return 2;
+    if (top < 3) return 0;
+    uint8_t r = range_row[can_id & 0x7FF];
+    if (r == 0xFF) return 0;
+    for (int i = 0; i < 5; i++)
+        if (d[i] < can_ids_range_lo[r][i] || d[i] > can_ids_range_hi[r][i]) return 1;
+    return 0;
 }

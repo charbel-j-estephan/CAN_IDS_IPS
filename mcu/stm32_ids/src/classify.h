@@ -17,6 +17,14 @@ extern "C" {
  * train.py --payload-bytes N). */
 int classify(uint16_t can_id, uint8_t dlc, const uint8_t d[CAN_RX_FEATURE_BYTES]);
 
+/* fw 18 guarded vote rule. Returns 0 pass, 1 weak destroy, 2 strong destroy.
+ * strong: unknown ID, or all 5 trees vote the same attack class.
+ * weak:   3 or 4 trees vote attack AND a payload byte is outside the range
+ *         seen for that ID in the normal training traffic (can_ids_ranges.h).
+ * Everything else passes. *cls gets the plain majority class for the logs. */
+void classify_init(void);   /* call once in setup() */
+int classify_guarded(uint16_t can_id, uint8_t dlc, const uint8_t d[CAN_RX_FEATURE_BYTES], int *cls);
+
 extern const char *const classify_model_id;
 
 #ifdef __cplusplus

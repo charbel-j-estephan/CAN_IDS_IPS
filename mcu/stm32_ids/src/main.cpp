@@ -53,7 +53,7 @@
 #include "can_rx.h"
 #include "classify.h"
 
-#define FW_VERSION  17          // in READY and #STAT: which build is running
+#define FW_VERSION  18          // in READY and #STAT: which build is running
 #define BITRATE     500000
 #define RING        512          // frames waiting for USB, power of two
 #define LED         PA6          // on (low) while frames arrive
@@ -131,7 +131,13 @@ static uint16_t flag_end;                // TIM4 tick
 static uint8_t flag_bits;                // bits since the flag was scheduled (safety cut)
 static volatile uint32_t n_rej = 0;      // error flags sent
 static volatile uint32_t n_ilate = 0;    // attack verdicts that came after the end of frame field began
-static volatile uint32_t n_allow = 0;    // attack verdicts on allowed frames
+static volatile uint32_t n_allow = 0;
+#define GUARD_RETRIES 4                       // weak verdicts per identical frame in a row
+static uint16_t g_id = 0xFFFF;                // last weakly destroyed frame
+static uint8_t g_d[5];
+static uint8_t g_n = 0;
+static volatile uint32_t n_guard = 0;     // weak verdicts let through by the guard
+static volatile uint32_t n_weak = 0;      // weak destroy verdicts    // attack verdicts on allowed frames
 static volatile uint32_t n_abort = 0;    // flags that did not start or end on time, cut by the
                                          // safety limit (should stay 0)
 // fw 15 diagnostics (#STAT dbg= and ab=), to find why RPM flags were cut:
@@ -265,12 +271,26 @@ extern "C" void TIM7_IRQHandler(void)
 {
     uint32_t start = DWT->CYCCNT;
     uint32_t seq = job_seq;
-    int cls = classify(job.id, job.dlc, job.d);
+    int cls;
+    int verdict = classify_guarded(job.id, job.dlc, job.d, &cls);
     res_cls = (uint8_t)cls;
     res_tick = (uint16_t)TIM4->CNT;
     __DMB();
     res_seq = seq;
-    if (ips_on && cls != 0) {
+    /* Bus off guard (fw 18): a weak verdict destroys the same frame (ID and
+     * bytes 0-4) at most GUARD_RETRIES times in a row. A genuine ECU that
+     * keeps retransmitting a wrongly flagged frame then gets it through with
+     * TEC at most 8 * GUARD_RETRIES, far from bus off (256). Strong verdicts
+     * (unknown ID, all 5 trees) are never limited. */
+    if (verdict == 1) {
+        if (job.id == g_id && memcmp(job.d, g_d, 5) == 0) {
+            if (++g_n > GUARD_RETRIES) { verdict = 0; n_guard++; }
+        } else {
+            g_id = job.id; memcpy(g_d, job.d, 5); g_n = 1;
+        }
+    }
+    if (verdict == 1) n_weak++;
+    if (ips_on && verdict != 0) {
         if (allowed(job.id, job.d)) {
             allow_seq = seq;
             n_allow++;
@@ -581,7 +601,7 @@ static void zero_counters()
     isr_max = 0;
     lat_max = 0; n_late = 0;
     cls_max = 0; n_dlate = 0;
-    n_rej = 0; n_ilate = 0; n_allow = 0; n_abort = 0;
+    n_rej = 0; n_ilate = 0; n_allow = 0; n_abort = 0; n_weak = 0; n_guard = 0; g_id = 0xFFFF; g_n = 0;
     n_fstart = 0; n_fend = 0; n_fpush = 0; n_fgive = 0; n_catch = 0; ab_n = 0;
     n_ovf = 0; n_other = 0; peak = 0;
     can_rx_stats.stuff = can_rx_stats.form = can_rx_stats.crc = 0;
@@ -595,6 +615,7 @@ static void ready_line()
 
 void setup()
 {
+    classify_init();
     // CAN TX released (recessive). High is written before the pin becomes an
     // output, so it is never low for a moment: that would put a dominant bit
     // on the bus and could break a frame from another node.
@@ -695,11 +716,11 @@ void loop()
                       FW_VERSION, classify_model_id);
         Serial.printf("#DBG fstart=%lu fend=%lu fpush=%lu fgive=%lu catch=%lu ab=%lu"
                       " ab_state=%ld ab_bits=%ld ab_dend=%ld ab_dccr4=%ld ab_dbegin=%ld"
-                      " ab_ccmr2=%lx ab_ccer=%lx ab_sr=%lx ab_idle=%lu\n",
+                      " ab_ccmr2=%lx ab_ccer=%lx ab_sr=%lx ab_idle=%lu weak=%lu guard=%lu rule=guarded\n",
                       (unsigned long)n_fstart, (unsigned long)n_fend, (unsigned long)n_fpush,
                       (unsigned long)n_fgive, (unsigned long)n_catch, (unsigned long)ab_n,
                       (long)ab_state, (long)ab_bits, (long)ab_dend, (long)ab_dccr4, (long)ab_dbegin,
                       (unsigned long)ab_ccmr2, (unsigned long)ab_ccer, (unsigned long)ab_sr,
-                      (unsigned long)ab_idle);
+                      (unsigned long)ab_idle, (unsigned long)n_weak, (unsigned long)n_guard);
     }
 }
