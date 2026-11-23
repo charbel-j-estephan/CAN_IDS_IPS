@@ -9,6 +9,8 @@ REPO = os.path.dirname(UPDATABLE)
 BUILD = os.path.join(UPDATABLE, "build")
 IVERILOG = r"C:\iverilog\bin\iverilog.exe"
 VVP = r"C:\iverilog\bin\vvp.exe"
+if os.name != "nt":                            # Linux or macOS: Icarus from the PATH
+    IVERILOG, VVP = "iverilog", "vvp"
 
 
 def _main_checkout():

@@ -84,7 +84,7 @@ def run_chunks(sim, blob_hex, ukeys, work, jobs):
                     raise SystemExit("Simulation %s failed:\n%s" % (name, out))
                 running.remove((name, p))
     print("  %d chunks simulated in %.0f s" % (jobs, time.time() - t0))
-    forest, final = [], []
+    forest, final, strong = [], [], []
     for c, name in enumerate(procs):
         with open(os.path.join(work, name + ".out")) as f:
             lines = f.read().split()
@@ -92,9 +92,10 @@ def run_chunks(sim, blob_hex, ukeys, work, jobs):
             raise SystemExit("%s: %d answers for %d frames" % (name, len(lines), bounds[c + 1] - bounds[c]))
         forest += [int(s[0]) for s in lines]
         final += [int(s[1]) for s in lines]
+        strong += [int(s[2]) if len(s) > 2 else -1 for s in lines]
         os.remove(os.path.join(work, name + ".hex"))
         os.remove(os.path.join(work, name + ".out"))
-    return np.array(forest, dtype=np.int8), np.array(final, dtype=np.int8)
+    return np.array(forest, dtype=np.int8), np.array(final, dtype=np.int8), np.array(strong, dtype=np.int8)
 
 
 def check_model(nb, args, sim):
@@ -119,6 +120,13 @@ def check_model(nb, args, sim):
     Xu = unpack(ukeys)
     py_forest = hard_vote_predict(bundle["model"], Xu).astype(np.int8)
     py_final = known_id_rule(py_forest, Xu[:, 0].astype(int), bundle["known_ids"]).astype(np.int8)
+    # Strong verdict (strict mode): every tree voted the winning class, or the ID is unknown.
+    m = bundle["model"]
+    Xf = np.asarray(Xu, dtype=np.float32)
+    votes = np.stack([np.argmax(t.predict_proba(Xf), axis=1) for t in m.estimators_])
+    unanimous = (votes == votes[0]).all(axis=0)
+    unknown = ~np.isin(Xu[:, 0].astype(int), np.asarray(sorted(bundle["known_ids"])))
+    py_strong = (unanimous | unknown).astype(np.int8)
 
     work = os.path.join(paths.BUILD, "accuracy", name + ("_enc" if args.enc else ""))
     os.makedirs(work, exist_ok=True)
@@ -126,10 +134,21 @@ def check_model(nb, args, sim):
         if args.spi else \
         os.path.join(paths.BUILD, "blobs", "p%d" % nb, "model.hex")
     blob_hex = os.path.relpath(blob, work)
-    forest, final = run_chunks(sim, blob_hex.replace("\\", "/"), ukeys, work, args.jobs)
+    forest, final, strong = run_chunks(sim, blob_hex.replace("\\", "/"), ukeys, work, args.jobs)
     bad_f, bad_a = int((forest != py_forest).sum()), int((final != py_final).sum())
-    print("  engine vs Python on %d distinct frames: forest differs on %d, final on %d (%.0f s)"
-          % (len(ukeys), bad_f, bad_a, time.time() - t0))
+    has_strong = bool((strong >= 0).all())
+    bad_s = int((strong != py_strong).sum()) if has_strong else 0
+    print("  engine vs Python on %d distinct frames: forest differs on %d, final on %d%s (%.0f s)"
+          % (len(ukeys), bad_f, bad_a, ", strong on %d" % bad_s if has_strong else "", time.time() - t0))
+    if has_strong:
+        weak = (py_final != 0) & (py_strong == 0)
+        print("  distinct frames with an attack verdict: %d, of them weak (no flag in strict mode): %d"
+              % (int((py_final != 0).sum()), int(weak.sum())))
+    if bad_s:
+        i = np.flatnonzero(strong != py_strong)[:5]
+        for j in i:
+            print("   e.g. %016X%04X engine strong %d python %d" % (ukeys[j][0], ukeys[j][1], strong[j], py_strong[j]))
+        raise SystemExit(1)
     if bad_f or bad_a:
         i = np.flatnonzero((forest != py_forest) | (final != py_final))[:5]
         for j in i:

@@ -34,7 +34,7 @@ module update_tb;
     updatable_core #(.DEVICE_ID(`TEST_DEVICE_ID), .MAC_KEY(`TEST_MAC_KEY), .ENC_KEY(`TEST_ENC_KEY),
                      .READ_MODEL_EN(`READ_MODEL_EN), .NV_SETTLE(5'd6),
                      .NV_TIMEOUT(32'd20_000)) dut (
-        .clk(clk), .rst(rst), .por(por), .rxd(rxd), .tx_dominant(tx_dominant), .ips_on(1'b1),
+        .clk(clk), .rst(rst), .por(por), .rxd(rxd), .tx_dominant(tx_dominant), .ips_on(1'b1), .strict(1'b0),
         .maint(maint),
         .spi_sclk(sclk), .spi_cs_n(cs_n), .spi_mosi(mosi), .spi_miso(miso),
         .csr_address(csr_address), .csr_read(csr_read), .csr_write(csr_write),

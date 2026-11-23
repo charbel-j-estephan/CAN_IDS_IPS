@@ -24,7 +24,7 @@ module rf_classifier #(
     rd_req, rd_tree, rd_level, rd_bank, rd_idx, rd_ack, rd_valid, rd_data,
     kt_wr_en, kt_wr_bank, kt_wr_addr, kt_wr_data,
     kt_rd_req, kt_rd_bank, kt_rd_addr, kt_rd_ack, kt_rd_valid, kt_rd_data,
-    out_valid, out_bank, out_tag, out_forest, out_final
+    out_valid, out_bank, out_tag, out_forest, out_final, out_strong
 );
     localparam IDX_W   = $clog2(NODES_PER_LEVEL_MAX);
     localparam FEAT_W  = $clog2(N_FEAT_MAX);
@@ -68,7 +68,12 @@ module rf_classifier #(
     output wire [TAG_W-1:0]       out_tag;
     output wire [CLS_W-1:0]       out_forest;
     output wire [CLS_W-1:0]       out_final;
+    // Strong verdict: every enabled tree agreed, or the key table rule fired
+    // (an ID the car never sends). The IPS can be told to destroy only on a
+    // strong attack verdict (strict mode); a weak one is then an alert only.
+    output wire                   out_strong;
 
+    wire out_unanimous;
     rf_engine #(.N_TREES_MAX(N_TREES_MAX), .DEPTH_MAX(DEPTH_MAX), .N_FEAT_MAX(N_FEAT_MAX),
                 .THRESH_W(THRESH_W), .NODES_PER_LEVEL_MAX(NODES_PER_LEVEL_MAX),
                 .N_CLASS_MAX(N_CLASS_MAX), .TAG_W(TAG_W)) engine (
@@ -79,7 +84,8 @@ module rf_classifier #(
         .wr_idx(wr_idx), .wr_data(wr_data),
         .rd_req(rd_req), .rd_tree(rd_tree), .rd_level(rd_level), .rd_bank(rd_bank),
         .rd_idx(rd_idx), .rd_ack(rd_ack), .rd_valid(rd_valid), .rd_data(rd_data),
-        .out_valid(out_valid), .out_bank(out_bank), .out_tag(out_tag), .out_class(out_forest)
+        .out_valid(out_valid), .out_bank(out_bank), .out_tag(out_tag), .out_class(out_forest),
+        .out_unanimous(out_unanimous)
     );
 
     // Key table: a frame always gets the read port; a read request waits for a
@@ -104,5 +110,6 @@ module rf_classifier #(
     wire              en   = rule_en[out_bank];
     wire [CLS_W-1:0]  from = out_bank ? rule_from_b1 : rule_from_b0;
     wire [CLS_W-1:0]  to   = out_bank ? rule_to_b1   : rule_to_b0;
-    assign out_final = (en && out_forest == from && !known_out) ? to : out_forest;
+    assign out_final  = (en && out_forest == from && !known_out) ? to : out_forest;
+    assign out_strong = out_unanimous || (en && !known_out);
 endmodule

@@ -29,7 +29,7 @@ module rf_engine #(
     tree_en_b0, tree_en_b1,
     wr_en, wr_tree, wr_level, wr_bank, wr_idx, wr_data,
     rd_req, rd_tree, rd_level, rd_bank, rd_idx, rd_ack, rd_valid, rd_data,
-    out_valid, out_bank, out_tag, out_class
+    out_valid, out_bank, out_tag, out_class, out_unanimous
 );
     localparam IDX_W    = $clog2(NODES_PER_LEVEL_MAX);
     localparam FEAT_W   = $clog2(N_FEAT_MAX);
@@ -70,6 +70,7 @@ module rf_engine #(
     output reg                      out_bank;
     output reg  [TAG_W-1:0]         out_tag;
     output reg  [CLS_W-1:0]         out_class;
+    output reg                      out_unanimous; // every enabled tree voted out_class
 
     // ---- pipeline control, one entry per level -----------------------------
     reg              v_q   [0:DEPTH_MAX-1];
@@ -168,10 +169,14 @@ module rf_engine #(
 
     reg                v_cnt, bank_cnt;
     reg [TAG_W-1:0]    tag_cnt;
+    reg [CNT_W-1:0]    n_en, n_en_n;
     reg [CNT_W-1:0]    cnt   [0:N_CLASS_MAX-1];
     reg [CNT_W-1:0]    cnt_n [0:N_CLASS_MAX-1];
     integer c, m;
     always @(*) begin
+        n_en_n = {CNT_W{1'b0}};
+        for (m = 0; m < N_TREES_MAX; m = m + 1)
+            if (tree_en[m]) n_en_n = n_en_n + 1'b1;
         for (c = 0; c < N_CLASS_MAX; c = c + 1) begin
             cnt_n[c] = {CNT_W{1'b0}};
             for (m = 0; m < N_TREES_MAX; m = m + 1)
@@ -183,6 +188,7 @@ module rf_engine #(
         v_cnt    <= rst ? 1'b0 : v_vote;
         bank_cnt <= bank_vote;
         tag_cnt  <= tag_vote;
+        n_en     <= n_en_n;
         for (c = 0; c < N_CLASS_MAX; c = c + 1)
             cnt[c] <= cnt_n[c];
     end
@@ -204,5 +210,6 @@ module rf_engine #(
         out_bank  <= bank_cnt;
         out_tag   <= tag_cnt;
         out_class <= best_c;
+        out_unanimous <= (best_v == n_en) && (n_en != {CNT_W{1'b0}});
     end
 endmodule

@@ -4,6 +4,8 @@
 //   KEY[0]   reset (hold it down; does not clear the update lockout)
 //   SW[0]    prevention on (up) / off (down)
 //   SW[1]    maintenance mode (up = the SPI port accepts updates)
+//   SW[2]    strict vote (up = destroy only when every tree agrees or the ID is
+//            unknown; a 3 or 4 of 5 verdict is an alert only, LEDR1 without LEDR2)
 //   LEDR[0]  good frame   LEDR[1] attack verdict   LEDR[2] error flag sent
 //   LEDR[3]  CRC / stuff / form error
 //   LEDR[5:4] where the model came from: 0 none, 1 slot A, 2 slot B, 3 boot ROM
@@ -47,14 +49,16 @@ module updatable_top #(
     wire      por = (por_cnt != 5'd31);
     always @(posedge clk) if (por) por_cnt <= por_cnt + 1'b1;
 
-    reg [1:0] key_s = 2'b11, ips_s = 2'b00, maint_s = 2'b00;
+    reg [1:0] key_s = 2'b11, ips_s = 2'b00, maint_s = 2'b00, strict_s = 2'b00;
     always @(posedge clk) begin
         key_s   <= {key_s[0], KEY[0]};
         ips_s   <= {ips_s[0], SW[0]};
         maint_s <= {maint_s[0], SW[1]};
+        strict_s <= {strict_s[0], SW[2]};
     end
     wire rst    = por | ~key_s[1];
     wire ips_on = ips_s[1];
+    wire strict = strict_s[1];
 
     // Maintenance switch, sampled twice: once every clock and once every 128
     // clocks (2.56 us). Both must say "up", so one glitch on the pin cannot
@@ -83,7 +87,7 @@ module updatable_top #(
     updatable_core #(.DEVICE_ID(`BOARD_DEVICE_ID), .MAC_KEY(`BOARD_MAC_KEY), .ENC_KEY(`BOARD_ENC_KEY),
                      .READ_MODEL_EN(READ_MODEL_EN)) core (
         .clk(clk), .rst(rst), .por(por), .rxd(GPIO[0]), .tx_dominant(tx_dominant),
-        .ips_on(ips_on), .maint(maint),
+        .ips_on(ips_on), .strict(strict), .maint(maint),
         .spi_sclk(GPIO[4]), .spi_cs_n(GPIO[7]), .spi_mosi(GPIO[5]), .spi_miso(spi_miso),
         .csr_address(csr_address), .csr_read(csr_read), .csr_write(csr_write),
         .csr_writedata(csr_writedata), .csr_readdata(csr_readdata),

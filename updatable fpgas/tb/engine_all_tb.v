@@ -40,6 +40,7 @@ module engine_all_tb;
     wire        out_valid, out_bank, rd_ack, rd_valid, kt_rd_ack, kt_rd_valid, kt_rd_data;
     wire        out_tag;
     wire [2:0]  out_forest, out_final;
+    wire        out_strong;
     wire [35:0] rd_data;
 
     rf_classifier dut (
@@ -56,7 +57,7 @@ module engine_all_tb;
         .kt_rd_req(1'b0), .kt_rd_bank(1'b0), .kt_rd_addr(11'd0),
         .kt_rd_ack(kt_rd_ack), .kt_rd_valid(kt_rd_valid), .kt_rd_data(kt_rd_data),
         .out_valid(out_valid), .out_bank(out_bank), .out_tag(out_tag),
-        .out_forest(out_forest), .out_final(out_final)
+        .out_forest(out_forest), .out_final(out_final), .out_strong(out_strong)
     );
 
     reg [7:0] blob [0:65535];
@@ -137,7 +138,7 @@ module engine_all_tb;
     end
 
     always @(posedge clk) if (!rst && out_valid) begin
-        $fdisplay(fout, "%0d%0d", out_forest, out_final);
+        $fdisplay(fout, "%0d%0d%0d", out_forest, out_final, out_strong);
         n_out = n_out + 1;
     end
 endmodule

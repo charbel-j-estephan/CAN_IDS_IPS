@@ -21,7 +21,7 @@ module spi_all_tb;
     wire        model_valid, active_bank;
 
     updatable_core #(.DEVICE_ID(`TEST_DEVICE_ID), .MAC_KEY(`TEST_MAC_KEY), .ENC_KEY(`TEST_ENC_KEY), .NV_SETTLE(5'd6), .ROM_INIT_HEX("../../default_model.hex")) dut (
-        .clk(clk), .rst(rst), .por(por), .rxd(1'b1), .tx_dominant(), .ips_on(1'b0), .maint(maint),
+        .clk(clk), .rst(rst), .por(por), .rxd(1'b1), .tx_dominant(), .ips_on(1'b0), .strict(1'b0), .maint(maint),
         .spi_sclk(sclk), .spi_cs_n(cs_n), .spi_mosi(mosi), .spi_miso(miso),
         .csr_address(csr_address), .csr_read(csr_read), .csr_write(csr_write),
         .csr_writedata(csr_writedata), .csr_readdata(csr_readdata),

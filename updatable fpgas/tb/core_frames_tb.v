@@ -36,10 +36,15 @@ module core_frames_tb;
 `else
     wire ips_on = 1'b1;
 `endif
+`ifdef STRICT
+    wire strict = 1'b1;
+`else
+    wire strict = 1'b0;
+`endif
     wire bus = rxd & ~tx_dominant;
 
     updatable_core #(.DEVICE_ID(`TEST_DEVICE_ID), .MAC_KEY(`TEST_MAC_KEY), .ENC_KEY(`TEST_ENC_KEY), .NV_SETTLE(5'd6)) dut (
-        .clk(clk), .rst(rst), .por(por), .rxd(bus), .tx_dominant(tx_dominant), .ips_on(ips_on),
+        .clk(clk), .rst(rst), .por(por), .rxd(bus), .tx_dominant(tx_dominant), .ips_on(ips_on), .strict(strict),
         .maint(maint),
         .spi_sclk(sclk), .spi_cs_n(cs_n), .spi_mosi(mosi), .spi_miso(miso),
         .csr_address(csr_address), .csr_read(csr_read), .csr_write(csr_write),

@@ -24,6 +24,7 @@ module updatable_core #(
     input  wire        rxd,
     output wire        tx_dominant,
     input  wire        ips_on,
+    input  wire        strict,      // 1: destroy only on a strong attack verdict (all trees agree, or unknown ID)
     input  wire        maint,
     // SPI
     input  wire        spi_sclk,
@@ -83,6 +84,7 @@ module updatable_core #(
     wire        st_valid, out_valid, out_bank, out_tag;
     wire [255:0] st_fv;
     wire [2:0]  out_forest, out_final;
+    wire        out_strong;
 
     wire live     = feat_ready && model_valid;
     wire st_go    = st_valid && !live;
@@ -114,18 +116,21 @@ module updatable_core #(
         .kt_rd_req(kt_rd_req), .kt_rd_bank(kt_rd_bank), .kt_rd_addr(kt_rd_addr),
         .kt_rd_ack(kt_rd_ack), .kt_rd_valid(kt_rd_valid), .kt_rd_data(kt_rd_data),
         .out_valid(out_valid), .out_bank(out_bank), .out_tag(out_tag),
-        .out_forest(out_forest), .out_final(out_final)
+        .out_forest(out_forest), .out_final(out_final), .out_strong(out_strong)
     );
 
     assign verdict_valid = out_valid && !out_tag;
     assign verdict       = out_final;
     assign verdict_bank  = out_bank;
+    // What the IPS acts on. In strict mode a weak attack verdict (3 or 4 of 5
+    // trees) stays an alert (verdict, LEDR1) but sends no error flag.
+    wire [2:0]  ips_verdict  = (strict && !out_strong) ? 3'd0 : out_final;
 
     // ---- IPS ------------------------------------------------------------------
     wire [31:0] n_rej, n_ilate, n_allow, n_abort, n_limit;
     ips_flag ips (
         .clk(clk), .rst(rst), .enable(ips_on),
-        .verdict_valid(verdict_valid), .verdict(verdict), .can_id(can_id), .data(data),
+        .verdict_valid(verdict_valid), .verdict(ips_verdict), .can_id(can_id), .data(data),
         .before_eof(before_eof), .bit_edge(bit_edge),
         .tx_dominant(tx_dominant), .flag_start(flag_start),
         .n_rej(n_rej), .n_ilate(n_ilate), .n_allow(n_allow), .n_abort(n_abort), .n_limit(n_limit)
