@@ -101,6 +101,9 @@ def main():
                     help="prevention test: the STM32 destroys the frames its model calls attacks "
                          "during the replay (its port is found automatically, or give it). The "
                          "ESP32 receiver stays the record of what survived. Needs the attacker board")
+    ap.add_argument("--recover", action="store_true",
+                    help="mixed run with the FPGA as IPS: the attacker comes back from bus off at "
+                         "every block (needs attack_sender version 2)")
     ap.add_argument("--listen", nargs="?", const="auto", metavar="COM",
                     help="the STM32 records next to the ESP32 receiver with its prevention off, "
                          "to show whether frames the receiver lost were on the bus (its port is "
@@ -190,6 +193,8 @@ def main():
         full += ["--attacker", attacker]
     if ips:
         full += ["--ips", ips]           # the link check runs without prevention
+    if args.recover:
+        full += ["--recover"]
     if listen:
         full += ["--listen", listen]
         print("Listen:   %s (STM32, second recorder, prevention off)" % listen)

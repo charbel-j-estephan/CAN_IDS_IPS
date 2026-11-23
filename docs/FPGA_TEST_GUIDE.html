@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FPGA test day: CAN IDS/IPS paper experiments</title>
+<style>
+:root{
+  --bg:#0f1216;--panel:#171c22;--panel2:#1e252d;--ink:#e8edf2;--muted:#9aa7b4;
+  --line:#2b343e;--accent:#4cc2ff;--ok:#3ccf91;--warn:#ffb547;--bad:#ff5d6c;--code:#0b0e12;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "Segoe UI",system-ui,-apple-system,sans-serif}
+a{color:var(--accent)}
+header{position:sticky;top:0;z-index:20;background:rgba(15,18,22,.96);backdrop-filter:blur(6px);border-bottom:1px solid var(--line)}
+.top{display:flex;align-items:center;gap:16px;padding:10px 20px;flex-wrap:wrap}
+.top h1{font-size:18px;margin:0;font-weight:650;letter-spacing:.2px}
+.bar{flex:1;min-width:180px;height:10px;background:var(--panel2);border-radius:99px;overflow:hidden}
+.bar>i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--ok));transition:width .3s}
+#pct{font-variant-numeric:tabular-nums;color:var(--muted);min-width:110px;text-align:right}
+.btn{background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:6px 12px;font:inherit;font-size:14px;cursor:pointer}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);color:#001421;border-color:var(--accent);font-weight:600}
+.wrap{display:grid;grid-template-columns:260px 1fr;gap:0;max-width:1300px;margin:0 auto}
+nav{position:sticky;top:58px;align-self:start;height:calc(100vh - 58px);overflow:auto;padding:18px 14px;border-right:1px solid var(--line)}
+nav a{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:7px;color:var(--muted);text-decoration:none;font-size:14px}
+nav a:hover{background:var(--panel2);color:var(--ink)}
+nav a .dot{width:9px;height:9px;border-radius:50%;background:var(--line);flex:none}
+nav a.done .dot{background:var(--ok)}
+nav a.part{color:var(--ink);font-weight:600;margin-top:10px}
+main{padding:24px 34px 120px;min-width:0}
+section{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px 26px;margin:0 0 22px}
+h2{margin:0 0 4px;font-size:22px}
+h3{margin:22px 0 8px;font-size:17px}
+.sub{color:var(--muted);margin:0 0 14px}
+.tag{display:inline-block;font-size:12px;padding:2px 8px;border-radius:99px;border:1px solid var(--line);color:var(--muted);margin-right:6px}
+.tag.time{border-color:#33506a;color:#9fd3ff}
+.tag.who{border-color:#4d3f22;color:#ffd38a}
+.call{border-radius:10px;padding:12px 16px;margin:14px 0;border:1px solid}
+.call b:first-child{display:block;margin-bottom:2px}
+.call.stop{background:rgba(255,93,108,.08);border-color:rgba(255,93,108,.5)}
+.call.warn{background:rgba(255,181,71,.08);border-color:rgba(255,181,71,.5)}
+.call.ok{background:rgba(60,207,145,.08);border-color:rgba(60,207,145,.45)}
+.call.info{background:rgba(76,194,255,.07);border-color:rgba(76,194,255,.4)}
+ol.steps{counter-reset:s;list-style:none;padding:0;margin:10px 0}
+ol.steps>li{counter-increment:s;position:relative;padding:12px 14px 12px 56px;border:1px solid var(--line);border-radius:10px;margin:8px 0;background:var(--panel2)}
+ol.steps>li::before{content:counter(s);position:absolute;left:14px;top:12px;width:28px;height:28px;border-radius:50%;background:var(--bg);border:1px solid var(--line);display:grid;place-items:center;font-size:13px;color:var(--muted)}
+ol.steps>li.checked{border-color:rgba(60,207,145,.55)}
+ol.steps>li.checked::before{content:"\2713";background:var(--ok);color:#00170d;border-color:var(--ok)}
+label.chk{display:block;position:relative;padding-left:30px;cursor:pointer}
+label.chk input{position:absolute;left:0;top:3px;margin:0;width:18px;height:18px;accent-color:var(--ok)}
+.cmd{display:flex;align-items:stretch;margin:8px 0;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--code)}
+.cmd code{flex:1;padding:9px 12px;font:14px/1.45 Consolas,"Cascadia Mono",monospace;color:#cfe8ff;white-space:pre-wrap;word-break:break-all}
+.cmd button{border:0;border-left:1px solid var(--line);background:var(--panel2);color:var(--muted);padding:0 14px;cursor:pointer;font:inherit;font-size:13px}
+.cmd button.copied{color:var(--ok)}
+code.i{font:14px Consolas,monospace;background:var(--code);padding:1px 6px;border-radius:5px;color:#cfe8ff}
+table{width:100%;border-collapse:collapse;margin:10px 0;font-size:15px}
+th,td{border-bottom:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+th{color:var(--muted);font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:.4px}
+.sw{display:flex;gap:14px;flex-wrap:wrap;margin:10px 0}
+.swi{display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel2);min-width:96px}
+.swi .lever{width:26px;height:46px;border-radius:6px;background:#0b0e12;border:1px solid var(--line);position:relative}
+.swi .lever::after{content:"";position:absolute;left:3px;right:3px;height:18px;border-radius:4px;background:#3a4552;top:24px;transition:top .2s}
+.swi.up .lever::after{top:3px;background:var(--accent)}
+.swi b{font-size:13px}
+.swi span{font-size:12px;color:var(--muted);text-align:center}
+.res{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px;margin:12px 0}
+.res label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)}
+.res input,.res select,textarea{background:var(--code);color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:8px 10px;font:14px Consolas,monospace}
+textarea{width:100%;min-height:70px;font-family:"Segoe UI",system-ui,sans-serif}
+.expect{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:10px 0}
+.expect>div{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:var(--panel2)}
+.expect h4{margin:0 0 6px;font-size:13px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted)}
+.verdict{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+.verdict label{display:flex;gap:6px;align-items:center;padding:6px 12px;border:1px solid var(--line);border-radius:99px;cursor:pointer;font-size:14px}
+.verdict input{accent-color:var(--accent)}
+.leds{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+.led{font-size:12px;padding:3px 8px;border-radius:6px;border:1px solid var(--line);color:var(--muted)}
+.led.on{background:rgba(255,93,108,.15);border-color:var(--bad);color:#ffc2c8}
+.toc-head{font-size:12px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:4px 10px 6px}
+footer{color:var(--muted);font-size:13px;text-align:center;padding:20px}
+@media (max-width:900px){.wrap{grid-template-columns:1fr}nav{display:none}main{padding:16px}.expect{grid-template-columns:1fr}}
+@media print{header,nav,.cmd button,.btn{display:none!important}body{background:#fff;color:#000}section{border-color:#ccc;background:#fff}.wrap{display:block}}
+</style>
+</head>
+<body>
+<header>
+  <div class="top">
+    <h1>FPGA test day</h1>
+    <div class="bar"><i id="barfill"></i></div>
+    <span id="pct">0 of 0 steps</span>
+    <button class="btn primary" id="export">Save results file</button>
+    <button class="btn" id="reset">Reset</button>
+  </div>
+</header>
+
+<div class="wrap">
+<nav id="toc">
+  <div class="toc-head">Before</div>
+  <a href="#rules"><span class="dot"></span>0. Golden rules</a>
+  <a href="#prep"><span class="dot"></span>1. What Charbel prepared</a>
+  <a href="#bench"><span class="dot"></span>2. Bench check</a>
+  <a href="#build"><span class="dot"></span>3. Build and program the FPGA</a>
+  <div class="toc-head" style="margin-top:14px">Phase A, STM32 = detector</div>
+  <a href="#t1"><span class="dot"></span>T1. Quick check</a>
+  <a href="#t2"><span class="dot"></span>T2. Held out, majority</a>
+  <a href="#t3"><span class="dot"></span>T3. Held out, strict</a>
+  <a href="#t4"><span class="dot"></span>T4. False flag test</a>
+  <a href="#t5"><span class="dot"></span>T5. Lost frames</a>
+  <div class="toc-head" style="margin-top:14px">Phase B, STM32 = update tool</div>
+  <a href="#t6"><span class="dot"></span>T6. Live model update</a>
+  <a href="#t7"><span class="dot"></span>T7. After the update</a>
+  <div class="toc-head" style="margin-top:14px">On the PC only</div>
+  <a href="#t8"><span class="dot"></span>T8. Power, the easy way</a>
+  <div class="toc-head" style="margin-top:14px">End</div>
+  <a href="#finish"><span class="dot"></span>9. Put everything back</a>
+  <a href="#trouble"><span class="dot"></span>10. If something goes wrong</a>
+</nav>
+
+<main>
+
+<section id="intro">
+  <h2>What you are doing today</h2>
+  <p class="sub">The paper needs eight measurements from the FPGA. This page walks you through each one. Tick every box as you go, type the numbers into the result boxes, and press <b>Save results file</b> at the end. Send that file to Charbel.</p>
+  <table>
+    <tr><th>Part</th><th>What it proves for the paper</th><th>Time</th></tr>
+    <tr><td>3. Build</td><td>The new design with the strict vote switch (SW2)</td><td>40 min, mostly waiting</td></tr>
+    <tr><td>T1</td><td>The new design still stops attacks</td><td>2 min</td></tr>
+    <tr><td>T2, T3</td><td>Attacks the model never saw, attacker keeps coming back. Majority vote and strict vote</td><td>15 min</td></tr>
+    <tr><td>T4</td><td>What a wrong verdict does to an honest car part, and how strict mode fixes it</td><td>5 min</td></tr>
+    <tr><td>T5</td><td>Where the few lost normal frames really go</td><td>10 min</td></tr>
+    <tr><td>T6, T7</td><td>The headline: a new model goes in while the FPGA keeps running, no Quartus</td><td>25 min</td></tr>
+    <tr><td>T8</td><td>Power, the easy way: Quartus estimate for both designs, plus an optional USB meter reading</td><td>20 min, PC only</td></tr>
+  </table>
+  <div class="call info"><b>This page keeps your ticks and numbers.</b> They stay in this browser on this PC even if you close the tab. Use the same browser all day.</div>
+</section>
+
+<section id="rules">
+  <h2>0. Golden rules</h2>
+  <p class="sub">Read these once. Breaking one of them is how boards die or results get wrong.</p>
+  <div class="call stop"><b>Never put 5 V on FPGA header pin 1.</b> Pin 11 is 5 V, pin 1 is CAN RX. The RX line goes through the resistor divider only. Do not move any wire on the DE10 Lite header unless this guide says so.</div>
+  <div class="call stop"><b>Never share or copy anything from <code class="i">updatable fpgas\quartus\</code>, <code class="i">keys\</code> or <code class="i">Desktop\master.key</code>.</b> They hold the board's secret key. Don't email them, don't put them on a USB stick, don't zip them.</div>
+  <div class="call warn"><b>Close every Arduino Serial Monitor before any test.</b> An open monitor blocks the COM port and the run fails with "Access is denied".</div>
+  <div class="call warn"><b>Unplug the USB before you move a wire or a jumper.</b> Ground goes on first and comes off last.</div>
+  <div class="call warn"><b>If a result does not match the expected box, stop.</b> Write what you saw in the notes box of that test, take a photo of the screen and the board LEDs, and message Charbel before going on. A wrong number is still useful. A guessed number is not.</div>
+  <ol class="steps">
+    <li><label class="chk"><input type="checkbox" data-k="r1"> I read the golden rules.</label></li>
+  </ol>
+</section>
+
+<section id="prep">
+  <h2>1. What Charbel prepared</h2>
+  <p class="sub"><span class="tag who">Charbel does this, before test day</span> Check each item is done. If one is missing, stop and ask him.</p>
+  <ol class="steps">
+    <li><label class="chk"><input type="checkbox" data-k="p1"> The attacker ESP32 runs <b>attack_sender version 2</b>. It prints <code class="i">READY ATTACKER 2</code> in the Arduino Serial Monitor at 921600 baud after a reset (close the monitor afterwards).</label></li>
+    <li><label class="chk"><input type="checkbox" data-k="p2"> The new files from this handout are in <code class="i">Desktop\CAN_IDS_IPS</code> (this page is <code class="i">docs\FPGA_TEST_GUIDE.html</code> in that folder).</label></li>
+    <li><label class="chk"><input type="checkbox" data-k="p3"> <code class="i">Desktop\master.key</code> exists.</label></li>
+    <li><label class="chk"><input type="checkbox" data-k="p4"> The STM32 runs the IDS firmware (fw 16). If unsure, run <code class="i">run_demo.bat prepare</code> from the project folder and follow it.</label></li>
+  </ol>
+</section>
+
+<section id="bench">
+  <h2>2. Bench check</h2>
+  <p class="sub"><span class="tag time">10 min</span> The bus and the boards, before anything else.</p>
+  <h3>The bus</h3>
+  <ol class="steps">
+    <li><label class="chk"><input type="checkbox" data-k="b1"> Everything unplugged from USB. With a multimeter on ohms, CANH to CANL reads about <b>60 Ω</b>. (120 Ω means a terminator is missing, a few Ω means a short.)</label></li>
+    <li><label class="chk"><input type="checkbox" data-k="b2"> Three ESP32s on the bus rails: sender, attacker, receiver. All grounds joined.</label></li>
+    <li><label class="chk"><input type="checkbox" data-k="b3"> DE10 Lite: CAN shield on header pins 1 (RX) and 2 (TX), the SPI cable plugged in on pins 5 to 8 and 12. <b>No jumper from pin 1 to pin 29.</b></label></li>
+    <li><label class="chk"><input type="checkbox" data-k="b4"> STM32: its TJA1050 on PB8 and PB9, <b>both CANH and CANL</b> on the bus rails. The other end of the SPI cable on the STM32 shield, both plugs pushed fully in.</label></li>
+    <li><label class="chk"><input type="checkbox" data-k="b5"> Plug USB in this order: the three ESP32s, then the DE10 Lite, then the STM32.</label></li>
+  </ol>
+  <h3>The DE10 Lite switches</h3>
+  <p>You will move only these three. The rest stay down all day.</p>
+  <div class="sw">
+    <div class="swi"><div class="lever"></div><b>SW0</b><span>prevention<br>up = destroy attacks<br>LEDR9 shows it</span></div>
+    <div class="swi"><div class="lever"></div><b>SW1</b><span>maintenance<br>up = accept updates<br>LEDR8 shows it</span></div>
+    <div class="swi"><div class="lever"></div><b>SW2</b><span>strict vote (new)<br>up = destroy only if<br>all 5 trees agree</span></div>
+  </div>
+  <p>To learn which way is up, flip SW0: up lights LEDR9. SW1 and SW2 go up the same way. SW2 has no LED of its own, so look at it before every test.</p>
+  <h3>The LEDs you will read</h3>
+  <div class="leds"><span class="led">LEDR0 frame seen</span><span class="led">LEDR1 attack verdict</span><span class="led">LEDR2 frame destroyed</span><span class="led">LEDR3 CAN error</span><span class="led">LEDR4/5 model slot</span><span class="led">LEDR6 update port locked</span><span class="led">LEDR7 update error</span><span class="led">LEDR8 maintenance</span><span class="led">LEDR9 prevention</span></div>
+  <p>In strict mode a weak verdict blinks <b>LEDR1 without LEDR2</b>. That is the alert only case, and it is correct.</p>
+  <ol class="steps">
+    <li>
+      <label class="chk"><input type="checkbox" data-k="b6"> Open a Command Prompt in the project folder and run the check. It must find the sender, receiver and attacker, Quartus and the USB Blaster.</label>
+      <div class="cmd"><code>cd /d "%USERPROFILE%\Desktop\CAN_IDS_IPS"</code><button>Copy</button></div>
+      <div class="cmd"><code>fpga_tests.bat check</code><button>Copy</button></div>
+    </li>
+  </ol>
+</section>
+
+<section id="build">
+  <h2>3. Build and program the FPGA</h2>
+  <p class="sub"><span class="tag time">40 min</span><span class="tag who">once</span> The Verilog has a new switch, SW2. The FPGA needs a fresh build to get it.</p>
+  <div class="call info"><b>What changed in the design.</b> When SW2 is up, the FPGA destroys a frame only if all five trees vote attack, or if the ID is one the car never sends. A 3 or 4 of 5 verdict becomes an alert only. This removes every false flag in the dataset while still stopping all DoS, gear and RPM attacks. It was already checked in simulation: bit for bit the same as Python on 675,167 distinct frames, and attacks still destroyed on a simulated bus.</div>
+  <ol class="steps">
+    <li><label class="chk"><input type="checkbox" data-k="q1"> Open Quartus Prime Lite. File, Open Project: <code class="i">Desktop\CAN_IDS_IPS\updatable fpgas\quartus\updatable_top.qpf</code>.</label></li>
+    <li><label class="chk"><input type="checkbox" data-k="q2"> Processing, Start Compilation. It takes about 25 minutes. Don't touch the board meanwhile.</label></li>
+    <li><label class="chk"><input type="checkbox" data-k="q3"> It ends with <b>0 errors</b> (warnings are fine).</label></li>
+    <li><label class="chk"><input type="checkbox" data-k="q4"> In the Compilation Report: Timing Analyzer, Slow 1200mV 85C Model, Fmax Summary. The clock is <b>above 50 MHz</b> (expect about 55). Type it below.</label>
+      <div class="res"><label>Fmax (MHz)<input data-r="build_fmax" placeholder="e.g. 55.4"></label><label>Logic elements used<input data-r="build_le" placeholder="Fitter summary, Total logic elements"></label><label>Memory bits used<input data-r="build_mem" placeholder="Fitter summary"></label></div>
+    </li>
+    <li><label class="chk"><input type="checkbox" data-k="q5"> Program the board. Answer <b>Y</b> when it asks. About 30 seconds.</label>
+      <div class="cmd"><code>program_fpga.bat</code><button>Copy</button></div>
+    </li>
+    <li><label class="chk"><input type="checkbox" data-k="q6"> Unplug the DE10 Lite USB, wait 5 seconds, plug it back. <b>LEDR4 and LEDR5 both on</b> (it runs its built in 5 byte model). SW0, SW1, SW2 all down.</label></li>
+  </ol>
+  <div class="call stop"><b>Fmax under 50 MHz, or errors?</b> Stop and send Charbel a screenshot of the report. Don't program a design that misses timing.</div>
+</section>
+
+<section id="t1">
+  <h2>T1. Quick check</h2>
+  <p class="sub"><span class="tag time">2 min</span> Proves the new design still stops attacks the normal way.</p>
+  <div class="sw"><div class="swi up"><div class="lever"></div><b>SW0 up</b></div><div class="swi"><div class="lever"></div><b>SW1 down</b></div><div class="swi"><div class="lever"></div><b>SW2 down</b></div></div>
+  <ol class="steps">
+    <li><label class="chk"><input type="checkbox" data-k="t1a"> Switches as shown. LEDR9 on.</label></li>
+    <li><label class="chk"><input type="checkbox" data-k="t1b"> Run it. It does a 300 frame link check first, then 5,000 DoS frames.</label>
+      <div class="cmd"><code>fpga_tests.bat t1</code><button>Copy</button></div></li>
+  </ol>
+  <div class="expect">
+    <div><h4>Expected</h4>DoS: 1,861 sent, <b>0 arrived</b> (all destroyed).<br>Normal: 3,139 sent, <b>0 lost</b>.<br>Attacker ends <b>busoff</b>.</div>
+    <div><h4>You got</h4><div class="res" style="grid-template-columns:1fr 1fr"><label>Run folder<input data-r="t1_run" placeholder="2026...._DoS_dataset"></label><label>DoS arrived<input data-r="t1_dos" ></label><label>Normal lost<input data-r="t1_norm"></label><label>Attacker state<input data-r="t1_att" placeholder="busoff / running"></label></div></div>
+  </div>
+  <div class="verdict" data-v="t1"><label><input type="radio" name="v_t1" value="match"> Matches</label><label><input type="radio" name="v_t1" value="differs"> Differs, I stopped</label></div>
+  <textarea data-r="t1_notes" placeholder="Notes (anything odd)"></textarea>
+</section>
+
+<section id="t2">
+  <h2>T2. Held out traffic, majority vote</h2>
+  <p class="sub"><span class="tag time">7 min</span> 40,000 frames from all four attack files, only from the part the model never trained on. The attacker comes back on the bus at every block, so the FPGA has to keep stopping it.</p>
+  <div class="sw"><div class="swi up"><div class="lever"></div><b>SW0 up</b></div><div class="swi"><div class="lever"></div><b>SW1 down</b></div><div class="swi"><div class="lever"></div><b>SW2 down</b></div></div>
+  <ol class="steps">
+    <li><label class="chk"><input type="checkbox" data-k="t2a"> Switches as shown.</label></li>
+    <li><label class="chk"><input type="checkbox" data-k="t2b"> Run it. If it stops with "needs attack_sender version 2", go back to section 1.</label>
+      <div class="cmd"><code>fpga_tests.bat t2</code><button>Copy</button></div></li>
+    <li><label class="chk"><input type="checkbox" data-k="t2c"> At the end it prints a table per attack, then a line like <code class="i">attacker pushed off the bus N times, came back M times</code>. Copy those numbers below.</label></li>
+  </ol>
+  <div class="expect">
+    <div><h4>Expected</h4>Every attack class: almost all frames destroyed (Fuzzy may let a few through).<br>Normal lost: 0 or a handful.<br>Attacker: pushed off about once per block, came back about once per block (around 15).</div>
+    <div><h4>You got</h4><div class="res" style="grid-template-columns:1fr 1fr">
+      <label>Run folder<input data-r="t2_run" placeholder="2026...._mixed"></label>
+      <label>Normal sent / lost<input data-r="t2_norm" placeholder="sent / lost"></label>
+      <label>DoS sent / arrived<input data-r="t2_dos"></label>
+      <label>Fuzzy sent / arrived<input data-r="t2_fuzzy"></label>
+      <label>Gear sent / arrived<input data-r="t2_gear"></label>
+      <label>RPM sent / arrived<input data-r="t2_rpm"></label>
+      <label>Attacker off / came back<input data-r="t2_bo" placeholder="N / M"></label>
+    </div></div>
+  </div>
+  <div class="verdict"><label><input type="radio" name="v_t2" value="match"> Matches</label><label><input type="radio" name="v_t2" value="differs"> Differs, I stopped</label></div>
+  <textarea data-r="t2_notes" placeholder="Notes"></textarea>
+</section>
+
+<section id="t3">
+  <h2>T3. Held out traffic, strict vote</h2>
+  <p class="sub"><span class="tag time">7 min</span> The same 40,000 frames (same seed), now with SW2 up. The paper compares T2 and T3 side by side.</p>
+  <div class="sw"><div class="swi up"><div class="lever"></div><b>SW0 up</b></div><div class="swi"><div class="lever"></div><b>SW1 down</b></div><div class="swi up"><div class="lever"></div><b>SW2 UP</b></div></div>
+  <ol class="steps">
+    <li><label class="chk"><input type="checkbox" data-k="t3a"> <b>SW2 up.</b> SW0 still up.</label></li>
+    <li><label class="chk"><input type="checkbox" data-k="t3b"> Run it.</label><div class="cmd"><code>fpga_tests.bat t3</code><button>Copy</button></div></li>
+  </ol>
+  <div class="expect">
+    <div><h4>Expected</h4>DoS, gear, RPM: same as T2.<br>Fuzzy: a few more may arrive than in T2 (Python says 99.5% stopped instead of 99.9%).<br>Normal lost: 0 or a handful.</div>
+    <div><h4>You got</h4><div class="res" style="grid-template-columns:1fr 1fr">
+      <label>Run folder<input data-r="t3_run"></label>
+      <label>Normal sent / lost<input data-r="t3_norm"></label>
+      <label>DoS sent / arrived<input data-r="t3_dos"></label>
+      <label>Fuzzy sent / arrived<input data-r="t3_fuzzy"></label>
+      <label>Gear sent / arrived<input data-r="t3_gear"></label>
+      <label>RPM sent / arrived<input data-r="t3_rpm"></label>
+      <label>Attacker off / came back<input data-r="t3_bo"></label>
+    </div></div>
+  </div>
+  <div class="verdict"><label><input type="radio" name="v_t3" value="match"> Matches</label><label><input type="radio" name="v_t3" value="differs"> Differs, I stopped</label></div>
+  <textarea data-r="t3_notes" placeholder="Notes"></textarea>
+</section>
+
+<section id="t4">
+  <h2>T4. False flag test</h2>
+  <p class="sub"><span class="tag time">5 min</span> 20,000 <b>genuine</b> car frames, no attack at all. The 5 byte model wrongly calls 699 of them an attack. Each destroyed genuine frame is resent and destroyed again, which can push an honest car part off the bus. Run it twice.</p>
+  <h3>T4a. Majority vote</h3>
+  <div class="sw"><div class="swi up"><div class="lever"></div><b>SW0 up</b></div><div class="swi"><div class="lever"></div><b>SW1 down</b></div><div class="swi"><div class="lever"></div><b>SW2 down</b></div></div>
+  <ol class="steps">
+    <li><label class="chk"><input type="checkbox" data-k="t4a"> SW2 <b>down</b>. Run it. The attacker board stays plugged in but sends nothing.</label><div class="cmd"><code>fpga_tests.bat t4</code><button>Copy</button></div></li>
+    <li><label class="chk"><input type="checkbox" data-k="t4b"> Look at the end of the output, or open <code class="i">summary.json</code> in the run folder. Find the sender's line <code class="i">#TX sent=... tec=... state=...</code>.</label></li>
+  </ol>
+  <div class="expect">
+    <div><h4>Expected</h4>Many normal frames lost (hundreds or more).<br>Sender: <b>tec high, likely state=busoff</b>. That is the problem the paper shows.</div>
+    <div><h4>You got</h4><div class="res" style="grid-template-columns:1fr 1fr">
+      <label>Run folder<input data-r="t4a_run"></label><label>Normal sent / lost<input data-r="t4a_norm"></label><label>Sender tec<input data-r="t4a_tec"></label><label>Sender state<input data-r="t4a_state" placeholder="busoff / running / passive"></label></div></div>
+  </div>
+  <h3>T4b. Strict vote</h3>
+  <div class="sw"><div class="swi up"><div class="lever"></div><b>SW0 up</b></div><div class="swi"><div class="lever"></div><b>SW1 down</b></div><div class="swi up"><div class="lever"></div><b>SW2 UP</b></div></div>
+  <ol class="steps">
+    <li><label class="chk"><input type="checkbox" data-k="t4c"> If the sender went bus off in T4a, press its reset button (EN) first, or unplug and replug it.</label></li>
+    <li><label class="chk"><input type="checkbox" data-k="t4d"> SW2 <b>up</b>. Run the same command again. LEDR1 may blink without LEDR2: alerts only.</label><div class="cmd"><code>fpga_tests.bat t4</code><button>Copy</button></div></li>
+  </ol>
+  <div class="expect">
+    <div><h4>Expected</h4>Normal lost: <b>0</b>.<br>Sender: <b>tec=0, state=running</b>.</div>
+    <div><h4>You got</h4><div class="res" style="grid-template-columns:1fr 1fr">
+      <label>Run folder<input data-r="t4b_run"></label><label>Normal sent / lost<input data-r="t4b_norm"></label><label>Sender tec<input data-r="t4b_tec"></label><label>Sender state<input data-r="t4b_state"></label></div></div>
+  </div>
+  <div class="verdict"><label><input type="radio" name="v_t4" value="match"> Both match</label><label><input type="radio" name="v_t4" value="differs"> Differs, I stopped</label></div>
+  <textarea data-r="t4_notes" placeholder="Notes"></textarea>
+</section>
+
+<section id="t5">
+  <h2>T5. Where the lost normal frames go</h2>
+  <p class="sub"><span class="tag time">10 min</span> In earlier RPM runs a few normal frames went missing right when the attacker was pushed off. Here the STM32 records every frame next to the ESP32 receiver, so we learn whether they were really lost on the bus or only missed by the receiver. Run it <b>3 times</b>: the loss does not happen every time.</p>
+  <div class="sw"><div class="swi up"><div class="lever"></div><b>SW0 up</b></div><div class="swi"><div class="lever"></div><b>SW1 down</b></div><div class="swi"><div class="lever"></div><b>SW2 down</b></div></div>
+  <ol class="steps">
+    <li><label class="chk"><input type="checkbox" data-k="t5a"> SW2 back <b>down</b>. The STM32 runs the IDS firmware (it only listens here).</label></li>
+    <li><label class="chk"><input type="checkbox" data-k="t5b"> Run 1.</label><div class="cmd"><code>fpga_tests.bat t5</code><button>Copy</button></div></li>
+    <li><label class="chk"><input type="checkbox" data-k="t5c"> Run 2 (same command).</label></li>
+    <li><label class="chk"><input type="checkbox" data-k="t5d"> Run 3 (same command).</label></li>
+  </ol>
+  <p>For every lost normal frame the script prints one of: <code class="i">on the bus: the STM32 heard it, the ESP32 receiver did not</code> or <code class="i">not heard by either recorder</code>. Copy those lines.</p>
+  <div class="res">
+    <label>Run 1 folder and normal lost<input data-r="t5_1" placeholder="folder, lost N"></label>
+    <label>Run 2 folder and normal lost<input data-r="t5_2"></label>
+    <label>Run 3 folder and normal lost<input data-r="t5_3"></label>
+  </div>
+  <textarea data-r="t5_lines" placeholder="Paste the 'on the bus / not heard' lines here"></textarea>
+</section>
+
+<section id="t6">
+  <h2>T6. Live model update (the headline)</h2>
+  <p class="sub"><span class="tag time">25 min</span> The FPGA's circuit stays the same. Only its model changes, sent as a signed, scrambled file through the STM32 over SPI. No Quartus, no USB Blaster.</p>
+  <div class="call warn"><b>The STM32 changes job here.</b> It stops being a CAN detector and becomes the update tool. The demo script handles the jumper steps and waits for you at each one. Follow its screen exactly: shield off, BT0 jumper to 3V3, press RST, Enter. Then BT0 off 3V3, shield back on, RST, Enter.</div>
+  <h3>T6a. The secure update steps, recorded</h3>
+  <div class="sw"><div class="swi"><div class="lever"></div><b>SW0 any</b></div><div class="swi"><div class="lever"></div><b>SW1 as asked</b></div><div class="swi"><div class="lever"></div><b>SW2 down</b></div></div>
+  <ol class="steps">
+    <li><label class="chk"><input type="checkbox" data-k="t6a"> Run the update part of the demo. It asks for every switch. It shows: a refusal with SW1 down, an accepted update with SW1 up (slot LEDs swap), a rollback refused, a forged file refused.</label><div class="cmd"><code>run_demo.bat update</code><button>Copy</button></div></li>
+    <li><label class="chk"><input type="checkbox" data-k="t6b"> All four results appeared as the screen said (refused, accepted, refused, refused).</label>
+      <div class="res"><label>Version after the accepted update<input data-r="t6_v1"></label><label>Slot LED after it (LEDR4 or LEDR5)<input data-r="t6_slot1"></label></div></li>
+  </ol>
+  <h3>T6b. Push the 6 byte model</h3>
+  <div class="sw"><div class="swi up"><div class="lever"></div><b>SW0 up</b></div><div class="swi up"><div class="lever"></div><b>SW1 UP</b></div><div class="swi"><div class="lever"></div><b>SW2 down</b></div></div>
+  <ol class="steps">
+    <li><label class="chk"><input type="checkbox" data-k="t6c"> <b>SW1 up</b> (LEDR8 on). If LEDR6 (locked) is on, unplug the DE10 Lite USB and plug it back first.</label></li>
+    <li><label class="chk"><input type="checkbox" data-k="t6d"> Push. It reads the current version, signs the 6 byte model one version higher with the master key, and sends it.</label><div class="cmd"><code>fpga_tests.bat t6</code><button>Copy</button></div></li>
+    <li><label class="chk"><input type="checkbox" data-k="t6e"> It ends with <code class="i">PASS: the FPGA now runs the 6 byte model (E7321E76)</code>, and the slot LED swapped.</label>
+      <div class="res"><label>New version<input data-r="t6_v2"></label><label>Slot LED now<input data-r="t6_slot2"></label><label>Seconds the push took<input data-r="t6_secs"></label></div></li>
+    <li><label class="chk"><input type="checkbox" data-k="t6f"> Read the FPGA's own counters (seen, blocked, errors, sig_fails). Write them down.</label><div class="cmd"><code>fpga_tests.bat counters</code><button>Copy</button></div>
+      <div class="res"><label>COUNTERS line<input data-r="t6_counters" placeholder="seen=... blocked=... errors=... sig_fails=..."></label></div></li>
+    <li><label class="chk"><input type="checkbox" data-k="t6g"> <b>SW1 down</b> (port closed).</label></li>
+  </ol>
+  <div class="call stop"><b>ERROR ... code 12</b> means the stamp didn't match (wrong key file). <b>code 7</b> means the version is too old. Don't retry more than twice: three bad stamps lock the port until a power cycle. Message Charbel.</div>
+  <textarea data-r="t6_notes" placeholder="Notes"></textarea>
+</section>
+
+<section id="t7">
+  <h2>T7. After the update: the false flags drop</h2>
+  <p class="sub"><span class="tag time">5 min</span> Same genuine frames as T4a, same majority vote, but the FPGA now runs the 6 byte model. It reads one more byte, so it makes far fewer mistakes: 49 flags instead of 699 in Python.</p>
+  <div class="sw"><div class="swi up"><div class="lever"></div><b>SW0 up</b></div><div class="swi"><div class="lever"></div><b>SW1 down</b></div><div class="swi"><div class="lever"></div><b>SW2 down</b></div></div>
+  <ol class="steps">
+    <li><label class="chk"><input type="checkbox" data-k="t7a"> Reset the sender ESP32 (EN button) so it starts clean.</label></li>
+    <li><label class="chk"><input type="checkbox" data-k="t7b"> Run the false flag test again. The STM32 is the update tool now, which is fine: this test doesn't need it.</label><div class="cmd"><code>fpga_tests.bat t4</code><button>Copy</button></div></li>
+    <li><label class="chk"><input type="checkbox" data-k="t7c"> SW1 up, read the counters again, then SW1 down. "blocked" went up by the number of flags in this run.</label><div class="cmd"><code>fpga_tests.bat counters</code><button>Copy</button></div></li>
+  </ol>
+  <div class="expect">
+    <div><h4>Expected</h4>Far fewer normal frames lost than T4a. The sender may still end bus off (49 wrong verdicts are still some), but later in the run.<br>"blocked" rose by roughly 49 plus the resends.</div>
+    <div><h4>You got</h4><div class="res" style="grid-template-columns:1fr 1fr"><label>Run folder<input data-r="t7_run"></label><label>Normal sent / lost<input data-r="t7_norm"></label><label>Sender tec / state<input data-r="t7_sender"></label><label>COUNTERS after<input data-r="t7_counters"></label></div></div>
+  </div>
+  <div class="verdict"><label><input type="radio" name="v_t7" value="match"> Fewer losses than T4a</label><label><input type="radio" name="v_t7" value="differs"> Not fewer, I stopped</label></div>
+  <textarea data-r="t7_notes" placeholder="Notes"></textarea>
+</section>
+
+<section id="t8">
+  <h2>T8. Power, the easy way</h2>
+  <p class="sub"><span class="tag time">20 min</span><span class="tag who">PC only, no cutting, nothing to buy</span> Quartus estimates the FPGA's power from the compiled design. You do it twice, once per design, with the same settings, so the paper can compare them.</p>
+  <div class="call info"><b>What the paper needs.</b> Four numbers per design: total, core dynamic, core static and I/O power. That is all. It will be labeled "estimated by Quartus", which reviewers accept.</div>
+
+  <h3>Design 1: the updatable design (already compiled in section 3)</h3>
+  <ol class="steps">
+    <li><label class="chk"><input type="checkbox" data-k="t8a"> In Quartus, with <code class="i">updatable fpgas\quartus\updatable_top.qpf</code> open: menu <b>Processing</b>, then <b>Power Analyzer Tool</b>. A window opens.</label></li>
+    <li><label class="chk"><input type="checkbox" data-k="t8b"> In that window, open <b>Settings</b> (bottom left). Under "Default toggle rate used for remaining signals" type <b>12.5%</b>. Leave "Use input file(s)" unticked. Junction temperature: <b>25 °C</b>. Press OK.</label></li>
+    <li><label class="chk"><input type="checkbox" data-k="t8c"> Press <b>Start</b>. It takes under a minute.</label></li>
+    <li><label class="chk"><input type="checkbox" data-k="t8d"> In the Compilation Report, open <b>Power Analyzer</b>, then <b>Summary</b>. Copy these lines. Take a screenshot of the Summary too.</label>
+      <div class="res"><label>Total thermal power dissipation (mW)<input data-r="t8_u_total"></label><label>Core dynamic thermal power (mW)<input data-r="t8_u_dyn"></label><label>Core static thermal power (mW)<input data-r="t8_u_stat"></label><label>I/O thermal power (mW)<input data-r="t8_u_io"></label><label>Power estimation confidence<input data-r="t8_u_conf" placeholder="Low / Medium / High"></label></div></li>
+  </ol>
+
+  <h3>Design 2: the hardcoded design</h3>
+  <ol class="steps">
+    <li><label class="chk"><input type="checkbox" data-k="t8e"> File, Open Project: <code class="i">Desktop\CAN_IDS_IPS\quartus_board\can_ids_top.qpf</code>. Processing, Start Compilation (a few minutes). 0 errors.</label></li>
+    <li><label class="chk"><input type="checkbox" data-k="t8f"> Power Analyzer Tool with <b>exactly the same settings</b> (12.5%, no input file, 25 °C). Start.</label></li>
+    <li><label class="chk"><input type="checkbox" data-k="t8g"> Copy the same lines and take a screenshot.</label>
+      <div class="res"><label>Total thermal power dissipation (mW)<input data-r="t8_h_total"></label><label>Core dynamic thermal power (mW)<input data-r="t8_h_dyn"></label><label>Core static thermal power (mW)<input data-r="t8_h_stat"></label><label>I/O thermal power (mW)<input data-r="t8_h_io"></label></div></li>
+    <li><label class="chk"><input type="checkbox" data-k="t8h"> <b>Do not program the board with this design.</b> It is only for the power numbers. The board keeps the updatable design from section 3.</label></li>
+  </ol>
+
+  <h3>Optional: a real reading, only if the lab lends you a USB power meter</h3>
+  <p>A USB power meter is a small dongle that plugs between the USB cable and the board and shows volts and milliamps. No cutting. If the electronics lab has one:</p>
+  <ol class="steps">
+    <li><label class="chk"><input type="checkbox" data-k="t8i"> Plug it between the laptop and the DE10-Lite's USB cable. Board running the updatable design, SW0 down, bus quiet. Wait 30 s and write the reading.</label></li>
+    <li><label class="chk"><input type="checkbox" data-k="t8j"> SW0 up and run <code class="i">fpga_tests.bat t2</code> again. Write the reading in the middle of the run.</label>
+      <div class="res"><label>Idle (V, mA)<input data-r="t8_m_idle"></label><label>During T2 (V, mA)<input data-r="t8_m_run"></label></div></li>
+  </ol>
+  <div class="call warn"><b>Never</b> cut or strip a cable, and never power the board from a header pin. If there is no USB meter, skip this part: the Quartus numbers are enough.</div>
+</section>
+
+<section id="finish">
+  <h2>9. Put everything back</h2>
+  <ol class="steps">
+    <li><label class="chk"><input type="checkbox" data-k="f1"> Put the STM32 back to the IDS firmware. Follow the screen (jumper steps again).</label><div class="cmd"><code>run_demo.bat prepare</code><button>Copy</button></div></li>
+    <li><label class="chk"><input type="checkbox" data-k="f2"> All switches down: SW0, SW1, SW2.</label></li>
+    <li><label class="chk"><input type="checkbox" data-k="f3"> Press <b>Save results file</b> at the top and send the file to Charbel, with photos of anything odd.</label></li>
+    <li><label class="chk"><input type="checkbox" data-k="f4"> Zip the run folders from today (<code class="i">CAN_IDS_IPS\runs\</code>, only today's dates) and send them too. Never zip the quartus or keys folders.</label></li>
+  </ol>
+  <div class="call ok"><b>Done.</b> The FPGA keeps the 6 byte model in its flash. That is fine: the demo pushes a new model anyway.</div>
+</section>
+
+<section id="trouble">
+  <h2>10. If something goes wrong</h2>
+  <table>
+    <tr><th>What you see</th><th>What to do</th></tr>
+    <tr><td>"Could not find exactly one sender and one receiver"</td><td>A USB cable, or a Serial Monitor is open. Close the Arduino IDE, replug the ESP32s, run again.</td></tr>
+    <tr><td>Link check FAILED</td><td>A bus wire or terminator. Power off, check CANH to CANL is about 60 Ω, check no CANH is on a CANL rail.</td></tr>
+    <tr><td>"needs attack_sender version 2"</td><td>The attacker has the old program. Stop, ask Charbel to upload <code class="i">esp32\attack_sender</code>.</td></tr>
+    <tr><td>Attack frames arrive in T1 to T3</td><td>SW0 is down, or the wires on FPGA pins 1 and 2. Check LEDR9 is on.</td></tr>
+    <tr><td>LEDR0 never blinks</td><td>The FPGA hears nothing: its CAN shield, the divider on pin 1, or the board lost its design (LEDR4/5 both off: run <code class="i">program_fpga.bat</code> again).</td></tr>
+    <tr><td>"The FPGA does not answer (all FF)"</td><td>Push both SPI plugs fully in. Unplug both USB cables, plug the DE10 Lite first, then the STM32.</td></tr>
+    <tr><td>Update "port locked" (LEDR6 on)</td><td>Three bad stamps since power on. Unplug the DE10 Lite USB and plug it back.</td></tr>
+    <tr><td>STM32 shows up as "STM32 BOOTLOADER"</td><td>It started with BOOT0 high. BT0 off 3V3, shield on, RST, run the step again.</td></tr>
+    <tr><td>"The replay did not finish"</td><td>Read the lines above it. Usually a USB cable or an open Serial Monitor.</td></tr>
+    <tr><td>Quartus compile fails on device_key.vh</td><td>The board key file is missing. Stop, Charbel makes it (it needs master.key).</td></tr>
+    <tr><td>Anything else</td><td>Stop. Photo of the screen and the LEDs. Message Charbel. Don't improvise.</td></tr>
+  </table>
+</section>
+
+<footer>CAN IDS/IPS bench guide, made for the paper revision, 22 Nov 2026. Results stay in this browser until you press Reset.</footer>
+</main>
+</div>
+
+<script>
+(function(){
+  var KEY="fpga_test_day_v1", state={};
+  function load(){try{state=JSON.parse(localStorage.getItem(KEY)||"{}")}catch(e){state={}}}
+  function save(){try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){}}
+  load();
+  var boxes=[].slice.call(document.querySelectorAll('input[type=checkbox][data-k]'));
+  var fields=[].slice.call(document.querySelectorAll('[data-r]'));
+  var radios=[].slice.call(document.querySelectorAll('input[type=radio]'));
+  boxes.forEach(function(b){
+    b.checked=!!state[b.dataset.k];
+    b.addEventListener('change',function(){state[b.dataset.k]=b.checked;save();refresh()});
+  });
+  fields.forEach(function(f){
+    if(state['r_'+f.dataset.r]!=null)f.value=state['r_'+f.dataset.r];
+    f.addEventListener('input',function(){state['r_'+f.dataset.r]=f.value;save()});
+  });
+  radios.forEach(function(r){
+    if(state['v_'+r.name]===r.value)r.checked=true;
+    r.addEventListener('change',function(){state['v_'+r.name]=r.value;save()});
+  });
+  function refresh(){
+    var done=boxes.filter(function(b){return b.checked}).length;
+    document.getElementById('barfill').style.width=(boxes.length?100*done/boxes.length:0)+'%';
+    document.getElementById('pct').textContent=done+' of '+boxes.length+' steps';
+    boxes.forEach(function(b){var li=b.closest('li');if(li)li.classList.toggle('checked',b.checked)});
+    document.querySelectorAll('section[id]').forEach(function(s){
+      var bs=s.querySelectorAll('input[type=checkbox][data-k]');
+      var a=document.querySelector('nav a[href="#'+s.id+'"]');
+      if(a&&bs.length){a.classList.toggle('done',[].every.call(bs,function(b){return b.checked}))}
+    });
+  }
+  refresh();
+  document.querySelectorAll('.cmd button').forEach(function(btn){
+    btn.addEventListener('click',function(){
+      var t=btn.parentNode.querySelector('code').textContent;
+      function ok(){btn.textContent='Copied';btn.classList.add('copied');setTimeout(function(){btn.textContent='Copy';btn.classList.remove('copied')},1400)}
+      if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(ok,function(){fallback(t);ok()})}else{fallback(t);ok()}
+    });
+  });
+  function fallback(t){var ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand('copy')}catch(e){}document.body.removeChild(ta)}
+  document.getElementById('export').addEventListener('click',function(){
+    var lines=['FPGA test day results','Saved: '+new Date().toString(),''];
+    document.querySelectorAll('section[id]').forEach(function(s){
+      var title=s.querySelector('h2').textContent, rows=[];
+      s.querySelectorAll('[data-r]').forEach(function(f){
+        if(f.value){var lab=f.closest('label');var name=lab?lab.childNodes[0].textContent.trim():f.dataset.r;rows.push('  '+name+': '+f.value.replace(/\n/g,'\n    '))}
+      });
+      s.querySelectorAll('input[type=radio]:checked').forEach(function(r){rows.push('  Verdict: '+r.parentNode.textContent.trim())});
+      var bs=s.querySelectorAll('input[type=checkbox][data-k]');
+      if(bs.length){var d=[].filter.call(bs,function(b){return b.checked}).length;rows.unshift('  Steps ticked: '+d+' of '+bs.length)}
+      if(rows.length){lines.push(title);lines=lines.concat(rows);lines.push('')}
+    });
+    lines.push('Raw: '+JSON.stringify(state));
+    var blob=new Blob([lines.join('\r\n')],{type:'text/plain'});
+    var a=document.createElement('a');a.href=URL.createObjectURL(blob);
+    a.download='fpga_test_results_'+new Date().toISOString().slice(0,10)+'.txt';
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+  });
+  document.getElementById('reset').addEventListener('click',function(){
+    if(confirm('Clear every tick and every number on this page?')){state={};save();location.reload()}
+  });
+})();
+</script>
+</body>
+</html>

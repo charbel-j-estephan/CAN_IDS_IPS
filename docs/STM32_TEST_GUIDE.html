@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>STM32 test day: CAN IDS/IPS paper experiments</title>
+<style>
+:root{
+  --bg:#0f1216;--panel:#171c22;--panel2:#1e252d;--ink:#e8edf2;--muted:#9aa7b4;
+  --line:#2b343e;--accent:#4cc2ff;--ok:#3ccf91;--warn:#ffb547;--bad:#ff5d6c;--code:#0b0e12;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "Segoe UI",system-ui,-apple-system,sans-serif}
+a{color:var(--accent)}
+header{position:sticky;top:0;z-index:20;background:rgba(15,18,22,.96);backdrop-filter:blur(6px);border-bottom:1px solid var(--line)}
+.top{display:flex;align-items:center;gap:16px;padding:10px 20px;flex-wrap:wrap}
+.top h1{font-size:18px;margin:0;font-weight:650;letter-spacing:.2px}
+.bar{flex:1;min-width:180px;height:10px;background:var(--panel2);border-radius:99px;overflow:hidden}
+.bar>i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--ok));transition:width .3s}
+#pct{font-variant-numeric:tabular-nums;color:var(--muted);min-width:110px;text-align:right}
+.btn{background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:6px 12px;font:inherit;font-size:14px;cursor:pointer}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);color:#001421;border-color:var(--accent);font-weight:600}
+.wrap{display:grid;grid-template-columns:260px 1fr;gap:0;max-width:1300px;margin:0 auto}
+nav{position:sticky;top:58px;align-self:start;height:calc(100vh - 58px);overflow:auto;padding:18px 14px;border-right:1px solid var(--line)}
+nav a{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:7px;color:var(--muted);text-decoration:none;font-size:14px}
+nav a:hover{background:var(--panel2);color:var(--ink)}
+nav a .dot{width:9px;height:9px;border-radius:50%;background:var(--line);flex:none}
+nav a.done .dot{background:var(--ok)}
+nav a.part{color:var(--ink);font-weight:600;margin-top:10px}
+main{padding:24px 34px 120px;min-width:0}
+section{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px 26px;margin:0 0 22px}
+h2{margin:0 0 4px;font-size:22px}
+h3{margin:22px 0 8px;font-size:17px}
+.sub{color:var(--muted);margin:0 0 14px}
+.tag{display:inline-block;font-size:12px;padding:2px 8px;border-radius:99px;border:1px solid var(--line);color:var(--muted);margin-right:6px}
+.tag.time{border-color:#33506a;color:#9fd3ff}
+.tag.who{border-color:#4d3f22;color:#ffd38a}
+.call{border-radius:10px;padding:12px 16px;margin:14px 0;border:1px solid}
+.call b:first-child{display:block;margin-bottom:2px}
+.call.stop{background:rgba(255,93,108,.08);border-color:rgba(255,93,108,.5)}
+.call.warn{background:rgba(255,181,71,.08);border-color:rgba(255,181,71,.5)}
+.call.ok{background:rgba(60,207,145,.08);border-color:rgba(60,207,145,.45)}
+.call.info{background:rgba(76,194,255,.07);border-color:rgba(76,194,255,.4)}
+ol.steps{counter-reset:s;list-style:none;padding:0;margin:10px 0}
+ol.steps>li{counter-increment:s;position:relative;padding:12px 14px 12px 56px;border:1px solid var(--line);border-radius:10px;margin:8px 0;background:var(--panel2)}
+ol.steps>li::before{content:counter(s);position:absolute;left:14px;top:12px;width:28px;height:28px;border-radius:50%;background:var(--bg);border:1px solid var(--line);display:grid;place-items:center;font-size:13px;color:var(--muted)}
+ol.steps>li.checked{border-color:rgba(60,207,145,.55)}
+ol.steps>li.checked::before{content:"\2713";background:var(--ok);color:#00170d;border-color:var(--ok)}
+label.chk{display:block;position:relative;padding-left:30px;cursor:pointer}
+label.chk input{position:absolute;left:0;top:3px;margin:0;width:18px;height:18px;accent-color:var(--ok)}
+.cmd{display:flex;align-items:stretch;margin:8px 0;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--code)}
+.cmd code{flex:1;padding:9px 12px;font:14px/1.45 Consolas,"Cascadia Mono",monospace;color:#cfe8ff;white-space:pre-wrap;word-break:break-all}
+.cmd button{border:0;border-left:1px solid var(--line);background:var(--panel2);color:var(--muted);padding:0 14px;cursor:pointer;font:inherit;font-size:13px}
+.cmd button.copied{color:var(--ok)}
+code.i{font:14px Consolas,monospace;background:var(--code);padding:1px 6px;border-radius:5px;color:#cfe8ff}
+table{width:100%;border-collapse:collapse;margin:10px 0;font-size:15px}
+th,td{border-bottom:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+th{color:var(--muted);font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:.4px}
+.sw{display:flex;gap:14px;flex-wrap:wrap;margin:10px 0}
+.swi{display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel2);min-width:96px}
+.swi .lever{width:26px;height:46px;border-radius:6px;background:#0b0e12;border:1px solid var(--line);position:relative}
+.swi .lever::after{content:"";position:absolute;left:3px;right:3px;height:18px;border-radius:4px;background:#3a4552;top:24px;transition:top .2s}
+.swi.up .lever::after{top:3px;background:var(--accent)}
+.swi b{font-size:13px}
+.swi span{font-size:12px;color:var(--muted);text-align:center}
+.res{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px;margin:12px 0}
+.res label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)}
+.res input,.res select,textarea{background:var(--code);color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:8px 10px;font:14px Consolas,monospace}
+textarea{width:100%;min-height:70px;font-family:"Segoe UI",system-ui,sans-serif}
+.expect{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:10px 0}
+.expect>div{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:var(--panel2)}
+.expect h4{margin:0 0 6px;font-size:13px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted)}
+.verdict{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+.verdict label{display:flex;gap:6px;align-items:center;padding:6px 12px;border:1px solid var(--line);border-radius:99px;cursor:pointer;font-size:14px}
+.verdict input{accent-color:var(--accent)}
+.leds{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+.led{font-size:12px;padding:3px 8px;border-radius:6px;border:1px solid var(--line);color:var(--muted)}
+.led.on{background:rgba(255,93,108,.15);border-color:var(--bad);color:#ffc2c8}
+.toc-head{font-size:12px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:4px 10px 6px}
+footer{color:var(--muted);font-size:13px;text-align:center;padding:20px}
+@media (max-width:900px){.wrap{grid-template-columns:1fr}nav{display:none}main{padding:16px}.expect{grid-template-columns:1fr}}
+@media print{header,nav,.cmd button,.btn{display:none!important}body{background:#fff;color:#000}section{border-color:#ccc;background:#fff}.wrap{display:block}}
+</style>
+</head>
+<body>
+<header>
+  <div class="top">
+    <h1>STM32 test day</h1>
+    <div class="bar"><i id="barfill"></i></div>
+    <span id="pct">0 of 0 steps</span>
+    <button class="btn primary" id="export">Save results file</button>
+    <button class="btn" id="reset">Reset</button>
+  </div>
+</header>
+
+<div class="wrap">
+<nav id="toc">
+  <div class="toc-head">Before</div>
+  <a href="#prep"><span class="dot"></span>1. Before you start</a>
+  <a href="#bench"><span class="dot"></span>2. Bench check</a>
+  <div class="toc-head" style="margin-top:14px">Tests</div>
+  <a href="#t1"><span class="dot"></span>T1. Held out, seed 1</a>
+  <a href="#t2"><span class="dot"></span>T2. Held out, seed 2</a>
+  <a href="#t3"><span class="dot"></span>T3. Prevention off</a>
+  <a href="#t4"><span class="dot"></span>T4. False flag test</a>
+  <a href="#t5"><span class="dot"></span>T5. Long run</a>
+  <div class="toc-head" style="margin-top:14px">End</div>
+  <a href="#power"><span class="dot"></span>Power</a>
+  <a href="#finish"><span class="dot"></span>After the tests</a>
+  <a href="#trouble"><span class="dot"></span>If something goes wrong</a>
+</nav>
+
+<main>
+
+<section id="intro">
+  <h2>What you are doing</h2>
+  <p class="sub">Five tests on the STM32 that turn the paper's weakest claims into real numbers. Tick every box, type the numbers into the boxes, and press <b>Save results file</b> at the end. Nothing here needs flashing the STM32 or the FPGA.</p>
+  <table>
+    <tr><th>Test</th><th>What it proves for the paper</th><th>Time</th></tr>
+    <tr><td>T1, T2</td><td>Prevention on attacks the model never saw, with an attacker that keeps coming back after bus off. Replaces the "training frames" limitation.</td><td>15 min</td></tr>
+    <tr><td>T3</td><td>Fills the empty "prevention off" row of the bench table for Fuzzy, gear and RPM.</td><td>5 min</td></tr>
+    <tr><td>T4</td><td>What a wrong verdict does to an honest ECU. The STM32 has no strict mode, so this is the "before" picture.</td><td>3 min</td></tr>
+    <tr><td>T5</td><td>One long run, 200,000 frames, for a solid total.</td><td>15 min</td></tr>
+    <tr><td>Power</td><td>Nothing to measure. The paper uses the datasheet estimate.</td><td>0 min</td></tr>
+  </table>
+  <div class="call info"><b>Shortcut.</b> Once the bench check passes, <code class="i">stm32_tests.bat all</code> runs T1 to T5 in a row (about 40 minutes). Use the step by step way below the first time, so you see each result as it comes.</div>
+</section>
+
+<section id="prep">
+  <h2>1. Before you start</h2>
+  <p class="sub"><span class="tag time">10 min</span> Three things the runs depend on.</p>
+  <h3>Flash attack_sender version 2 on the attacker ESP32</h3>
+  <p>The attacker must come back after bus off at every block. Version 1 cannot, and the runs refuse to start without version 2.</p>
+  <ol class="steps">
+    <li><label class="chk"><input type="checkbox" data-k="a1"> Unplug the sender and receiver ESP32s from USB, so you can't upload to the wrong board. Keep only the attacker plugged in.</label></li>
+    <li><label class="chk"><input type="checkbox" data-k="a2"> Arduino IDE: open <code class="i">Desktop\CAN_IDS_IPS\esp32\attack_sender\attack_sender.ino</code>. Board: ESP32 Dev Module. Port: the attacker's COM port.</label></li>
+    <li><label class="chk"><input type="checkbox" data-k="a3"> Upload. If it hangs on "Connecting...", hold the BOOT button until the upload starts.</label></li>
+    <li><label class="chk"><input type="checkbox" data-k="a4"> Serial Monitor at <b>921600</b> baud, press EN. It prints <code class="i">READY ATTACKER 2</code>. <b>Close the Serial Monitor.</b></label></li>
+    <li><label class="chk"><input type="checkbox" data-k="a5"> Plug the sender and receiver back in.</label></li>
+  </ol>
+  <h3>STM32 and FPGA</h3>
+  <ol class="steps">
+    <li><label class="chk"><input type="checkbox" data-k="a6"> The STM32 runs the IDS firmware (fw 16). If unsure, run <code class="i">run_demo.bat prepare</code> and follow it.</label></li>
+    <li><label class="chk"><input type="checkbox" data-k="a7"> <b>The FPGA must not act on the bus.</b> Either unplug its CAN shield from the bus rails, or keep its USB unplugged, or set SW0 down (LEDR9 off). Otherwise the FPGA destroys frames too and the STM32 numbers are wrong.</label></li>
+    <li><label class="chk"><input type="checkbox" data-k="a8"> Every Arduino Serial Monitor closed.</label></li>
+  </ol>
+</section>
+
+<section id="bench">
+  <h2>2. Bench check</h2>
+  <p class="sub"><span class="tag time">5 min</span></p>
+  <ol class="steps">
+    <li><label class="chk"><input type="checkbox" data-k="b1"> Everything off USB: CANH to CANL reads about <b>60 Ω</b> on the multimeter.</label></li>
+    <li><label class="chk"><input type="checkbox" data-k="b2"> Three ESP32s and the STM32 on the bus rails, both CANH and CANL, grounds joined.</label></li>
+    <li><label class="chk"><input type="checkbox" data-k="b3"> Plug USB: the three ESP32s, then the STM32.</label></li>
+    <li><label class="chk"><input type="checkbox" data-k="b4"> Run the check. It must find the sender, receiver, attacker and the STM32.</label>
+      <div class="cmd"><code>cd /d "%USERPROFILE%\Desktop\CAN_IDS_IPS"</code><button>Copy</button></div>
+      <div class="cmd"><code>stm32_tests.bat check</code><button>Copy</button></div></li>
+  </ol>
+</section>
+
+<section id="t1">
+  <h2>T1. Held out traffic, prevention on, seed 1</h2>
+  <p class="sub"><span class="tag time">7 min</span> 40,000 frames in blocks of 2,500 from all four attack files, only from the part the model never trained on. The attacker comes back on the bus at every block, so the STM32 has to keep destroying frames all run long. This is the real test of the STM32's timing.</p>
+  <ol class="steps">
+    <li><label class="chk"><input type="checkbox" data-k="t1a"> Run it. It starts with a 300 frame link check.</label><div class="cmd"><code>stm32_tests.bat t1</code><button>Copy</button></div></li>
+    <li><label class="chk"><input type="checkbox" data-k="t1b"> At the end, copy the per class table, the attacker line (pushed off N times, came back M times) and the STM32 line that starts with <code class="i">#STAT</code>.</label></li>
+  </ol>
+  <div class="expect">
+    <div><h4>Expected</h4>Almost every attack frame of every class destroyed (Fuzzy may let a few through).<br>Normal lost: 0 or a few.<br>In the #STAT line: <b>ilate=0</b> and <b>dlate=0</b>, and <b>rej</b> far higher than the 21 to 32 of the old runs.<br>Attacker: pushed off and came back about once per block.</div>
+    <div><h4>You got</h4><div class="res" style="grid-template-columns:1fr 1fr">
+      <label>Run folder<input data-r="t1_run" placeholder="2026...._mixed"></label>
+      <label>Normal sent / lost<input data-r="t1_norm"></label>
+      <label>DoS sent / arrived<input data-r="t1_dos"></label>
+      <label>Fuzzy sent / arrived<input data-r="t1_fuzzy"></label>
+      <label>Gear sent / arrived<input data-r="t1_gear"></label>
+      <label>RPM sent / arrived<input data-r="t1_rpm"></label>
+      <label>Attacker off / came back<input data-r="t1_bo" placeholder="N / M"></label>
+      <label>rej / ilate / dlate / cmax<input data-r="t1_stat" placeholder="from #STAT"></label>
+    </div></div>
+  </div>
+  <div class="verdict"><label><input type="radio" name="v_t1" value="match"> Matches</label><label><input type="radio" name="v_t1" value="differs"> Differs, I stopped</label></div>
+  <textarea data-r="t1_notes" placeholder="Notes"></textarea>
+  <div class="call warn"><b>ilate above 0?</b> Some attack verdicts came too late. That is a real result, not a failure: write the number down and keep going. It tells the paper exactly how the STM32 behaves under load.</div>
+</section>
+
+<section id="t2">
+  <h2>T2. Held out traffic, seed 2</h2>
+  <p class="sub"><span class="tag time">7 min</span> Same test, different blocks. Two runs give the paper a repeat.</p>
+  <ol class="steps">
+    <li><label class="chk"><input type="checkbox" data-k="t2a"> Run it.</label><div class="cmd"><code>stm32_tests.bat t2</code><button>Copy</button></div></li>
+  </ol>
+  <div class="res">
+    <label>Run folder<input data-r="t2_run"></label>
+    <label>Normal sent / lost<input data-r="t2_norm"></label>
+    <label>DoS sent / arrived<input data-r="t2_dos"></label>
+    <label>Fuzzy sent / arrived<input data-r="t2_fuzzy"></label>
+    <label>Gear sent / arrived<input data-r="t2_gear"></label>
+    <label>RPM sent / arrived<input data-r="t2_rpm"></label>
+    <label>Attacker off / came back<input data-r="t2_bo"></label>
+    <label>rej / ilate / dlate / cmax<input data-r="t2_stat"></label>
+  </div>
+  <textarea data-r="t2_notes" placeholder="Notes"></textarea>
+</section>
+
+<section id="t3">
+  <h2>T3. Prevention off</h2>
+  <p class="sub"><span class="tag time">5 min</span> Three short runs with nobody destroying frames, so the paper can show what gets through without a detector. The STM32 stays on the bus but only listens.</p>
+  <ol class="steps">
+    <li><label class="chk"><input type="checkbox" data-k="t3a"> If a previous run crashed, unplug and replug the STM32 first (it starts with prevention off).</label></li>
+    <li><label class="chk"><input type="checkbox" data-k="t3b"> Run it. It does Fuzzy, gear and RPM one after the other.</label><div class="cmd"><code>stm32_tests.bat t3</code><button>Copy</button></div></li>
+  </ol>
+  <div class="expect">
+    <div><h4>Expected</h4>Every attack frame <b>arrives</b> at the receiver.<br>The attacker never goes bus off.</div>
+    <div><h4>You got</h4><div class="res" style="grid-template-columns:1fr 1fr">
+      <label>Fuzzy folder, sent / arrived<input data-r="t3_fuzzy"></label>
+      <label>Gear folder, sent / arrived<input data-r="t3_gear"></label>
+      <label>RPM folder, sent / arrived<input data-r="t3_rpm"></label>
+      <label>Normal lost (any run)<input data-r="t3_norm"></label>
+    </div></div>
+  </div>
+  <div class="verdict"><label><input type="radio" name="v_t3" value="match"> Matches</label><label><input type="radio" name="v_t3" value="differs"> Differs, I stopped</label></div>
+</section>
+
+<section id="t4">
+  <h2>T4. False flag test</h2>
+  <p class="sub"><span class="tag time">3 min</span> 20,000 <b>genuine</b> frames, no attack. The five byte model wrongly flags 699 of them. Each destroyed frame is resent and destroyed again, which can push the honest sender off the bus. The attacker stays plugged in but sends nothing.</p>
+  <ol class="steps">
+    <li><label class="chk"><input type="checkbox" data-k="t4a"> Run it.</label><div class="cmd"><code>stm32_tests.bat t4</code><button>Copy</button></div></li>
+    <li><label class="chk"><input type="checkbox" data-k="t4b"> Find the sender's line <code class="i">#TX sent=... tec=... state=...</code> at the end, or in summary.json.</label></li>
+    <li><label class="chk"><input type="checkbox" data-k="t4c"> Afterwards press the sender's EN button, in case it ended bus off.</label></li>
+  </ol>
+  <div class="expect">
+    <div><h4>Expected</h4>Many normal frames lost.<br>Sender: <b>tec high, likely state=busoff</b>. This is the problem strict mode fixes on the FPGA (your partner's T4b).</div>
+    <div><h4>You got</h4><div class="res" style="grid-template-columns:1fr 1fr">
+      <label>Run folder<input data-r="t4_run"></label><label>Normal sent / lost<input data-r="t4_norm"></label><label>Sender tec<input data-r="t4_tec"></label><label>Sender state<input data-r="t4_state"></label><label>STM32 rej<input data-r="t4_rej"></label></div></div>
+  </div>
+  <div class="verdict"><label><input type="radio" name="v_t4" value="match"> Matches</label><label><input type="radio" name="v_t4" value="differs"> Differs</label></div>
+  <textarea data-r="t4_notes" placeholder="Notes"></textarea>
+</section>
+
+<section id="t5">
+  <h2>T5. Long held out run</h2>
+  <p class="sub"><span class="tag time">15 min</span> 200,000 frames. Leave the bench alone while it runs.</p>
+  <ol class="steps">
+    <li><label class="chk"><input type="checkbox" data-k="t5a"> Run it.</label><div class="cmd"><code>stm32_tests.bat t5</code><button>Copy</button></div></li>
+  </ol>
+  <div class="res">
+    <label>Run folder<input data-r="t5_run"></label>
+    <label>Normal sent / lost<input data-r="t5_norm"></label>
+    <label>DoS sent / arrived<input data-r="t5_dos"></label>
+    <label>Fuzzy sent / arrived<input data-r="t5_fuzzy"></label>
+    <label>Gear sent / arrived<input data-r="t5_gear"></label>
+    <label>RPM sent / arrived<input data-r="t5_rpm"></label>
+    <label>Attacker off / came back<input data-r="t5_bo"></label>
+    <label>rej / ilate / dlate / cmax<input data-r="t5_stat"></label>
+  </div>
+  <textarea data-r="t5_notes" placeholder="Notes"></textarea>
+</section>
+
+<section id="power">
+  <h2>Power for the STM32</h2>
+  <p class="sub">Nothing to do. The paper uses the datasheet estimate, labeled as an estimate.</p>
+  <table>
+    <tr><th>Item</th><th>Value</th><th>Source</th></tr>
+    <tr><td>STM32F407 at 168 MHz, run mode</td><td>about 40 mA (peripherals off) to 87 mA (all on)</td><td>Datasheet, typical, 25 °C</td></tr>
+    <tr><td>Chip power at 3.3 V</td><td>about 130 to 290 mW, all the time (the CPU never sleeps)</td><td>Calculated</td></tr>
+    <tr><td>One model run</td><td>roughly 6 to 19 µJ (48 µs median, 66 µs max)</td><td>Calculated</td></tr>
+  </table>
+  <p>If the university lab has a USB power meter (a small dongle that plugs between the cable and the board), you can add a real reading in 2 minutes: plug it in, run T1, write down the average current and voltage. No cable cutting.</p>
+  <div class="res"><label>Optional: USB meter, idle (mA, V)<input data-r="pw_idle"></label><label>Optional: USB meter, during T1 (mA, V)<input data-r="pw_t1"></label></div>
+</section>
+
+<section id="finish">
+  <h2>After the tests</h2>
+  <ol class="steps">
+    <li><label class="chk"><input type="checkbox" data-k="f1"> Press <b>Save results file</b> at the top.</label></li>
+    <li><label class="chk"><input type="checkbox" data-k="f2"> Keep the run folders in <code class="i">CAN_IDS_IPS\runs</code>. They feed the new Table VII and the bench section.</label></li>
+  </ol>
+</section>
+
+<section id="trouble">
+  <h2>If something goes wrong</h2>
+  <table>
+    <tr><th>What you see</th><th>What to do</th></tr>
+    <tr><td>"needs attack_sender version 2"</td><td>Section 1: flash version 2 on the attacker.</td></tr>
+    <tr><td>"Could not find exactly one sender and one receiver"</td><td>A Serial Monitor is open, or a USB cable. Close the Arduino IDE, replug the ESP32s.</td></tr>
+    <tr><td>"did not confirm prevention on"</td><td>The STM32 is not on the IDS firmware, or its port is busy. Replug it, or run <code class="i">run_demo.bat prepare</code>.</td></tr>
+    <tr><td>Link check FAILED</td><td>Bus wiring or terminators. Power off, check about 60 Ω.</td></tr>
+    <tr><td>Attack frames arrive in T1, T2 or T5</td><td>Write it down: it is a result. Check the #STAT line for ilate and dlate.</td></tr>
+    <tr><td>Normal frames lost in T3 (prevention off)</td><td>Check the FPGA is really off the bus (section 1).</td></tr>
+  </table>
+</section>
+
+<footer>STM32 bench guide for the paper revision, 23 Nov 2026. Results stay in this browser until you press Reset.</footer>
+</main>
+
+</div>
+
+<script>
+(function(){
+  var KEY="stm32_test_day_v1", state={};
+  function load(){try{state=JSON.parse(localStorage.getItem(KEY)||"{}")}catch(e){state={}}}
+  function save(){try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){}}
+  load();
+  var boxes=[].slice.call(document.querySelectorAll('input[type=checkbox][data-k]'));
+  var fields=[].slice.call(document.querySelectorAll('[data-r]'));
+  var radios=[].slice.call(document.querySelectorAll('input[type=radio]'));
+  boxes.forEach(function(b){
+    b.checked=!!state[b.dataset.k];
+    b.addEventListener('change',function(){state[b.dataset.k]=b.checked;save();refresh()});
+  });
+  fields.forEach(function(f){
+    if(state['r_'+f.dataset.r]!=null)f.value=state['r_'+f.dataset.r];
+    f.addEventListener('input',function(){state['r_'+f.dataset.r]=f.value;save()});
+  });
+  radios.forEach(function(r){
+    if(state['v_'+r.name]===r.value)r.checked=true;
+    r.addEventListener('change',function(){state['v_'+r.name]=r.value;save()});
+  });
+  function refresh(){
+    var done=boxes.filter(function(b){return b.checked}).length;
+    document.getElementById('barfill').style.width=(boxes.length?100*done/boxes.length:0)+'%';
+    document.getElementById('pct').textContent=done+' of '+boxes.length+' steps';
+    boxes.forEach(function(b){var li=b.closest('li');if(li)li.classList.toggle('checked',b.checked)});
+    document.querySelectorAll('section[id]').forEach(function(s){
+      var bs=s.querySelectorAll('input[type=checkbox][data-k]');
+      var a=document.querySelector('nav a[href="#'+s.id+'"]');
+      if(a&&bs.length){a.classList.toggle('done',[].every.call(bs,function(b){return b.checked}))}
+    });
+  }
+  refresh();
+  document.querySelectorAll('.cmd button').forEach(function(btn){
+    btn.addEventListener('click',function(){
+      var t=btn.parentNode.querySelector('code').textContent;
+      function ok(){btn.textContent='Copied';btn.classList.add('copied');setTimeout(function(){btn.textContent='Copy';btn.classList.remove('copied')},1400)}
+      if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(ok,function(){fallback(t);ok()})}else{fallback(t);ok()}
+    });
+  });
+  function fallback(t){var ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand('copy')}catch(e){}document.body.removeChild(ta)}
+  document.getElementById('export').addEventListener('click',function(){
+    var lines=['STM32 test day results','Saved: '+new Date().toString(),''];
+    document.querySelectorAll('section[id]').forEach(function(s){
+      var title=s.querySelector('h2').textContent, rows=[];
+      s.querySelectorAll('[data-r]').forEach(function(f){
+        if(f.value){var lab=f.closest('label');var name=lab?lab.childNodes[0].textContent.trim():f.dataset.r;rows.push('  '+name+': '+f.value.replace(/\n/g,'\n    '))}
+      });
+      s.querySelectorAll('input[type=radio]:checked').forEach(function(r){rows.push('  Verdict: '+r.parentNode.textContent.trim())});
+      var bs=s.querySelectorAll('input[type=checkbox][data-k]');
+      if(bs.length){var d=[].filter.call(bs,function(b){return b.checked}).length;rows.unshift('  Steps ticked: '+d+' of '+bs.length)}
+      if(rows.length){lines.push(title);lines=lines.concat(rows);lines.push('')}
+    });
+    lines.push('Raw: '+JSON.stringify(state));
+    var blob=new Blob([lines.join('\r\n')],{type:'text/plain'});
+    var a=document.createElement('a');a.href=URL.createObjectURL(blob);
+    a.download='stm32_test_results_'+new Date().toISOString().slice(0,10)+'.txt';
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+  });
+  document.getElementById('reset').addEventListener('click',function(){
+    if(confirm('Clear every tick and every number on this page?')){state={};save();location.reload()}
+  });
+})();
+</script>
+</body>
+</html>

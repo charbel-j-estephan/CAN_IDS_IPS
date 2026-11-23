@@ -928,6 +928,10 @@ def main():
     ap.add_argument("--receiver", help="COM port of the receiver (usb_receiver), for example COM7")
     ap.add_argument("--attacker", help="COM port of the attacker (attack_sender): the sender sends "
                                       "the normal frames, the attacker the attack frames")
+    ap.add_argument("--recover", action="store_true",
+                    help="mixed: tell the attacker to come back from bus off at every block even "
+                         "without an STM32 IPS (for runs where the FPGA is the IPS). Needs "
+                         "attack_sender version 2")
     ap.add_argument("--ips", metavar="COM",
                     help="COM port of the STM32 IDS node: switch its prevention on for this run "
                          "(it destroys the frames its model calls attacks) and read its counters. "
@@ -1062,7 +1066,7 @@ def main():
         # to follow the sender's clock.
         attack = [ref_packet(r, rel + GAP_US) if r[11] == 0 else pack_timed(r, rel + GAP_US)
                   for r, rel in zip(rows, offsets)]
-        if mix and ips:
+        if mix and (ips or args.recover):
             # Before every block but the first, tell the attacker to come back
             # on the bus if the IPS pushed it off in the block before. Its time
             # is in the gap between the blocks, as the recovery needs a quiet bus.
