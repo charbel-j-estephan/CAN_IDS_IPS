@@ -1,0 +1,75 @@
+{
+ "DoS": {
+  "rows": 3665771,
+  "cut": 2150764,
+  "fp_total": 0,
+  "fp_after_cut": 0,
+  "fp_first_rows": [],
+  "fp_ids": []
+ },
+ "Fuzzy": {
+  "rows": 3838860,
+  "cut": 2260256,
+  "fp_total": 35,
+  "fp_after_cut": 6,
+  "fp_first_rows": [
+   79541,
+   180872,
+   203604,
+   261174,
+   267486
+  ],
+  "fp_ids": [
+   "0x608",
+   "0x71b",
+   "0x7d9",
+   "0x7da",
+   "0x7e8",
+   "0x7e9"
+  ],
+  "fp_row_range": [
+   79541,
+   2925200
+  ]
+ },
+ "gear": {
+  "rows": 4443142,
+  "cut": 2828862,
+  "fp_total": 0,
+  "fp_after_cut": 0,
+  "fp_first_rows": [],
+  "fp_ids": []
+ },
+ "RPM": {
+  "rows": 4621702,
+  "cut": 2987960,
+  "fp_total": 0,
+  "fp_after_cut": 0,
+  "fp_first_rows": [],
+  "fp_ids": []
+ },
+ "normal": {
+  "rows": 988871,
+  "cut": 791096,
+  "fp_total": 1919,
+  "fp_after_cut": 714,
+  "fp_first_rows": [
+   10498,
+   15964,
+   16158,
+   16742,
+   16940
+  ],
+  "fp_ids": [
+   "0x316",
+   "0x43f",
+   "0x440",
+   "0x4b1",
+   "0xa0"
+  ],
+  "fp_row_range": [
+   10498,
+   987345
+  ]
+ }
+}

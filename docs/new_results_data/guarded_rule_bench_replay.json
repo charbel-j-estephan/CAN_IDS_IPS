@@ -1,0 +1,156 @@
+{
+ "20261103_082955_DoS_dataset": {
+  "majority": {
+   "genuine_flagged": 0,
+   "attack_flagged": "5558/5558"
+  },
+  "strict": {
+   "genuine_flagged": 0,
+   "attack_flagged": "5558/5558"
+  },
+  "new": {
+   "genuine_flagged": 0,
+   "attack_flagged": "5558/5558"
+  }
+ },
+ "20261103_132611_DoS_dataset": {
+  "majority": {
+   "genuine_flagged": 0,
+   "attack_flagged": "5558/5558"
+  },
+  "strict": {
+   "genuine_flagged": 0,
+   "attack_flagged": "5558/5558"
+  },
+  "new": {
+   "genuine_flagged": 0,
+   "attack_flagged": "5558/5558"
+  }
+ },
+ "20261103_140628_RPM_dataset": {
+  "majority": {
+   "genuine_flagged": 0,
+   "attack_flagged": "1085/1085"
+  },
+  "strict": {
+   "genuine_flagged": 0,
+   "attack_flagged": "1085/1085"
+  },
+  "new": {
+   "genuine_flagged": 0,
+   "attack_flagged": "1085/1085"
+  }
+ },
+ "20261103_142706_RPM_dataset": {
+  "majority": {
+   "genuine_flagged": 0,
+   "attack_flagged": "1085/1085"
+  },
+  "strict": {
+   "genuine_flagged": 0,
+   "attack_flagged": "1085/1085"
+  },
+  "new": {
+   "genuine_flagged": 0,
+   "attack_flagged": "1085/1085"
+  }
+ },
+ "20261103_143945_Fuzzy_dataset": {
+  "majority": {
+   "genuine_flagged": 0,
+   "attack_flagged": "709/709"
+  },
+  "strict": {
+   "genuine_flagged": 0,
+   "attack_flagged": "705/709"
+  },
+  "new": {
+   "genuine_flagged": 0,
+   "attack_flagged": "709/709"
+  }
+ },
+ "20261103_144025_gear_dataset": {
+  "majority": {
+   "genuine_flagged": 0,
+   "attack_flagged": "922/922"
+  },
+  "strict": {
+   "genuine_flagged": 0,
+   "attack_flagged": "922/922"
+  },
+  "new": {
+   "genuine_flagged": 0,
+   "attack_flagged": "922/922"
+  }
+ },
+ "20261103_144101_RPM_dataset": {
+  "majority": {
+   "genuine_flagged": 0,
+   "attack_flagged": "1085/1085"
+  },
+  "strict": {
+   "genuine_flagged": 0,
+   "attack_flagged": "1085/1085"
+  },
+  "new": {
+   "genuine_flagged": 0,
+   "attack_flagged": "1085/1085"
+  }
+ },
+ "20261123_111243_mixed": {
+  "majority": {
+   "genuine_flagged": 0,
+   "attack_flagged": "9513/9515"
+  },
+  "strict": {
+   "genuine_flagged": 0,
+   "attack_flagged": "9498/9515"
+  },
+  "new": {
+   "genuine_flagged": 0,
+   "attack_flagged": "9513/9515"
+  }
+ },
+ "20261123_111456_mixed": {
+  "majority": {
+   "genuine_flagged": 1,
+   "attack_flagged": "9188/9188"
+  },
+  "strict": {
+   "genuine_flagged": 0,
+   "attack_flagged": "9180/9188"
+  },
+  "new": {
+   "genuine_flagged": 0,
+   "attack_flagged": "9188/9188"
+  }
+ },
+ "20261123_111918_gear_dataset": {
+  "majority": {
+   "genuine_flagged": 699,
+   "attack_flagged": "0/0"
+  },
+  "strict": {
+   "genuine_flagged": 0,
+   "attack_flagged": "0/0"
+  },
+  "new": {
+   "genuine_flagged": 0,
+   "attack_flagged": "0/0"
+  }
+ },
+ "20261123_112352_mixed": {
+  "majority": {
+   "genuine_flagged": 0,
+   "attack_flagged": "49409/49414"
+  },
+  "strict": {
+   "genuine_flagged": 0,
+   "attack_flagged": "49365/49414"
+  },
+  "new": {
+   "genuine_flagged": 0,
+   "attack_flagged": "49409/49414"
+  }
+ }
+}

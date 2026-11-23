@@ -1,0 +1,57 @@
+{
+ "majority": {
+  "normal_destroyed": 720,
+  "DoS_pct": 100.0,
+  "DoS_passed": 0,
+  "Fuzzy_pct": 99.906,
+  "Fuzzy_passed": 92,
+  "Gear_pct": 100.0,
+  "Gear_passed": 0,
+  "RPM_pct": 100.0,
+  "RPM_passed": 0
+ },
+ "strict": {
+  "normal_destroyed": 0,
+  "DoS_pct": 100.0,
+  "DoS_passed": 0,
+  "Fuzzy_pct": 99.485,
+  "Fuzzy_passed": 507,
+  "Gear_pct": 100.0,
+  "Gear_passed": 0,
+  "RPM_pct": 100.0,
+  "RPM_passed": 0
+ },
+ "range_only": {
+  "normal_destroyed": 2074,
+  "DoS_pct": 100.0,
+  "DoS_passed": 0,
+  "Fuzzy_pct": 99.998,
+  "Fuzzy_passed": 2,
+  "Gear_pct": 0.0,
+  "Gear_passed": 119451,
+  "RPM_pct": 100.0,
+  "RPM_passed": 0
+ },
+ "strict_or_majority_and_range": {
+  "normal_destroyed": 1,
+  "DoS_pct": 100.0,
+  "DoS_passed": 0,
+  "Fuzzy_pct": 99.905,
+  "Fuzzy_passed": 93,
+  "Gear_pct": 100.0,
+  "Gear_passed": 0,
+  "RPM_pct": 100.0,
+  "RPM_passed": 0
+ },
+ "strict_or_range": {
+  "normal_destroyed": 2074,
+  "DoS_pct": 100.0,
+  "DoS_passed": 0,
+  "Fuzzy_pct": 99.998,
+  "Fuzzy_passed": 2,
+  "Gear_pct": 100.0,
+  "Gear_passed": 0,
+  "RPM_pct": 100.0,
+  "RPM_passed": 0
+ }
+}

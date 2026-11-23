@@ -1,0 +1,6 @@
+read_verilog -sv rf_ids_hard.v
+synth -top rf_ids -flatten
+dfflibmap -liberty hd_tt.lib
+abc -liberty hd_tt.lib -D 20000
+opt_clean
+stat -liberty hd_tt.lib

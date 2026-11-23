@@ -1,0 +1,84 @@
+{
+ "p5": {
+  "fp_by_id": {
+   "0x43f": 669,
+   "0xa0": 45,
+   "0x608": 2,
+   "0x7da": 2,
+   "0x71b": 2
+  },
+  "votes_at_least_3": {
+   "normal_destroyed": 720,
+   "DoS_destroyed_pct": 100.0,
+   "DoS_passed": 0,
+   "Fuzzy_destroyed_pct": 99.906,
+   "Fuzzy_passed": 92,
+   "Gear_destroyed_pct": 100.0,
+   "Gear_passed": 0,
+   "RPM_destroyed_pct": 100.0,
+   "RPM_passed": 0
+  },
+  "votes_at_least_4": {
+   "normal_destroyed": 670,
+   "DoS_destroyed_pct": 100.0,
+   "DoS_passed": 0,
+   "Fuzzy_destroyed_pct": 99.799,
+   "Fuzzy_passed": 198,
+   "Gear_destroyed_pct": 100.0,
+   "Gear_passed": 0,
+   "RPM_destroyed_pct": 100.0,
+   "RPM_passed": 0
+  },
+  "votes_at_least_5": {
+   "normal_destroyed": 0,
+   "DoS_destroyed_pct": 100.0,
+   "DoS_passed": 0,
+   "Fuzzy_destroyed_pct": 99.485,
+   "Fuzzy_passed": 507,
+   "Gear_destroyed_pct": 100.0,
+   "Gear_passed": 0,
+   "RPM_destroyed_pct": 100.0,
+   "RPM_passed": 0
+  }
+ },
+ "p6": {
+  "fp_by_id": {
+   "0x43f": 49,
+   "0x316": 11,
+   "0x4b1": 6
+  },
+  "votes_at_least_3": {
+   "normal_destroyed": 66,
+   "DoS_destroyed_pct": 100.0,
+   "DoS_passed": 0,
+   "Fuzzy_destroyed_pct": 99.958,
+   "Fuzzy_passed": 41,
+   "Gear_destroyed_pct": 100.0,
+   "Gear_passed": 0,
+   "RPM_destroyed_pct": 100.0,
+   "RPM_passed": 0
+  },
+  "votes_at_least_4": {
+   "normal_destroyed": 48,
+   "DoS_destroyed_pct": 100.0,
+   "DoS_passed": 0,
+   "Fuzzy_destroyed_pct": 99.879,
+   "Fuzzy_passed": 119,
+   "Gear_destroyed_pct": 100.0,
+   "Gear_passed": 0,
+   "RPM_destroyed_pct": 100.0,
+   "RPM_passed": 0
+  },
+  "votes_at_least_5": {
+   "normal_destroyed": 0,
+   "DoS_destroyed_pct": 100.0,
+   "DoS_passed": 0,
+   "Fuzzy_destroyed_pct": 99.566,
+   "Fuzzy_passed": 427,
+   "Gear_destroyed_pct": 100.0,
+   "Gear_passed": 0,
+   "RPM_destroyed_pct": 100.0,
+   "RPM_passed": 0
+  }
+ }
+}

@@ -1,0 +1,7 @@
+read_verilog -defer bb.v aes_sbox.v aes128_enc.v cmac_stream.v ctr_stream.v tree_level.v rf_engine.v rf_classifier.v can_features.v can_rx.v ips_flag.v crc32.v spi_slave.v cmd_decoder.v blob_walker.v blob_reader.v update_core.v nv_ufm_avmm.v updatable_core.v
+hierarchy -top rf_classifier
+synth -top rf_classifier -flatten
+dfflibmap -liberty hd_tt.lib
+abc -liberty hd_tt.lib -D 20000
+opt_clean
+stat -liberty hd_tt.lib

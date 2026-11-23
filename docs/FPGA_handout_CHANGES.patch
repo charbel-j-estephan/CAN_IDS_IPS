@@ -1,0 +1,381 @@
+diff --git a/python/replay_dataset.py b/python/replay_dataset.py
+index 9480dfc..170d421 100644
+--- a/python/replay_dataset.py
++++ b/python/replay_dataset.py
+@@ -928,6 +928,10 @@ def main():
+     ap.add_argument("--receiver", help="COM port of the receiver (usb_receiver), for example COM7")
+     ap.add_argument("--attacker", help="COM port of the attacker (attack_sender): the sender sends "
+                                       "the normal frames, the attacker the attack frames")
++    ap.add_argument("--recover", action="store_true",
++                    help="mixed: tell the attacker to come back from bus off at every block even "
++                         "without an STM32 IPS (for runs where the FPGA is the IPS). Needs "
++                         "attack_sender version 2")
+     ap.add_argument("--ips", metavar="COM",
+                     help="COM port of the STM32 IDS node: switch its prevention on for this run "
+                          "(it destroys the frames its model calls attacks) and read its counters. "
+@@ -1062,7 +1066,7 @@ def main():
+         # to follow the sender's clock.
+         attack = [ref_packet(r, rel + GAP_US) if r[11] == 0 else pack_timed(r, rel + GAP_US)
+                   for r, rel in zip(rows, offsets)]
+-        if mix and ips:
++        if mix and (ips or args.recover):
+             # Before every block but the first, tell the attacker to come back
+             # on the bus if the IPS pushed it off in the block before. Its time
+             # is in the gap between the blocks, as the recovery needs a quiet bus.
+diff --git a/python/run_check.py b/python/run_check.py
+index 4b0eaad..0871af4 100644
+--- a/python/run_check.py
++++ b/python/run_check.py
+@@ -101,6 +101,9 @@ def main():
+                     help="prevention test: the STM32 destroys the frames its model calls attacks "
+                          "during the replay (its port is found automatically, or give it). The "
+                          "ESP32 receiver stays the record of what survived. Needs the attacker board")
++    ap.add_argument("--recover", action="store_true",
++                    help="mixed run with the FPGA as IPS: the attacker comes back from bus off at "
++                         "every block (needs attack_sender version 2)")
+     ap.add_argument("--listen", nargs="?", const="auto", metavar="COM",
+                     help="the STM32 records next to the ESP32 receiver with its prevention off, "
+                          "to show whether frames the receiver lost were on the bus (its port is "
+@@ -190,6 +193,8 @@ def main():
+         full += ["--attacker", attacker]
+     if ips:
+         full += ["--ips", ips]           # the link check runs without prevention
++    if args.recover:
++        full += ["--recover"]
+     if listen:
+         full += ["--listen", listen]
+         print("Listen:   %s (STM32, second recorder, prevention off)" % listen)
+diff --git a/updatable fpgas/python/accuracy_engine.py b/updatable fpgas/python/accuracy_engine.py
+index 49a3158..d620795 100644
+--- a/updatable fpgas/python/accuracy_engine.py	
++++ b/updatable fpgas/python/accuracy_engine.py	
+@@ -84,7 +84,7 @@ def run_chunks(sim, blob_hex, ukeys, work, jobs):
+                     raise SystemExit("Simulation %s failed:\n%s" % (name, out))
+                 running.remove((name, p))
+     print("  %d chunks simulated in %.0f s" % (jobs, time.time() - t0))
+-    forest, final = [], []
++    forest, final, strong = [], [], []
+     for c, name in enumerate(procs):
+         with open(os.path.join(work, name + ".out")) as f:
+             lines = f.read().split()
+@@ -92,9 +92,10 @@ def run_chunks(sim, blob_hex, ukeys, work, jobs):
+             raise SystemExit("%s: %d answers for %d frames" % (name, len(lines), bounds[c + 1] - bounds[c]))
+         forest += [int(s[0]) for s in lines]
+         final += [int(s[1]) for s in lines]
++        strong += [int(s[2]) if len(s) > 2 else -1 for s in lines]
+         os.remove(os.path.join(work, name + ".hex"))
+         os.remove(os.path.join(work, name + ".out"))
+-    return np.array(forest, dtype=np.int8), np.array(final, dtype=np.int8)
++    return np.array(forest, dtype=np.int8), np.array(final, dtype=np.int8), np.array(strong, dtype=np.int8)
+ 
+ 
+ def check_model(nb, args, sim):
+@@ -119,6 +120,13 @@ def check_model(nb, args, sim):
+     Xu = unpack(ukeys)
+     py_forest = hard_vote_predict(bundle["model"], Xu).astype(np.int8)
+     py_final = known_id_rule(py_forest, Xu[:, 0].astype(int), bundle["known_ids"]).astype(np.int8)
++    # Strong verdict (strict mode): every tree voted the winning class, or the ID is unknown.
++    m = bundle["model"]
++    Xf = np.asarray(Xu, dtype=np.float32)
++    votes = np.stack([np.argmax(t.predict_proba(Xf), axis=1) for t in m.estimators_])
++    unanimous = (votes == votes[0]).all(axis=0)
++    unknown = ~np.isin(Xu[:, 0].astype(int), np.asarray(sorted(bundle["known_ids"])))
++    py_strong = (unanimous | unknown).astype(np.int8)
+ 
+     work = os.path.join(paths.BUILD, "accuracy", name + ("_enc" if args.enc else ""))
+     os.makedirs(work, exist_ok=True)
+@@ -126,10 +134,21 @@ def check_model(nb, args, sim):
+         if args.spi else \
+         os.path.join(paths.BUILD, "blobs", "p%d" % nb, "model.hex")
+     blob_hex = os.path.relpath(blob, work)
+-    forest, final = run_chunks(sim, blob_hex.replace("\\", "/"), ukeys, work, args.jobs)
++    forest, final, strong = run_chunks(sim, blob_hex.replace("\\", "/"), ukeys, work, args.jobs)
+     bad_f, bad_a = int((forest != py_forest).sum()), int((final != py_final).sum())
+-    print("  engine vs Python on %d distinct frames: forest differs on %d, final on %d (%.0f s)"
+-          % (len(ukeys), bad_f, bad_a, time.time() - t0))
++    has_strong = bool((strong >= 0).all())
++    bad_s = int((strong != py_strong).sum()) if has_strong else 0
++    print("  engine vs Python on %d distinct frames: forest differs on %d, final on %d%s (%.0f s)"
++          % (len(ukeys), bad_f, bad_a, ", strong on %d" % bad_s if has_strong else "", time.time() - t0))
++    if has_strong:
++        weak = (py_final != 0) & (py_strong == 0)
++        print("  distinct frames with an attack verdict: %d, of them weak (no flag in strict mode): %d"
++              % (int((py_final != 0).sum()), int(weak.sum())))
++    if bad_s:
++        i = np.flatnonzero(strong != py_strong)[:5]
++        for j in i:
++            print("   e.g. %016X%04X engine strong %d python %d" % (ukeys[j][0], ukeys[j][1], strong[j], py_strong[j]))
++        raise SystemExit(1)
+     if bad_f or bad_a:
+         i = np.flatnonzero((forest != py_forest) | (final != py_final))[:5]
+         for j in i:
+diff --git a/updatable fpgas/python/paths.py b/updatable fpgas/python/paths.py
+index bcf263b..6ad855e 100644
+--- a/updatable fpgas/python/paths.py	
++++ b/updatable fpgas/python/paths.py	
+@@ -9,6 +9,8 @@ REPO = os.path.dirname(UPDATABLE)
+ BUILD = os.path.join(UPDATABLE, "build")
+ IVERILOG = r"C:\iverilog\bin\iverilog.exe"
+ VVP = r"C:\iverilog\bin\vvp.exe"
++if os.name != "nt":                            # Linux or macOS: Icarus from the PATH
++    IVERILOG, VVP = "iverilog", "vvp"
+ 
+ 
+ def _main_checkout():
+diff --git a/updatable fpgas/rtl/engine/rf_classifier.v b/updatable fpgas/rtl/engine/rf_classifier.v
+index 68d643d..9029577 100644
+--- a/updatable fpgas/rtl/engine/rf_classifier.v	
++++ b/updatable fpgas/rtl/engine/rf_classifier.v	
+@@ -24,7 +24,7 @@ module rf_classifier #(
+     rd_req, rd_tree, rd_level, rd_bank, rd_idx, rd_ack, rd_valid, rd_data,
+     kt_wr_en, kt_wr_bank, kt_wr_addr, kt_wr_data,
+     kt_rd_req, kt_rd_bank, kt_rd_addr, kt_rd_ack, kt_rd_valid, kt_rd_data,
+-    out_valid, out_bank, out_tag, out_forest, out_final
++    out_valid, out_bank, out_tag, out_forest, out_final, out_strong
+ );
+     localparam IDX_W   = $clog2(NODES_PER_LEVEL_MAX);
+     localparam FEAT_W  = $clog2(N_FEAT_MAX);
+@@ -68,7 +68,12 @@ module rf_classifier #(
+     output wire [TAG_W-1:0]       out_tag;
+     output wire [CLS_W-1:0]       out_forest;
+     output wire [CLS_W-1:0]       out_final;
++    // Strong verdict: every enabled tree agreed, or the key table rule fired
++    // (an ID the car never sends). The IPS can be told to destroy only on a
++    // strong attack verdict (strict mode); a weak one is then an alert only.
++    output wire                   out_strong;
+ 
++    wire out_unanimous;
+     rf_engine #(.N_TREES_MAX(N_TREES_MAX), .DEPTH_MAX(DEPTH_MAX), .N_FEAT_MAX(N_FEAT_MAX),
+                 .THRESH_W(THRESH_W), .NODES_PER_LEVEL_MAX(NODES_PER_LEVEL_MAX),
+                 .N_CLASS_MAX(N_CLASS_MAX), .TAG_W(TAG_W)) engine (
+@@ -79,7 +84,8 @@ module rf_classifier #(
+         .wr_idx(wr_idx), .wr_data(wr_data),
+         .rd_req(rd_req), .rd_tree(rd_tree), .rd_level(rd_level), .rd_bank(rd_bank),
+         .rd_idx(rd_idx), .rd_ack(rd_ack), .rd_valid(rd_valid), .rd_data(rd_data),
+-        .out_valid(out_valid), .out_bank(out_bank), .out_tag(out_tag), .out_class(out_forest)
++        .out_valid(out_valid), .out_bank(out_bank), .out_tag(out_tag), .out_class(out_forest),
++        .out_unanimous(out_unanimous)
+     );
+ 
+     // Key table: a frame always gets the read port; a read request waits for a
+@@ -104,5 +110,6 @@ module rf_classifier #(
+     wire              en   = rule_en[out_bank];
+     wire [CLS_W-1:0]  from = out_bank ? rule_from_b1 : rule_from_b0;
+     wire [CLS_W-1:0]  to   = out_bank ? rule_to_b1   : rule_to_b0;
+-    assign out_final = (en && out_forest == from && !known_out) ? to : out_forest;
++    assign out_final  = (en && out_forest == from && !known_out) ? to : out_forest;
++    assign out_strong = out_unanimous || (en && !known_out);
+ endmodule
+diff --git a/updatable fpgas/rtl/engine/rf_engine.v b/updatable fpgas/rtl/engine/rf_engine.v
+index abec40e..1dc63b4 100644
+--- a/updatable fpgas/rtl/engine/rf_engine.v	
++++ b/updatable fpgas/rtl/engine/rf_engine.v	
+@@ -29,7 +29,7 @@ module rf_engine #(
+     tree_en_b0, tree_en_b1,
+     wr_en, wr_tree, wr_level, wr_bank, wr_idx, wr_data,
+     rd_req, rd_tree, rd_level, rd_bank, rd_idx, rd_ack, rd_valid, rd_data,
+-    out_valid, out_bank, out_tag, out_class
++    out_valid, out_bank, out_tag, out_class, out_unanimous
+ );
+     localparam IDX_W    = $clog2(NODES_PER_LEVEL_MAX);
+     localparam FEAT_W   = $clog2(N_FEAT_MAX);
+@@ -70,6 +70,7 @@ module rf_engine #(
+     output reg                      out_bank;
+     output reg  [TAG_W-1:0]         out_tag;
+     output reg  [CLS_W-1:0]         out_class;
++    output reg                      out_unanimous; // every enabled tree voted out_class
+ 
+     // ---- pipeline control, one entry per level -----------------------------
+     reg              v_q   [0:DEPTH_MAX-1];
+@@ -168,10 +169,14 @@ module rf_engine #(
+ 
+     reg                v_cnt, bank_cnt;
+     reg [TAG_W-1:0]    tag_cnt;
++    reg [CNT_W-1:0]    n_en, n_en_n;
+     reg [CNT_W-1:0]    cnt   [0:N_CLASS_MAX-1];
+     reg [CNT_W-1:0]    cnt_n [0:N_CLASS_MAX-1];
+     integer c, m;
+     always @(*) begin
++        n_en_n = {CNT_W{1'b0}};
++        for (m = 0; m < N_TREES_MAX; m = m + 1)
++            if (tree_en[m]) n_en_n = n_en_n + 1'b1;
+         for (c = 0; c < N_CLASS_MAX; c = c + 1) begin
+             cnt_n[c] = {CNT_W{1'b0}};
+             for (m = 0; m < N_TREES_MAX; m = m + 1)
+@@ -183,6 +188,7 @@ module rf_engine #(
+         v_cnt    <= rst ? 1'b0 : v_vote;
+         bank_cnt <= bank_vote;
+         tag_cnt  <= tag_vote;
++        n_en     <= n_en_n;
+         for (c = 0; c < N_CLASS_MAX; c = c + 1)
+             cnt[c] <= cnt_n[c];
+     end
+@@ -204,5 +210,6 @@ module rf_engine #(
+         out_bank  <= bank_cnt;
+         out_tag   <= tag_cnt;
+         out_class <= best_c;
++        out_unanimous <= (best_v == n_en) && (n_en != {CNT_W{1'b0}});
+     end
+ endmodule
+diff --git a/updatable fpgas/rtl/top/updatable_core.v b/updatable fpgas/rtl/top/updatable_core.v
+index baa6e6a..db019ec 100644
+--- a/updatable fpgas/rtl/top/updatable_core.v	
++++ b/updatable fpgas/rtl/top/updatable_core.v	
+@@ -24,6 +24,7 @@ module updatable_core #(
+     input  wire        rxd,
+     output wire        tx_dominant,
+     input  wire        ips_on,
++    input  wire        strict,      // 1: destroy only on a strong attack verdict (all trees agree, or unknown ID)
+     input  wire        maint,
+     // SPI
+     input  wire        spi_sclk,
+@@ -83,6 +84,7 @@ module updatable_core #(
+     wire        st_valid, out_valid, out_bank, out_tag;
+     wire [255:0] st_fv;
+     wire [2:0]  out_forest, out_final;
++    wire        out_strong;
+ 
+     wire live     = feat_ready && model_valid;
+     wire st_go    = st_valid && !live;
+@@ -114,18 +116,21 @@ module updatable_core #(
+         .kt_rd_req(kt_rd_req), .kt_rd_bank(kt_rd_bank), .kt_rd_addr(kt_rd_addr),
+         .kt_rd_ack(kt_rd_ack), .kt_rd_valid(kt_rd_valid), .kt_rd_data(kt_rd_data),
+         .out_valid(out_valid), .out_bank(out_bank), .out_tag(out_tag),
+-        .out_forest(out_forest), .out_final(out_final)
++        .out_forest(out_forest), .out_final(out_final), .out_strong(out_strong)
+     );
+ 
+     assign verdict_valid = out_valid && !out_tag;
+     assign verdict       = out_final;
+     assign verdict_bank  = out_bank;
++    // What the IPS acts on. In strict mode a weak attack verdict (3 or 4 of 5
++    // trees) stays an alert (verdict, LEDR1) but sends no error flag.
++    wire [2:0]  ips_verdict  = (strict && !out_strong) ? 3'd0 : out_final;
+ 
+     // ---- IPS ------------------------------------------------------------------
+     wire [31:0] n_rej, n_ilate, n_allow, n_abort, n_limit;
+     ips_flag ips (
+         .clk(clk), .rst(rst), .enable(ips_on),
+-        .verdict_valid(verdict_valid), .verdict(verdict), .can_id(can_id), .data(data),
++        .verdict_valid(verdict_valid), .verdict(ips_verdict), .can_id(can_id), .data(data),
+         .before_eof(before_eof), .bit_edge(bit_edge),
+         .tx_dominant(tx_dominant), .flag_start(flag_start),
+         .n_rej(n_rej), .n_ilate(n_ilate), .n_allow(n_allow), .n_abort(n_abort), .n_limit(n_limit)
+diff --git a/updatable fpgas/rtl/top/updatable_top.v b/updatable fpgas/rtl/top/updatable_top.v
+index e9edb39..9a4ac09 100644
+--- a/updatable fpgas/rtl/top/updatable_top.v	
++++ b/updatable fpgas/rtl/top/updatable_top.v	
+@@ -4,6 +4,8 @@
+ //   KEY[0]   reset (hold it down; does not clear the update lockout)
+ //   SW[0]    prevention on (up) / off (down)
+ //   SW[1]    maintenance mode (up = the SPI port accepts updates)
++//   SW[2]    strict vote (up = destroy only when every tree agrees or the ID is
++//            unknown; a 3 or 4 of 5 verdict is an alert only, LEDR1 without LEDR2)
+ //   LEDR[0]  good frame   LEDR[1] attack verdict   LEDR[2] error flag sent
+ //   LEDR[3]  CRC / stuff / form error
+ //   LEDR[5:4] where the model came from: 0 none, 1 slot A, 2 slot B, 3 boot ROM
+@@ -47,14 +49,16 @@ module updatable_top #(
+     wire      por = (por_cnt != 5'd31);
+     always @(posedge clk) if (por) por_cnt <= por_cnt + 1'b1;
+ 
+-    reg [1:0] key_s = 2'b11, ips_s = 2'b00, maint_s = 2'b00;
++    reg [1:0] key_s = 2'b11, ips_s = 2'b00, maint_s = 2'b00, strict_s = 2'b00;
+     always @(posedge clk) begin
+         key_s   <= {key_s[0], KEY[0]};
+         ips_s   <= {ips_s[0], SW[0]};
+         maint_s <= {maint_s[0], SW[1]};
++        strict_s <= {strict_s[0], SW[2]};
+     end
+     wire rst    = por | ~key_s[1];
+     wire ips_on = ips_s[1];
++    wire strict = strict_s[1];
+ 
+     // Maintenance switch, sampled twice: once every clock and once every 128
+     // clocks (2.56 us). Both must say "up", so one glitch on the pin cannot
+@@ -83,7 +87,7 @@ module updatable_top #(
+     updatable_core #(.DEVICE_ID(`BOARD_DEVICE_ID), .MAC_KEY(`BOARD_MAC_KEY), .ENC_KEY(`BOARD_ENC_KEY),
+                      .READ_MODEL_EN(READ_MODEL_EN)) core (
+         .clk(clk), .rst(rst), .por(por), .rxd(GPIO[0]), .tx_dominant(tx_dominant),
+-        .ips_on(ips_on), .maint(maint),
++        .ips_on(ips_on), .strict(strict), .maint(maint),
+         .spi_sclk(GPIO[4]), .spi_cs_n(GPIO[7]), .spi_mosi(GPIO[5]), .spi_miso(spi_miso),
+         .csr_address(csr_address), .csr_read(csr_read), .csr_write(csr_write),
+         .csr_writedata(csr_writedata), .csr_readdata(csr_readdata),
+diff --git a/updatable fpgas/tb/core_frames_tb.v b/updatable fpgas/tb/core_frames_tb.v
+index 324d379..68d1abf 100644
+--- a/updatable fpgas/tb/core_frames_tb.v	
++++ b/updatable fpgas/tb/core_frames_tb.v	
+@@ -35,11 +35,16 @@ module core_frames_tb;
+     wire ips_on = 1'b0;
+ `else
+     wire ips_on = 1'b1;
++`endif
++`ifdef STRICT
++    wire strict = 1'b1;
++`else
++    wire strict = 1'b0;
+ `endif
+     wire bus = rxd & ~tx_dominant;
+ 
+     updatable_core #(.DEVICE_ID(`TEST_DEVICE_ID), .MAC_KEY(`TEST_MAC_KEY), .ENC_KEY(`TEST_ENC_KEY), .NV_SETTLE(5'd6)) dut (
+-        .clk(clk), .rst(rst), .por(por), .rxd(bus), .tx_dominant(tx_dominant), .ips_on(ips_on),
++        .clk(clk), .rst(rst), .por(por), .rxd(bus), .tx_dominant(tx_dominant), .ips_on(ips_on), .strict(strict),
+         .maint(maint),
+         .spi_sclk(sclk), .spi_cs_n(cs_n), .spi_mosi(mosi), .spi_miso(miso),
+         .csr_address(csr_address), .csr_read(csr_read), .csr_write(csr_write),
+diff --git a/updatable fpgas/tb/engine_all_tb.v b/updatable fpgas/tb/engine_all_tb.v
+index ebff96f..496ab9f 100644
+--- a/updatable fpgas/tb/engine_all_tb.v	
++++ b/updatable fpgas/tb/engine_all_tb.v	
+@@ -40,6 +40,7 @@ module engine_all_tb;
+     wire        out_valid, out_bank, rd_ack, rd_valid, kt_rd_ack, kt_rd_valid, kt_rd_data;
+     wire        out_tag;
+     wire [2:0]  out_forest, out_final;
++    wire        out_strong;
+     wire [35:0] rd_data;
+ 
+     rf_classifier dut (
+@@ -56,7 +57,7 @@ module engine_all_tb;
+         .kt_rd_req(1'b0), .kt_rd_bank(1'b0), .kt_rd_addr(11'd0),
+         .kt_rd_ack(kt_rd_ack), .kt_rd_valid(kt_rd_valid), .kt_rd_data(kt_rd_data),
+         .out_valid(out_valid), .out_bank(out_bank), .out_tag(out_tag),
+-        .out_forest(out_forest), .out_final(out_final)
++        .out_forest(out_forest), .out_final(out_final), .out_strong(out_strong)
+     );
+ 
+     reg [7:0] blob [0:65535];
+@@ -137,7 +138,7 @@ module engine_all_tb;
+     end
+ 
+     always @(posedge clk) if (!rst && out_valid) begin
+-        $fdisplay(fout, "%0d%0d", out_forest, out_final);
++        $fdisplay(fout, "%0d%0d%0d", out_forest, out_final, out_strong);
+         n_out = n_out + 1;
+     end
+ endmodule
+diff --git a/updatable fpgas/tb/spi_all_tb.v b/updatable fpgas/tb/spi_all_tb.v
+index f4b3954..742031e 100644
+--- a/updatable fpgas/tb/spi_all_tb.v	
++++ b/updatable fpgas/tb/spi_all_tb.v	
+@@ -21,7 +21,7 @@ module spi_all_tb;
+     wire        model_valid, active_bank;
+ 
+     updatable_core #(.DEVICE_ID(`TEST_DEVICE_ID), .MAC_KEY(`TEST_MAC_KEY), .ENC_KEY(`TEST_ENC_KEY), .NV_SETTLE(5'd6), .ROM_INIT_HEX("../../default_model.hex")) dut (
+-        .clk(clk), .rst(rst), .por(por), .rxd(1'b1), .tx_dominant(), .ips_on(1'b0), .maint(maint),
++        .clk(clk), .rst(rst), .por(por), .rxd(1'b1), .tx_dominant(), .ips_on(1'b0), .strict(1'b0), .maint(maint),
+         .spi_sclk(sclk), .spi_cs_n(cs_n), .spi_mosi(mosi), .spi_miso(miso),
+         .csr_address(csr_address), .csr_read(csr_read), .csr_write(csr_write),
+         .csr_writedata(csr_writedata), .csr_readdata(csr_readdata),
+diff --git a/updatable fpgas/tb/update_tb.v b/updatable fpgas/tb/update_tb.v
+index 5dd3063..b25c359 100644
+--- a/updatable fpgas/tb/update_tb.v	
++++ b/updatable fpgas/tb/update_tb.v	
+@@ -34,7 +34,7 @@ module update_tb;
+     updatable_core #(.DEVICE_ID(`TEST_DEVICE_ID), .MAC_KEY(`TEST_MAC_KEY), .ENC_KEY(`TEST_ENC_KEY),
+                      .READ_MODEL_EN(`READ_MODEL_EN), .NV_SETTLE(5'd6),
+                      .NV_TIMEOUT(32'd20_000)) dut (
+-        .clk(clk), .rst(rst), .por(por), .rxd(rxd), .tx_dominant(tx_dominant), .ips_on(1'b1),
++        .clk(clk), .rst(rst), .por(por), .rxd(rxd), .tx_dominant(tx_dominant), .ips_on(1'b1), .strict(1'b0),
+         .maint(maint),
+         .spi_sclk(sclk), .spi_cs_n(cs_n), .spi_mosi(mosi), .spi_miso(miso),
+         .csr_address(csr_address), .csr_read(csr_read), .csr_write(csr_write),

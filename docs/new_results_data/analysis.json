@@ -1,0 +1,153 @@
+{
+ "ablation": {
+  "allow_list_only": {
+   "accuracy_binary_pct": 96.1419,
+   "normal_flagged": 0,
+   "DoS_flagged_pct": 100.0,
+   "Fuzzy_flagged_pct": 98.103,
+   "Gear_flagged_pct": 0.0,
+   "RPM_flagged_pct": 0.0
+  },
+  "forest_only": {
+   "accuracy_binary_pct": 99.9164,
+   "normal_flagged": 720,
+   "DoS_flagged_pct": 100.0,
+   "Fuzzy_flagged_pct": 95.176,
+   "Gear_flagged_pct": 100.0,
+   "RPM_flagged_pct": 100.0
+  },
+  "allow_list_plus_forest": {
+   "accuracy_binary_pct": 99.9876,
+   "normal_flagged": 720,
+   "DoS_flagged_pct": 100.0,
+   "Fuzzy_flagged_pct": 99.906,
+   "Gear_flagged_pct": 100.0,
+   "RPM_flagged_pct": 100.0
+  }
+ },
+ "dlc": {
+  "2": {
+   "frames": 64253,
+   "ids": [
+    "0x5f0"
+   ],
+   "attack_frames": 0
+  },
+  "5": {
+   "frames": 10169,
+   "ids": [
+    "0x2b0",
+    "0x6aa"
+   ],
+   "attack_frames": 0
+  },
+  "8": {
+   "frames": 6464986,
+   "ids": [
+    "0x0",
+    "0x1",
+    "0x2",
+    "0x3",
+    "0x4",
+    "0x5",
+    "0x6",
+    "0x7",
+    "0x8",
+    "0x9"
+   ],
+   "attack_frames": 466306
+  }
+ },
+ "false_positives": {
+  "count": 720,
+  "by_id": {
+   "0x43f": 669,
+   "0xa0": 45,
+   "0x608": 2,
+   "0x7da": 2,
+   "0x71b": 2
+  },
+  "winning_votes_on_false_flags": {
+   "3": 50,
+   "4": 670
+  },
+  "winning_votes_on_true_attack_flags": {
+   "3": 4695,
+   "4": 16373,
+   "5": 440493
+  }
+ },
+ "burst_rule": {
+  "M1_W100ms": {
+   "normal_destroyed": 720,
+   "DoS_destroyed_pct": 100.0,
+   "DoS_passed": 0,
+   "Fuzzy_destroyed_pct": 99.906,
+   "Fuzzy_passed": 92,
+   "Gear_destroyed_pct": 100.0,
+   "Gear_passed": 0,
+   "RPM_destroyed_pct": 100.0,
+   "RPM_passed": 0
+  },
+  "M2_W100ms": {
+   "normal_destroyed": 686,
+   "DoS_destroyed_pct": 99.95,
+   "DoS_passed": 59,
+   "Fuzzy_destroyed_pct": 1.947,
+   "Fuzzy_passed": 96455,
+   "Gear_destroyed_pct": 99.951,
+   "Gear_passed": 59,
+   "RPM_destroyed_pct": 99.956,
+   "RPM_passed": 58
+  },
+  "M3_W100ms": {
+   "normal_destroyed": 667,
+   "DoS_destroyed_pct": 99.9,
+   "DoS_passed": 118,
+   "Fuzzy_destroyed_pct": 0.033,
+   "Fuzzy_passed": 98338,
+   "Gear_destroyed_pct": 99.901,
+   "Gear_passed": 118,
+   "RPM_destroyed_pct": 99.911,
+   "RPM_passed": 116
+  },
+  "M2_W50ms": {
+   "normal_destroyed": 668,
+   "DoS_destroyed_pct": 99.946,
+   "DoS_passed": 64,
+   "Fuzzy_destroyed_pct": 1.046,
+   "Fuzzy_passed": 97341,
+   "Gear_destroyed_pct": 99.951,
+   "Gear_passed": 59,
+   "RPM_destroyed_pct": 99.956,
+   "RPM_passed": 58
+  },
+  "M3_W50ms": {
+   "normal_destroyed": 667,
+   "DoS_destroyed_pct": 99.86,
+   "DoS_passed": 164,
+   "Fuzzy_destroyed_pct": 0.006,
+   "Fuzzy_passed": 98364,
+   "Gear_destroyed_pct": 99.898,
+   "Gear_passed": 122,
+   "RPM_destroyed_pct": 99.911,
+   "RPM_passed": 116
+  },
+  "M5_W100ms": {
+   "normal_destroyed": 665,
+   "DoS_destroyed_pct": 99.796,
+   "DoS_passed": 240,
+   "Fuzzy_destroyed_pct": 0.0,
+   "Fuzzy_passed": 98370,
+   "Gear_destroyed_pct": 99.802,
+   "Gear_passed": 236,
+   "RPM_destroyed_pct": 99.823,
+   "RPM_passed": 232
+  }
+ },
+ "fp_gap_seconds": {
+  "min": 0.00869297981262207,
+  "median": 0.010001897811889648,
+  "under_10ms": 348
+ }
+}
