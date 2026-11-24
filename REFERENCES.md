@@ -7,6 +7,9 @@ review and here match. Entries [19] onward are sources the code and docs use.
 Corrections to the review itself are in
 [docs/literature_review_fixes.md](docs/literature_review_fixes.md).
 
+The papers themselves are not in this repository, since they belong to their
+publishers. Use the DOI or the publisher's page to read them.
+
 ## Literature review
 
 [1] K. Ileri, A. Rakib, and S. Djahel, "MetaCAN: An optimized adaptive hybrid
@@ -23,13 +26,15 @@ Source of the Car Hacking Dataset. Its Table I matches the dataset files.
 
 [4] D. Donadel, K. Balasubramanian, A. Brighente, B. Ramasubramanian,
 M. Conti, and R. Poovendran, "CANTXSec: A deterministic intrusion detection
-and prevention system for CAN bus monitoring ECU activations," arXiv preprint
-arXiv:2505.09384, 2025.
+and prevention system for CAN bus monitoring ECU activations," in *Proc. Int.
+Conf. Applied Cryptography and Network Security (ACNS)*, LNCS vol. 15826,
+2025, pp. 429–458, doi: 10.1007/978-3-031-95764-2_17. Preprint:
+arXiv:2505.09384.
 
 [5] P. F. de Araujo-Filho, A. J. Pinheiro, G. Kaddoum, D. R. Campelo, and
 F. L. Soares, "An efficient intrusion prevention system for CAN: Hindering
 cyber-attacks with a low-cost platform," *IEEE Access*, vol. 9,
-pp. 166855–166869, 2021.
+pp. 166855–166869, 2021, doi: 10.1109/ACCESS.2021.3136147.
 Source of the 86 µs timing budget used in `python/latency.py`.
 
 [6] H. M. Song, H. R. Kim, and H. K. Kim, "Intrusion detection system based on
@@ -62,11 +67,13 @@ Art. no. 103285, 2024.
 
 [12] J. Lee, S. Park, S. Shin, H. Im, J. Lee, and S. Lee, "ASIC design for
 real-time CAN-bus intrusion detection and prevention system using random
-forest," *IEEE Access*, vol. 13, pp. 129856–129869, 2025.
+forest," *IEEE Access*, vol. 13, pp. 129856–129869, 2025,
+doi: 10.1109/ACCESS.2025.3585956.
 
 [13] Y. Jang, H. Im, J. Kim, S. Kim, E. Kim, and S. Lee, "Hardware-software
 co-optimized lightweight real-time CAN intrusion detection and prevention
-system for ECUs," *Electronics*, vol. 15, no. 10, Art. no. 2108, 2026.
+system for ECUs," *Electronics*, vol. 15, no. 10, Art. no. 2108, 2026,
+doi: 10.3390/electronics15102108.
 
 [14] R. Kurachi, Y. Matsubara, H. Takada, N. Adachi, Y. Miyashita, and
 S. Horihata, "CaCAN: Centralized authentication system in CAN," in *Proc.

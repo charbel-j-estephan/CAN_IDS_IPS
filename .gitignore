@@ -67,3 +67,6 @@ docs/*draft*.pdf
 docs/power/*.vcd
 *.powbak
 docs/power/*.pow.rpt
+
+# Papers by other authors: copyrighted, keep local copies only
+docs/refrences/*.pdf
