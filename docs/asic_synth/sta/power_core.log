@@ -1,0 +1,40 @@
+OpenSTA 3.2.0 9d378b5c1b Copyright (c) 2026, Parallax Software, Inc.
+License GPLv3: GNU GPL version 3 <http://gnu.org/licenses/gpl.html>
+
+This is free software, and you are free to change and redistribute it
+under certain conditions; type `show_copying' for details. 
+This program comes with ABSOLUTELY NO WARRANTY; for details type `show_warranty'.
+Annotated 82852 pin activities.
+vcd         82852
+unannotated 194002
+Group                  Internal  Switching    Leakage      Total
+                          Power      Power      Power      Power (Watts)
+----------------------------------------------------------------
+Sequential             2.14e-02   2.10e-06   8.80e-08   2.14e-02 100.0%
+Combinational          2.50e-06   1.98e-06   1.32e-07   4.61e-06   0.0%
+Clock                  0.00e+00   0.00e+00   0.00e+00   0.00e+00   0.0%
+Macro                  0.00e+00   0.00e+00   0.00e+00   0.00e+00   0.0%
+Pad                    0.00e+00   0.00e+00   0.00e+00   0.00e+00   0.0%
+----------------------------------------------------------------
+Total                  2.14e-02   4.08e-06   2.20e-07   2.14e-02 100.0%
+                         100.0%       0.0%       0.0%
+   Internal  Switching    Leakage      Total
+      Power      Power      Power      Power (Watts)
+--------------------------------------------
+  0.000e+00  0.000e+00  0.000e+00  0.000e+00 classifier.engine.tree\[0\].level\[0\].stage.ram
+  0.000e+00  0.000e+00  0.000e+00  0.000e+00 classifier.engine.tree\[0\].level\[10\].stage.ram
+  0.000e+00  0.000e+00  0.000e+00  0.000e+00 classifier.engine.tree\[0\].level\[11\].stage.ram
+  0.000e+00  0.000e+00  0.000e+00  0.000e+00 classifier.engine.tree\[0\].level\[1\].stage.ram
+  0.000e+00  0.000e+00  0.000e+00  0.000e+00 classifier.engine.tree\[0\].level\[2\].stage.ram
+  0.000e+00  0.000e+00  0.000e+00  0.000e+00 classifier.engine.tree\[0\].level\[3\].stage.ram
+  0.000e+00  0.000e+00  0.000e+00  0.000e+00 classifier.engine.tree\[0\].level\[4\].stage.ram
+  0.000e+00  0.000e+00  0.000e+00  0.000e+00 classifier.engine.tree\[0\].level\[5\].stage.ram
+  0.000e+00  0.000e+00  0.000e+00  0.000e+00 classifier.engine.tree\[0\].level\[6\].stage.ram
+  0.000e+00  0.000e+00  0.000e+00  0.000e+00 classifier.engine.tree\[0\].level\[7\].stage.ram
+  0.000e+00  0.000e+00  0.000e+00  0.000e+00 classifier.engine.tree\[0\].level\[8\].stage.ram
+  0.000e+00  0.000e+00  0.000e+00  0.000e+00 classifier.engine.tree\[0\].level\[9\].stage.ram
+  0.000e+00  0.000e+00  0.000e+00  0.000e+00 classifier.engine.tree\[1\].level\[0\].stage.ram
+  0.000e+00  0.000e+00  0.000e+00  0.000e+00 classifier.engine.tree\[1\].level\[10\].stage.ram
+  0.000e+00  0.000e+00  0.000e+00  0.000e+00 classifier.engine.tree\[1\].level\[11\].stage.ram
+  0.000e+00  0.000e+00  0.000e+00  0.000e+00 classifier.engine.tree\[1\].level\[1\].stage.ram
+  0.000e+00  0.000e+00  0.000e+00  0.000e+00 classifier.engine.tree\[1\].level\[2\].stage.ram

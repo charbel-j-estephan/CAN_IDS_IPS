@@ -1,0 +1,12 @@
+Power Analyzer Status : Successful - Tue Nov 24 08:42:14 2026
+Quartus Prime Version : 25.1std.0 Build 1129 10/21/2025 SC Lite Edition
+Revision Name : updatable_top
+Top-level Entity Name : updatable_top
+Family : MAX 10
+Device : 10M50DAF484C7G
+Power Models : Final
+Total Thermal Power Dissipation : 1119.64 mW
+Core Dynamic Thermal Power Dissipation : 974.11 mW
+Core Static Thermal Power Dissipation : 95.10 mW
+I/O Thermal Power Dissipation : 50.43 mW
+Power Estimation Confidence : Low: user provided insufficient toggle rate data

@@ -1,0 +1,6 @@
+strash
+dch -f
+map -D 20000
+buffer -p
+upsize -D 20000
+dnsize -D 20000

@@ -56,3 +56,13 @@ quartus_pintest/*.pin
 quartus_pintest/*.sld
 quartus_pintest/*.qws
 quartus_pintest/*_assignment_defaults.qdf
+
+# Paper source and PDF: private, never in this public repo
+paper/
+*.tex.bak
+paper_source.zip
+docs/*draft*.pdf
+
+# Power analysis: simulation dumps are too big for GitHub, backups are temporary
+docs/power/*.vcd
+*.powbak

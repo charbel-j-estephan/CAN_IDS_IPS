@@ -1,0 +1,43 @@
+library(blackbox_mem) {
+  delay_model : table_lookup;
+  time_unit : "1ns";
+  voltage_unit : "1V";
+  current_unit : "1mA";
+  capacitive_load_unit(1,pf);
+  leakage_power_unit : "1nW";
+  nom_voltage : 1.8;
+  type(b8) { base_type : array; data_type : bit; bit_width : 8; bit_from : 7; bit_to : 0; downto : true; }
+  type(b9) { base_type : array; data_type : bit; bit_width : 9; bit_from : 8; bit_to : 0; downto : true; }
+  type(b12) { base_type : array; data_type : bit; bit_width : 12; bit_from : 11; bit_to : 0; downto : true; }
+  type(b13) { base_type : array; data_type : bit; bit_width : 13; bit_from : 12; bit_to : 0; downto : true; }
+  type(b36) { base_type : array; data_type : bit; bit_width : 36; bit_from : 35; bit_to : 0; downto : true; }
+  cell(TREE_RAM) { area : 0;
+    pin(clk) { direction : input; capacitance : 0.005; clock : true; }
+    pin(we) { direction : input; capacitance : 0.005; }
+    bus(waddr) { bus_type : b8; direction : input; capacitance : 0.005; }
+    bus(wdata) { bus_type : b36; direction : input; capacitance : 0.005; }
+    bus(raddr) { bus_type : b8; direction : input; capacitance : 0.005; }
+    bus(rdata) { bus_type : b36; direction : output; }
+  }
+  cell(KT_RAM) { area : 0;
+    pin(clk) { direction : input; capacitance : 0.005; clock : true; }
+    pin(we) { direction : input; capacitance : 0.005; }
+    bus(waddr) { bus_type : b12; direction : input; capacitance : 0.005; }
+    pin(wdata) { direction : input; capacitance : 0.005; }
+    bus(raddr) { bus_type : b12; direction : input; capacitance : 0.005; }
+    pin(rdata) { direction : output; }
+  }
+  cell(META_RAM) { area : 0;
+    pin(clk) { direction : input; capacitance : 0.005; clock : true; }
+    pin(we) { direction : input; capacitance : 0.005; }
+    bus(waddr) { bus_type : b9; direction : input; capacitance : 0.005; }
+    bus(wdata) { bus_type : b8; direction : input; capacitance : 0.005; }
+    bus(raddr) { bus_type : b9; direction : input; capacitance : 0.005; }
+    bus(rdata) { bus_type : b8; direction : output; }
+  }
+  cell(BOOT_ROM) { area : 0;
+    pin(clk) { direction : input; capacitance : 0.005; clock : true; }
+    bus(addr) { bus_type : b13; direction : input; capacitance : 0.005; }
+    bus(q) { bus_type : b8; direction : output; }
+  }
+}

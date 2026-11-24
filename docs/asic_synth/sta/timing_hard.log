@@ -1,0 +1,51 @@
+OpenSTA 3.2.0 9d378b5c1b Copyright (c) 2026, Parallax Software, Inc.
+License GPLv3: GNU GPL version 3 <http://gnu.org/licenses/gpl.html>
+
+This is free software, and you are free to change and redistribute it
+under certain conditions; type `show_copying' for details. 
+This program comes with ABSOLUTELY NO WARRANTY; for details type `show_warranty'.
+Startpoint: _3654_ (rising edge-triggered flip-flop clocked by clk)
+Endpoint: _3586_ (rising edge-triggered flip-flop clocked by clk)
+Path Group: clk
+Path Type: max
+
+   Delay     Time   Description
+-----------------------------------------------------------
+   0.000    0.000   clock clk (rise edge)
+   0.000    0.000   clock network delay (ideal)
+   0.000    0.000 ^ _3654_/CLK (sky130_fd_sc_hd__dfxtp_1)
+   0.631    0.631 ^ _3654_/Q (sky130_fd_sc_hd__dfxtp_1)
+   0.127    0.758 v _1926_/Y (sky130_fd_sc_hd__inv_1)
+   0.203    0.961 v _1937_/X (sky130_fd_sc_hd__clkbuf_1)
+   0.257    1.218 ^ _3276_/Y (sky130_fd_sc_hd__nor2_1)
+   0.114    1.332 v _3277_/Y (sky130_fd_sc_hd__inv_1)
+   0.146    1.478 ^ _3278_/Y (sky130_fd_sc_hd__a21oi_1)
+   0.174    1.652 v _3279_/Y (sky130_fd_sc_hd__o21ai_0)
+   0.254    1.906 v _2251_/X (sky130_fd_sc_hd__a32o_1)
+   0.111    2.017 ^ _2253_/Y (sky130_fd_sc_hd__a21oi_1)
+   0.042    2.058 v _2254_/Y (sky130_fd_sc_hd__nor2_1)
+   0.258    2.316 ^ _2255_/Y (sky130_fd_sc_hd__a2111oi_0)
+   0.065    2.381 v _2256_/Y (sky130_fd_sc_hd__nor2_1)
+   0.135    2.516 ^ _2257_/Y (sky130_fd_sc_hd__a31oi_1)
+   0.076    2.592 v _2258_/Y (sky130_fd_sc_hd__o22ai_1)
+   0.076    2.668 ^ _2260_/Y (sky130_fd_sc_hd__nand3_1)
+   0.062    2.730 v _2423_/Y (sky130_fd_sc_hd__nand4_1)
+   0.000    2.730 v _3586_/D (sky130_fd_sc_hd__dfxtp_1)
+            2.730   data arrival time
+
+  20.000   20.000   clock clk (rise edge)
+   0.000   20.000   clock network delay (ideal)
+   0.000   20.000   clock reconvergence pessimism
+           20.000 ^ _3586_/CLK (sky130_fd_sc_hd__dfxtp_1)
+  -0.129   19.871   library setup time
+           19.871   data required time
+-----------------------------------------------------------
+           19.871   data required time
+           -2.730   data arrival time
+-----------------------------------------------------------
+           17.141   slack (MET)
+
+
+wns max 0.00
+tns max 0.00
+clk period_min = 2.86 fmax = 349.80

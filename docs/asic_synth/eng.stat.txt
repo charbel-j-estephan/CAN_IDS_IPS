@@ -1,0 +1,296 @@
+22.27. Printing statistics.
+
+=== rf_classifier ===
+
+        +----------Local Count, excluding submodules.
+        | 
+    52264 wires
+   100000 wire bits
+     2177 public wires
+    49872 public wire bits
+       44 ports
+      448 port bits
+    55968 cells
+     1830   $_ANDNOT_
+     4081   $_AND_
+     3812   $_DFF_P_
+    37217   $_MUX_
+     4151   $_NAND_
+      616   $_NOR_
+       13   $_NOT_
+     2194   $_ORNOT_
+     1433   $_OR_
+        1   $_SDFF_PN1_
+       18   $_SDFF_PP0_
+       82   $_SDFF_PP1_
+      259   $_XNOR_
+       67   $_XOR_
+       96   $paramod$5055a82cf283b479935c9ce14c4aa3f1ea4d0dc7\sdp_ram
+        1   $paramod$91b3cbfb9edea82c4583a2ef85f040942814eb15\sdp_ram
+       97   $scopeinfo
+
+22.28. Executing CHECK pass (checking for obvious problems).
+Checking module rf_classifier...
+Found and reported 0 problems.
+
+23. Executing DFFLIBMAP pass (mapping DFF/DLATCH cells to sequential cells from liberty file).
+  cell sky130_fd_sc_hd__dfxtp_1 (noninv, pins=3, area=20.02) is a direct match for cell type $_DFF_P_.
+  cell sky130_fd_sc_hd__dfrtn_1 (noninv, pins=4, area=25.02) is a direct match for cell type $_DFF_NN0_.
+  cell sky130_fd_sc_hd__dfrtp_1 (noninv, pins=4, area=25.02) is a direct match for cell type $_DFF_PN0_.
+  cell sky130_fd_sc_hd__dfstp_1 (noninv, pins=4, area=26.28) is a direct match for cell type $_DFF_PN1_.
+  cell sky130_fd_sc_hd__edfxtp_1 (noninv, pins=4, area=30.03) is a direct match for cell type $_DFFE_PP_.
+  cell sky130_fd_sc_hd__dfbbn_1 (noninv, pins=6, area=32.53) is a direct match for cell type $_DFFSR_NNN_.
+  cell sky130_fd_sc_hd__dfbbp_1 (noninv, pins=6, area=32.53) is a direct match for cell type $_DFFSR_PNN_.
+  cell sky130_fd_sc_hd__dlxtn_1 (noninv, pins=3, area=15.01) is a direct match for cell type $_DLATCH_N_.
+  cell sky130_fd_sc_hd__lpflow_inputisolatch_1 (noninv, pins=3, area=13.76) is a direct match for cell type $_DLATCH_P_.
+  cell sky130_fd_sc_hd__dlrtn_1 (noninv, pins=4, area=17.52) is a direct match for cell type $_DLATCH_NN0_.
+  cell sky130_fd_sc_hd__dlrtp_1 (noninv, pins=4, area=16.27) is a direct match for cell type $_DLATCH_PN0_.
+  final dff/dlatch cell mappings:
+    unmapped dff/dlatch cell: $_DFF_N_
+    \sky130_fd_sc_hd__dfxtp_1 _DFF_P_ (.CLK( C), .D( D), .Q( Q));
+    \sky130_fd_sc_hd__dfrtn_1 _DFF_NN0_ (.CLK_N( C), .D( D), .Q( Q), .RESET_B( R));
+    unmapped dff/dlatch cell: $_DFF_NN1_
+    unmapped dff/dlatch cell: $_DFF_NP0_
+    unmapped dff/dlatch cell: $_DFF_NP1_
+    \sky130_fd_sc_hd__dfrtp_1 _DFF_PN0_ (.CLK( C), .D( D), .Q( Q), .RESET_B( R));
+    \sky130_fd_sc_hd__dfstp_1 _DFF_PN1_ (.CLK( C), .D( D), .Q( Q), .SET_B( R));
+    unmapped dff/dlatch cell: $_DFF_PP0_
+    unmapped dff/dlatch cell: $_DFF_PP1_
+    unmapped dff/dlatch cell: $_DFFE_NN_
+    unmapped dff/dlatch cell: $_DFFE_NP_
+    unmapped dff/dlatch cell: $_DFFE_PN_
+    \sky130_fd_sc_hd__edfxtp_1 _DFFE_PP_ (.CLK( C), .D( D), .DE( E), .Q( Q));
+    \sky130_fd_sc_hd__dfbbn_1 _DFFSR_NNN_ (.CLK_N( C), .D( D), .Q( Q), .Q_N(~Q), .RESET_B( R), .SET_B( S));
+    unmapped dff/dlatch cell: $_DFFSR_NNP_
+    unmapped dff/dlatch cell: $_DFFSR_NPN_
+    unmapped dff/dlatch cell: $_DFFSR_NPP_
+    \sky130_fd_sc_hd__dfbbp_1 _DFFSR_PNN_ (.CLK( C), .D( D), .Q( Q), .Q_N(~Q), .RESET_B( R), .SET_B( S));
+    unmapped dff/dlatch cell: $_DFFSR_PNP_
+    unmapped dff/dlatch cell: $_DFFSR_PPN_
+    unmapped dff/dlatch cell: $_DFFSR_PPP_
+    \sky130_fd_sc_hd__dlxtn_1 _DLATCH_N_ (.D( D), .GATE_N( E), .Q( Q));
+    \sky130_fd_sc_hd__lpflow_inputisolatch_1 _DLATCH_P_ (.D( D), .Q( Q), .SLEEP_B( E));
+    \sky130_fd_sc_hd__dlrtn_1 _DLATCH_NN0_ (.D( D), .GATE_N( E), .Q( Q), .RESET_B( R));
+    unmapped dff/dlatch cell: $_DLATCH_NN1_
+    unmapped dff/dlatch cell: $_DLATCH_NP0_
+    unmapped dff/dlatch cell: $_DLATCH_NP1_
+    \sky130_fd_sc_hd__dlrtp_1 _DLATCH_PN0_ (.D( D), .GATE( E), .Q( Q), .RESET_B( R));
+    unmapped dff/dlatch cell: $_DLATCH_PN1_
+    unmapped dff/dlatch cell: $_DLATCH_PP0_
+    unmapped dff/dlatch cell: $_DLATCH_PP1_
+    unmapped dff/dlatch cell: $_DLATCHSR_NNN_
+    unmapped dff/dlatch cell: $_DLATCHSR_NNP_
+    unmapped dff/dlatch cell: $_DLATCHSR_NPN_
+    unmapped dff/dlatch cell: $_DLATCHSR_NPP_
+    unmapped dff/dlatch cell: $_DLATCHSR_PNN_
+    unmapped dff/dlatch cell: $_DLATCHSR_PNP_
+    unmapped dff/dlatch cell: $_DLATCHSR_PPN_
+    unmapped dff/dlatch cell: $_DLATCHSR_PPP_
+
+23.1. Executing DFFLEGALIZE pass (convert FFs and LATCHes to types supported by the target).
+<suppressed ~24 debug messages>
+Mapping DFF/DLATCH cells in module `\rf_classifier':
+  mapped 3913 $_DFF_P_ cells to \sky130_fd_sc_hd__dfxtp_1 cells.
+
+24. Executing ABC pass (technology mapping using ABC).
+
+24.1. Summary of detected clock domains:
+  56069 cells in clk={ }, en={ }, arst={ }, srst={ }
+
+24.2. Extracting gate netlist of module `\rf_classifier' to `<abc-temp-dir>/input.blif'..
+No matching clock domain found. Not extracting any FF cells.
+
+24.2.1. Executed ABC.
+Extracted 51962 gates and 59345 wires to a netlist network with 7381 inputs and 1672 outputs.
+Running ABC script: <abc-temp-dir>/abc.script
+
+24.2.2. Re-integrating ABC results.
+ABC RESULTS:   sky130_fd_sc_hd__a2111o_1 cells:       22
+ABC RESULTS:   sky130_fd_sc_hd__a2111oi_0 cells:       61
+ABC RESULTS:   sky130_fd_sc_hd__a211o_1 cells:       77
+ABC RESULTS:   sky130_fd_sc_hd__a211oi_1 cells:      660
+ABC RESULTS:   sky130_fd_sc_hd__a21bo_1 cells:        4
+ABC RESULTS:   sky130_fd_sc_hd__a21boi_0 cells:       27
+ABC RESULTS:   sky130_fd_sc_hd__a21o_1 cells:       79
+ABC RESULTS:   sky130_fd_sc_hd__a21oi_1 cells:     4077
+ABC RESULTS:   sky130_fd_sc_hd__a221o_1 cells:       35
+ABC RESULTS:   sky130_fd_sc_hd__a221oi_1 cells:      159
+ABC RESULTS:   sky130_fd_sc_hd__a222oi_1 cells:        9
+ABC RESULTS:   sky130_fd_sc_hd__a22o_1 cells:       24
+ABC RESULTS:   sky130_fd_sc_hd__a22oi_1 cells:      238
+ABC RESULTS:   sky130_fd_sc_hd__a2bb2oi_1 cells:       24
+ABC RESULTS:   sky130_fd_sc_hd__a311o_1 cells:       66
+ABC RESULTS:   sky130_fd_sc_hd__a311oi_1 cells:      108
+ABC RESULTS:   sky130_fd_sc_hd__a31o_1 cells:       17
+ABC RESULTS:   sky130_fd_sc_hd__a31oi_1 cells:      387
+ABC RESULTS:   sky130_fd_sc_hd__a32o_1 cells:        5
+ABC RESULTS:   sky130_fd_sc_hd__a32oi_1 cells:       27
+ABC RESULTS:   sky130_fd_sc_hd__a41o_1 cells:        2
+ABC RESULTS:   sky130_fd_sc_hd__a41oi_1 cells:       12
+ABC RESULTS:   sky130_fd_sc_hd__and2_0 cells:      138
+ABC RESULTS:   sky130_fd_sc_hd__and3_1 cells:       77
+ABC RESULTS:   sky130_fd_sc_hd__and3b_1 cells:        3
+ABC RESULTS:   sky130_fd_sc_hd__and4_1 cells:        9
+ABC RESULTS:   sky130_fd_sc_hd__and4b_1 cells:       12
+ABC RESULTS:   sky130_fd_sc_hd__clkinv_1 cells:     1339
+ABC RESULTS:   sky130_fd_sc_hd__lpflow_inputiso1p_1 cells:      149
+ABC RESULTS:   sky130_fd_sc_hd__lpflow_isobufsrc_1 cells:      310
+ABC RESULTS:   sky130_fd_sc_hd__maj3_1 cells:       56
+ABC RESULTS:   sky130_fd_sc_hd__mux2_1 cells:     1885
+ABC RESULTS:   sky130_fd_sc_hd__mux2i_1 cells:     3311
+ABC RESULTS:   sky130_fd_sc_hd__mux4_2 cells:     7445
+ABC RESULTS:   sky130_fd_sc_hd__nand2_1 cells:     4935
+ABC RESULTS:   sky130_fd_sc_hd__nand2b_1 cells:      286
+ABC RESULTS:   sky130_fd_sc_hd__nand3_1 cells:      432
+ABC RESULTS:   sky130_fd_sc_hd__nand3b_1 cells:       42
+ABC RESULTS:   sky130_fd_sc_hd__nand4_1 cells:       70
+ABC RESULTS:   sky130_fd_sc_hd__nand4b_1 cells:       25
+ABC RESULTS:   sky130_fd_sc_hd__nand4bb_1 cells:        1
+ABC RESULTS:   sky130_fd_sc_hd__nor2_1 cells:     4460
+ABC RESULTS:   sky130_fd_sc_hd__nor2b_1 cells:       22
+ABC RESULTS:   sky130_fd_sc_hd__nor3_1 cells:      306
+ABC RESULTS:   sky130_fd_sc_hd__nor3b_1 cells:       50
+ABC RESULTS:   sky130_fd_sc_hd__nor4_1 cells:       93
+ABC RESULTS:   sky130_fd_sc_hd__nor4b_1 cells:       19
+ABC RESULTS:   sky130_fd_sc_hd__nor4bb_1 cells:        5
+ABC RESULTS:   sky130_fd_sc_hd__o2111a_1 cells:        4
+ABC RESULTS:   sky130_fd_sc_hd__o2111ai_1 cells:       54
+ABC RESULTS:   sky130_fd_sc_hd__o211a_1 cells:        8
+ABC RESULTS:   sky130_fd_sc_hd__o211ai_1 cells:     1050
+ABC RESULTS:   sky130_fd_sc_hd__o21a_1 cells:       20
+ABC RESULTS:   sky130_fd_sc_hd__o21ai_0 cells:     4679
+ABC RESULTS:   sky130_fd_sc_hd__o21ba_1 cells:        1
+ABC RESULTS:   sky130_fd_sc_hd__o21bai_1 cells:       14
+ABC RESULTS:   sky130_fd_sc_hd__o221a_1 cells:        5
+ABC RESULTS:   sky130_fd_sc_hd__o221ai_1 cells:      102
+ABC RESULTS:   sky130_fd_sc_hd__o22a_1 cells:       83
+ABC RESULTS:   sky130_fd_sc_hd__o22ai_1 cells:      585
+ABC RESULTS:   sky130_fd_sc_hd__o2bb2ai_1 cells:       30
+ABC RESULTS:   sky130_fd_sc_hd__o311a_1 cells:        7
+ABC RESULTS:   sky130_fd_sc_hd__o311ai_0 cells:       72
+ABC RESULTS:   sky130_fd_sc_hd__o31a_1 cells:       15
+ABC RESULTS:   sky130_fd_sc_hd__o31ai_1 cells:       62
+ABC RESULTS:   sky130_fd_sc_hd__o32a_1 cells:        4
+ABC RESULTS:   sky130_fd_sc_hd__o32ai_1 cells:       31
+ABC RESULTS:   sky130_fd_sc_hd__o41ai_1 cells:        5
+ABC RESULTS:   sky130_fd_sc_hd__or3_1 cells:       72
+ABC RESULTS:   sky130_fd_sc_hd__or3b_1 cells:        4
+ABC RESULTS:   sky130_fd_sc_hd__or4_1 cells:       14
+ABC RESULTS:   sky130_fd_sc_hd__or4b_1 cells:       11
+ABC RESULTS:   sky130_fd_sc_hd__xnor2_1 cells:      125
+ABC RESULTS:   sky130_fd_sc_hd__xor2_1 cells:       81
+ABC RESULTS:        internal signals:    50292
+ABC RESULTS:           input signals:     7381
+ABC RESULTS:          output signals:     1672
+Removing temp directory.
+Removing global temp directory.
+
+25. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \rf_classifier..
+Removed 0 unused cells and 59301 unused wires.
+<suppressed ~164 debug messages>
+
+26. Printing statistics.
+
+=== rf_classifier ===
+
+        +----------Local Count, excluding submodules.
+        |        +-Local Area, excluding submodules.
+        |        | 
+    39183        - wires
+    86349        - wire bits
+     2014        - public wires
+    49145        - public wire bits
+       44        - ports
+      448        - port bits
+    42845 4.32E+05 cells
+       96        -   $paramod$5055a82cf283b479935c9ce14c4aa3f1ea4d0dc7\sdp_ram
+        1        -   $paramod$91b3cbfb9edea82c4583a2ef85f040942814eb15\sdp_ram
+       97        -   $scopeinfo
+       22  247.738   sky130_fd_sc_hd__a2111o_1
+       61  534.262   sky130_fd_sc_hd__a2111oi_0
+       77  674.397   sky130_fd_sc_hd__a211o_1
+      660 4.95E+03   sky130_fd_sc_hd__a211oi_1
+        4   40.038   sky130_fd_sc_hd__a21bo_1
+       27  202.694   sky130_fd_sc_hd__a21boi_0
+       79  593.069   sky130_fd_sc_hd__a21o_1
+     4077 2.04E+04   sky130_fd_sc_hd__a21oi_1
+       35  350.336   sky130_fd_sc_hd__a221o_1
+      159 1.39E+03   sky130_fd_sc_hd__a221oi_1
+        9   90.086   sky130_fd_sc_hd__a222oi_1
+       24  210.202   sky130_fd_sc_hd__a22o_1
+      238 1.79E+03   sky130_fd_sc_hd__a22oi_1
+       24  210.202   sky130_fd_sc_hd__a2bb2oi_1
+       66  660.634   sky130_fd_sc_hd__a311o_1
+      108  945.907   sky130_fd_sc_hd__a311oi_1
+       17  148.893   sky130_fd_sc_hd__a31o_1
+      387 2.42E+03   sky130_fd_sc_hd__a31oi_1
+        5   50.048   sky130_fd_sc_hd__a32o_1
+       27  236.477   sky130_fd_sc_hd__a32oi_1
+        2   20.019   sky130_fd_sc_hd__a41o_1
+       12  105.101   sky130_fd_sc_hd__a41oi_1
+      138  863.328   sky130_fd_sc_hd__and2_0
+       77  481.712   sky130_fd_sc_hd__and3_1
+        3   26.275   sky130_fd_sc_hd__and3b_1
+        9   78.826   sky130_fd_sc_hd__and4_1
+       12  120.115   sky130_fd_sc_hd__and4b_1
+     1339  5026.07   sky130_fd_sc_hd__clkinv_1
+     3913 7.83E+04   sky130_fd_sc_hd__dfxtp_1
+      149  932.144   sky130_fd_sc_hd__lpflow_inputiso1p_1
+      310  1939.36   sky130_fd_sc_hd__lpflow_isobufsrc_1
+       56  560.538   sky130_fd_sc_hd__maj3_1
+     1885 2.12E+04   sky130_fd_sc_hd__mux2_1
+     3311 3.31E+04   sky130_fd_sc_hd__mux2i_1
+     7445 1.68E+05   sky130_fd_sc_hd__mux4_2
+     4935 1.85E+04   sky130_fd_sc_hd__nand2_1
+      286 1.79E+03   sky130_fd_sc_hd__nand2b_1
+      432 2.16E+03   sky130_fd_sc_hd__nand3_1
+       42  315.302   sky130_fd_sc_hd__nand3b_1
+       70   437.92   sky130_fd_sc_hd__nand4_1
+       25   218.96   sky130_fd_sc_hd__nand4b_1
+        1   11.261   sky130_fd_sc_hd__nand4bb_1
+     4460 1.67E+04   sky130_fd_sc_hd__nor2_1
+       22  137.632   sky130_fd_sc_hd__nor2b_1
+      306 1.53E+03   sky130_fd_sc_hd__nor3_1
+       50   375.36   sky130_fd_sc_hd__nor3b_1
+       93  581.808   sky130_fd_sc_hd__nor4_1
+       19   166.41   sky130_fd_sc_hd__nor4b_1
+        5   50.048   sky130_fd_sc_hd__nor4bb_1
+        4   45.043   sky130_fd_sc_hd__o2111a_1
+       54  472.954   sky130_fd_sc_hd__o2111ai_1
+        8   80.077   sky130_fd_sc_hd__o211a_1
+     1050  7882.56   sky130_fd_sc_hd__o211ai_1
+       20  150.144   sky130_fd_sc_hd__o21a_1
+     4679 2.34E+04   sky130_fd_sc_hd__o21ai_0
+        1    10.01   sky130_fd_sc_hd__o21ba_1
+       14  105.101   sky130_fd_sc_hd__o21bai_1
+        5   56.304   sky130_fd_sc_hd__o221a_1
+      102  893.357   sky130_fd_sc_hd__o221ai_1
+       83  726.947   sky130_fd_sc_hd__o22a_1
+      585  3659.76   sky130_fd_sc_hd__o22ai_1
+       30  262.752   sky130_fd_sc_hd__o2bb2ai_1
+        7   70.067   sky130_fd_sc_hd__o311a_1
+       72  630.605   sky130_fd_sc_hd__o311ai_0
+       15  131.376   sky130_fd_sc_hd__o31a_1
+       62  465.446   sky130_fd_sc_hd__o31ai_1
+        4   40.038   sky130_fd_sc_hd__o32a_1
+       31   271.51   sky130_fd_sc_hd__o32ai_1
+        5   43.792   sky130_fd_sc_hd__o41ai_1
+       72  450.432   sky130_fd_sc_hd__or3_1
+        4   35.034   sky130_fd_sc_hd__or3b_1
+       14  105.101   sky130_fd_sc_hd__or4_1
+       11  110.106   sky130_fd_sc_hd__or4b_1
+      125   1094.8   sky130_fd_sc_hd__xnor2_1
+       81   709.43   sky130_fd_sc_hd__xor2_1
+
+   Area for cell type $paramod$5055a82cf283b479935c9ce14c4aa3f1ea4d0dc7\sdp_ram is unknown!
+   Area for cell type $paramod$91b3cbfb9edea82c4583a2ef85f040942814eb15\sdp_ram is unknown!
+   Area for cell type $scopeinfo is unknown!
+
+   Chip area for module '\rf_classifier': 431647.734400
+     of which used for sequential elements: 78335.129600 (18.15%)
+
+Warnings: 10 unique messages, 16 total
+End of script. Logfile hash: 0d922d3529, time: 45.32s, user: 45.32s, system: 0.00s
+Yosys 0.71 (git sha1 b4c586fd3, Release, Clang /workspace/YoWASP/yosys/wasi-sdk-33.0-x86_64-linux/share/cmake/../..//bin/clang++ 22.1.0)
+Time spent: 62% 2x abc (28 sec), 10% 38x opt_expr (4 sec), ...

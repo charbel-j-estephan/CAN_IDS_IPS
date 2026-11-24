@@ -6,6 +6,8 @@ rem   fpga_tests.bat check      boards, cable, Quartus and the design file
 rem   fpga_tests.bat t1         quick check, DoS 5,000 frames          SW0 up, SW2 down
 rem   fpga_tests.bat t2         held out mixed, 40,000, majority vote  SW0 up, SW2 down
 rem   fpga_tests.bat t3         held out mixed, 40,000, strict vote    SW0 up, SW2 UP
+rem   fpga_tests.bat t2s2       as t2 with seed 2                      SW0 up, SW2 down
+rem   fpga_tests.bat t3s2       as t3 with seed 2                      SW0 up, SW2 UP
 rem   fpga_tests.bat t4         false flag test (no attacker frames)   SW0 up, SW2 as the guide says
 rem   fpga_tests.bat t5         lost frames, STM32 records too         SW0 up, SW2 down
 rem   fpga_tests.bat t6         live update to the 6 byte model        SW1 UP
@@ -26,7 +28,7 @@ set UPY=py -3.13
 set "STEP=%~1"
 if "%STEP%"=="" goto :usage
 
-for %%s in (check t1 t2 t3 t4 t5 t6 counters) do if /i "%STEP%"=="%%s" goto :%%s
+for %%s in (check t1 t2 t3 t2s2 t3s2 t4 t5 t6 counters) do if /i "%STEP%"=="%%s" goto :%%s
 goto :usage
 
 :check
@@ -44,6 +46,14 @@ goto :end
 
 :t3
 %PY% python\run_check.py --file mixed --n 40000 --seed 1 --recover --skip-check
+goto :end
+
+:t2s2
+%PY% python\run_check.py --file mixed --n 40000 --seed 2 --recover
+goto :end
+
+:t3s2
+%PY% python\run_check.py --file mixed --n 40000 --seed 2 --recover --skip-check
 goto :end
 
 :t4
@@ -107,7 +117,7 @@ if /i "%STEP%"=="counters" (
 )
 
 :usage
-echo Usage: fpga_tests.bat check ^| t1 ^| t2 ^| t3 ^| t4 ^| t5 ^| t6 ^| counters
+echo Usage: fpga_tests.bat check ^| t1 ^| t2 ^| t3 ^| t2s2 ^| t3s2 ^| t4 ^| t5 ^| t6 ^| counters
 echo See docs\FPGA_TEST_GUIDE.html
 
 :end
