@@ -66,3 +66,4 @@ docs/*draft*.pdf
 # Power analysis: simulation dumps are too big for GitHub, backups are temporary
 docs/power/*.vcd
 *.powbak
+docs/power/*.pow.rpt
